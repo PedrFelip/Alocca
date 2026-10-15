@@ -2,27 +2,16 @@
   "version": "8",
   "dialect": "postgres",
   "id": "d610cb70-1a53-4202-8770-15395b6a4782",
-  "prevIds": [
-    "00000000-0000-0000-0000-000000000000"
-  ],
+  "prevIds": ["00000000-0000-0000-0000-000000000000"],
   "ddl": [
     {
-      "values": [
-        "ativo",
-        "inativo",
-        "bloqueado"
-      ],
+      "values": ["ativo", "inativo", "bloqueado"],
       "name": "status_usuario",
       "entityType": "enums",
       "schema": "public"
     },
     {
-      "values": [
-        "admin",
-        "instituicao",
-        "gestor",
-        "medico"
-      ],
+      "values": ["admin", "instituicao", "gestor", "medico"],
       "name": "tipo_usuario",
       "entityType": "enums",
       "schema": "public"
@@ -177,9 +166,7 @@
       "table": "usuarios"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "nameExplicit": false,
       "name": "usuarios_pkey",
       "schema": "public",
@@ -188,9 +175,7 @@
     },
     {
       "nameExplicit": false,
-      "columns": [
-        "email"
-      ],
+      "columns": ["email"],
       "nullsNotDistinct": false,
       "name": "usuarios_email_key",
       "schema": "public",
