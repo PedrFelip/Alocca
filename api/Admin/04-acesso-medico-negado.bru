@@ -1,0 +1,21 @@
+meta {
+  name: Medico nao pode listar pendentes
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/admin/medicos/pendentes
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{medicoToken}}
+}
+
+tests {
+  test("HTTP 403", function () {
+    expect(res.getStatus()).to.equal(403);
+  });
+}

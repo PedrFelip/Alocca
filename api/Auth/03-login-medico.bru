@@ -1,0 +1,42 @@
+meta {
+  name: Login medico
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "email": "{{medicoEmail}}",
+    "senha": "{{medicoSenha}}"
+  }
+}
+
+script:pre-request {
+  bru.setVar("medicoToken", "");
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    bru.setVar("medicoToken", res.getBody().access_token);
+  }
+}
+
+tests {
+  test("HTTP 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("Papel correto e token", function () {
+    expect(res.getBody().usuario.tipo).to.equal("MEDICO");
+    expect(res.getBody().access_token).to.be.a("string").and.not.empty;
+  });
+}

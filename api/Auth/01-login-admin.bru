@@ -1,0 +1,42 @@
+meta {
+  name: Login admin
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "email": "{{adminEmail}}",
+    "senha": "{{adminSenha}}"
+  }
+}
+
+script:pre-request {
+  bru.setVar("adminToken", "");
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    bru.setVar("adminToken", res.getBody().access_token);
+  }
+}
+
+tests {
+  test("HTTP 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("Papel correto e token", function () {
+    expect(res.getBody().usuario.tipo).to.equal("ADMIN");
+    expect(res.getBody().access_token).to.be.a("string").and.not.empty;
+  });
+}

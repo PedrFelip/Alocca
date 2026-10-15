@@ -1,0 +1,21 @@
+meta {
+  name: Perfil admin
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/usuarios/me
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+tests {
+  test("HTTP 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

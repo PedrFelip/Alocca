@@ -1,0 +1,41 @@
+meta {
+  name: Listar pendentes e selecionar medico de teste
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/admin/medicos/pendentes
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+script:post-response {
+  bru.setVar("medicoId", "");
+  bru.setVar("nomeConferido", "");
+  bru.setVar("crmConferido", "");
+  bru.setVar("ufConferida", "");
+  if (res.getStatus() === 200) {
+    const email = bru.getEnvVar("medicoEmail").trim().toLowerCase();
+    const medico = res.getBody().find((item) => item.email === email);
+    if (medico) {
+      bru.setVar("medicoId", medico.medico_id);
+      bru.setVar("nomeConferido", medico.nome);
+      bru.setVar("crmConferido", medico.crm);
+      bru.setVar("ufConferida", medico.uf_crm);
+    }
+  }
+}
+
+tests {
+  test("HTTP 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("Lista de pendentes", function () {
+    expect(res.getBody()).to.be.an("array");
+  });
+}

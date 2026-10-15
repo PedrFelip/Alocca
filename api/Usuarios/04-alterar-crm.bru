@@ -1,0 +1,35 @@
+meta {
+  name: Alterar CRM e voltar a pendente
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/usuarios/me
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{medicoToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "crm": "{{novoCrm}}",
+    "uf_crm": "{{medicoUf}}"
+  }
+}
+
+tests {
+  test("HTTP 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("Voltou para pendente", function () {
+    expect(res.getBody().medico.status_validacao).to.equal("PENDENTE");
+  });
+}

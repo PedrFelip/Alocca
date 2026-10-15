@@ -1,0 +1,45 @@
+meta {
+  name: Cadastrar medico
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/auth/register/medico
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "nome": "{{medicoNome}}",
+    "email": "{{medicoEmail}}",
+    "senha": "{{medicoSenha}}",
+    "crm": "{{medicoCrm}}",
+    "uf_crm": "{{medicoUf}}",
+    "especialidade": "Clínica médica"
+  }
+}
+
+script:post-response {
+  if (res.getStatus() === 201) {
+    const medico = res.getBody().medico;
+    bru.setVar("medicoId", medico.id);
+    bru.setVar("crmConferido", medico.crm);
+    bru.setVar("ufConferida", medico.uf_crm);
+  }
+}
+
+tests {
+  test("HTTP 201", function () {
+    expect(res.getStatus()).to.equal(201);
+  });
+  test("Cadastro pendente sem hash", function () {
+    expect(res.getBody().medico.status_validacao).to.equal("PENDENTE");
+    expect(res.getBody()).not.to.have.property("senha_hash");
+  });
+}

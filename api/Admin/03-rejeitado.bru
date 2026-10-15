@@ -1,0 +1,44 @@
+meta {
+  name: Rejeitar medico selecionado
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/admin/medicos/{{medicoId}}/validacao
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{adminToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "nome": "{{nomeConferido}}",
+    "crm": "{{crmConferido}}",
+    "uf_crm": "{{ufConferida}}",
+    "status_validacao": "REJEITADO",
+    "motivo_rejeicao": "Dados divergentes na conferência manual de teste."
+  }
+}
+
+script:pre-request {
+  if (!bru.getVar("medicoId") || !bru.getVar("nomeConferido") || !bru.getVar("crmConferido") || !bru.getVar("ufConferida")) {
+    throw new Error("Execute a lista de pendentes e confira o medico de teste antes de analisar.");
+  }
+}
+
+tests {
+  test("HTTP 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("Decisao registrada", function () {
+    expect(res.getBody().status_validacao).to.equal("REJEITADO");
+  });
+}

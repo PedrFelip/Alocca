@@ -1,0 +1,33 @@
+meta {
+  name: Atualizar perfil medico
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/usuarios/me
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{medicoToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "nome": "{{medicoNome}}",
+    "telefone": "11999990000",
+    "especialidade": "Cardiologia"
+  }
+}
+
+tests {
+  test("HTTP 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
