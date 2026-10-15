@@ -8,6 +8,10 @@ import request from 'supertest'
 import { AppModule } from '../src/app.module.js'
 import { DRIZZLE_DB } from '../src/db/db.provider.js'
 import type { Database } from '../src/db/db.provider.js'
+import { ConfigService } from '@nestjs/config'
+import type { Env } from '../src/config/env.js'
+import { AdminBootstrapService } from '../src/auth/admin-bootstrap.service.js'
+import { PasswordService } from '../src/auth/password.service.js'
 
 const cadastro = {
   nome: 'Dra. Maria',
@@ -219,4 +223,39 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
     expect(status).toBe(429)
   })
 
+  it('cria admin inicial sem duplicar, redefinir senha ou promover outra conta', async () => {
+    const config = new ConfigService<Env, true>({
+      ADMIN_EMAIL: 'bootstrap@example.com',
+      ADMIN_PASSWORD: 'admin-inicial-123',
+    })
+    const bootstrap = new AdminBootstrapService(
+      app.get<Database>(DRIZZLE_DB),
+      config,
+      app.get(PasswordService),
+    )
+    await bootstrap.onModuleInit()
+    const result = await database.query<{ tipo: string; senha_hash: string }>(
+      "SELECT tipo, senha_hash FROM usuarios WHERE email = 'bootstrap@example.com'",
+    )
+    expect(result.rows[0].tipo).toBe('ADMIN')
+    expect(
+      await app
+        .get(PasswordService)
+        .verify('admin-inicial-123', result.rows[0].senha_hash),
+    ).toBe(true)
+    config.set('ADMIN_PASSWORD', 'nova-senha-123')
+    await bootstrap.onModuleInit()
+    const unchanged = await database.query<{ senha_hash: string }>(
+      "SELECT senha_hash FROM usuarios WHERE email = 'bootstrap@example.com'",
+    )
+    expect(unchanged.rows).toEqual([{ senha_hash: result.rows[0].senha_hash }])
+    await database.exec(
+      "UPDATE usuarios SET tipo = 'MEDICO', status = 'BLOQUEADO' WHERE email = 'bootstrap@example.com'",
+    )
+    await bootstrap.onModuleInit()
+    const preserved = await database.query<{ tipo: string; status: string }>(
+      "SELECT tipo, status FROM usuarios WHERE email = 'bootstrap@example.com'",
+    )
+    expect(preserved.rows).toEqual([{ tipo: 'MEDICO', status: 'BLOQUEADO' }])
+  })
 })

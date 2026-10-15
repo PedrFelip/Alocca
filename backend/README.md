@@ -1,114 +1,174 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Alocca — backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API NestJS com PostgreSQL, Drizzle e validação Zod.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Configuração
 
-## Description
-
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ bun install
+```sh
+bun install
+cp .env.example .env
+openssl rand -hex 32
 ```
 
-## Compile and run the project
+Configure `DATABASE_URL` e coloque o segredo gerado em `JWT_SECRET`.
+O backend cria um administrador inicial ao iniciar, usando `ADMIN_EMAIL` e
+`ADMIN_PASSWORD`. O exemplo local usa `admin@alocca.local` / `AloccaAdmin@2026`.
+Use uma senha própria em produção. Remova ambas as variáveis para desabilitar
+a criação automática. Aplique as migrações antes de iniciar o backend.
+Uma conta existente com o mesmo e-mail nunca é promovida, reativada ou tem a
+senha substituída. Reiniciar não duplica o admin; mudar o `.env` não redefine
+a senha de uma conta que já existe.
+`JWT_EXPIRES` define a duração do access token (padrão: 900 segundos).
+`ADMIN_WEB_ORIGIN` define a origem permitida pelo CORS para o painel Svelte
+(padrão: `http://localhost:5173`). Configure a origem exata do painel em produção.
 
-```bash
-# development
-$ bun run start
+Na raiz do projeto, inicie o banco local com `docker compose up -d --wait db`.
+A conexão padrão do `.env.example` corresponde ao serviço do Compose.
 
-# watch mode
-$ bun run start:dev
+Dentro de `backend`:
 
-# production mode
-$ bun run start:prod
+```sh
+bun run migrate
+bun run dev
 ```
 
-## Run tests
+A migração reutiliza a tabela `usuarios`, converte os enums para os valores do MER
+(`MEDICO`, `GESTOR`, `ADMIN`; `ATIVO`, `INATIVO`, `BLOQUEADO`) e normaliza e-mails.
+Ela interrompe se houver usuários do antigo tipo `instituicao`, tipo/status nulos,
+nomes maiores que 150 caracteres ou e-mails que conflitem após normalização.
+Esses registros precisam ser revisados antes de aplicar a migração.
 
-```bash
-# unit tests
-$ bun run test
+## Schemas do banco
 
-# e2e tests
-$ bun run test:e2e
+As definições Drizzle ficam em `src/db/schemas`, com um arquivo por tabela:
 
-# test coverage
-$ bun run test:cov
+- `usuarios.ts`: tabela de usuários e seus enums.
+- `medicos.ts`: perfil médico, CRM/UF único e situação da validação.
+- `tokens-recuperacao-senha.ts`: tokens vinculados ao usuário.
+- `index.ts`: exporta os schemas e serve de entrada para o Drizzle Kit.
+
+As referências entre tabelas importam o arquivo da tabela diretamente.
+Os módulos da aplicação usam `src/db/schemas/index.ts`. Os schemas Zod de
+entrada HTTP permanecem nos módulos de auth e usuários.
+
+## Autenticação e usuários
+
+- `POST /auth/register/medico`: cria usuário `MEDICO`/`ATIVO` e perfil médico na
+  mesma transação. E-mail e CRM/UF são únicos, inclusive para registros excluídos.
+- `POST /auth/login`: retorna `access_token`, `token_type`, `expires_in` e o perfil;
+  atualiza `ultimo_login_at`.
+- `GET /usuarios/me`: consulta o perfil do usuário autenticado.
+- `PATCH /usuarios/me`: atualiza `nome`, `telefone`, `especialidade`, `crm` e/ou `uf_crm`.
+
+Exemplo de cadastro:
+
+```json
+{
+  "nome": "Dra. Maria Silva",
+  "email": "maria@example.com",
+  "senha": "senha-segura-123",
+  "telefone": "11999999999",
+  "crm": "123456",
+  "uf_crm": "SP",
+  "especialidade": "Cardiologia"
+}
 ```
 
-## Deployment
+No login, envie apenas `email` e `senha`. Nas rotas protegidas, use o header
+`Authorization: Bearer <access_token>`. Senhas usam scrypt com salt aleatório;
+`senha_hash` não é retornado. Contas inativas, bloqueadas ou excluídas não podem
+entrar nem usar tokens já emitidos. Os endpoints de auth permitem até 10
+requisições por minuto por IP por endpoint (contador em memória do processo).
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+O cadastro público não aceita `tipo`, `status` ou IDs de terceiros. Gestores e
+administradores já existentes podem autenticar; a criação desses perfis fica
+para seus respectivos fluxos. O schema `tokens_recuperacao_senha` está preparado
+para guardar **hashes** de tokens de uso único, mas os endpoints de recuperação
+e o envio de e-mail ainda não estão implementados. Não há refresh token ou
+logout no servidor; o access token expira no prazo configurado.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Verificação
 
-```bash
-$ bun install -g @nestjs/mau
-$ mau deploy
+Para restringir uma rota por papel, importe `SecurityModule` no módulo e aplique
+`@UseGuards(AuthGuard, PermissoesGuard)` junto de `@Permissoes('ADMIN')` ou
+`@Permissoes('MEDICO', 'GESTOR')`. O decorator pode ser aplicado ao controller
+ou ao método; a configuração do método substitui a do controller.
+Sem decorator, o guard permite qualquer usuário autenticado. Sem autenticação,
+retorna `401`; um papel não permitido retorna `403`. O papel é consultado no
+banco pelo `AuthGuard` em cada requisição.
+
+```sh
+bun run build
+bun run lint
+bun run test
+bun run test:e2e
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Os testes e2e usam PostgreSQL embarcado via PGlite e banco isolado em memória,
+executam as migrações reais e verificam cadastro, conflitos/rollback, login,
+expiração, bloqueio, edição do perfil, limitação de tentativas e validação de médicos.
 
-## Observability
+## Validação manual de médicos
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+O cadastro cria médicos com `status_validacao = PENDENTE`. A conta pode fazer
+login e consultar/corrigir seu perfil enquanto aguarda análise. A validação
+profissional é independente do status da conta (`ATIVO`, `INATIVO`, `BLOQUEADO`).
+O administrador confere a identidade do solicitante, o nome, CRM e UF e a
+situação da inscrição na [pesquisa oficial do CFM](https://portal.cfm.org.br/busca-medicos).
+A consulta e a decisão são manuais; o backend não consulta uma API do CFM.
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+Rotas de administração, com `Authorization: Bearer <token-de-ADMIN>`:
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+- `GET /admin/medicos/pendentes`: lista os perfis aguardando análise.
+- `PATCH /admin/medicos/:medicoId/validacao`: aprova ou rejeita um perfil pendente.
 
-## Resources
+Exemplo de aprovação:
 
-Check out a few resources that may come in handy when working with NestJS:
+```json
+{
+  "nome": "Maria Silva",
+  "crm": "123456",
+  "uf_crm": "SP",
+  "status_validacao": "APROVADO"
+}
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Exemplo de rejeição:
 
-## Support
+```json
+{
+  "nome": "Maria Silva",
+  "crm": "123456",
+  "uf_crm": "SP",
+  "status_validacao": "REJEITADO",
+  "motivo_rejeicao": "Nome do solicitante diverge do registro consultado"
+}
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+Envie o nome e o CRM/UF que foram conferidos. Se o médico alterar esses dados antes da decisão,
+a rota retorna `409` e exige nova conferência. A resposta inclui o perfil médico,
+a situação, o responsável (`validado_por_usuario_id`) e a data (`validado_at`).
+A rejeição exige um motivo, retornado também no próprio perfil do médico.
+Uma decisão sobre um perfil já analisado retorna `409`. Apenas ADMIN pode listar
+ou decidir; o administrador não pode analisar o próprio perfil.
 
-## Stay in touch
+Uma mudança efetiva de CRM ou UF em `PATCH /usuarios/me` volta o perfil para
+`PENDENTE` e limpa os dados da análise anterior. Reenviar os mesmos valores ou
+editar telefone/especialidade mantém a situação. CRM/UF duplicado retorna `409`
+e desfaz toda a edição. A especialidade permanece declarada pelo médico; a
+aprovação do registro não comprova o RQE.
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+Aplique a migração com `bun run migrate` antes de iniciar o backend atualizado.
+A migração também coloca os médicos existentes em `PENDENTE`, sem aprová-los
+automaticamente, e mantém a definição única de `usuarios`.
 
-## License
+Para conceder o papel ADMIN a uma conta de confiança já cadastrada, conecte-se
+ao banco como administrador e execute:
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+```sql
+UPDATE usuarios SET tipo = 'ADMIN' WHERE email = 'email-da-conta@example.com';
+```
+
+A validação representa a conferência feita naquela data. Ainda não há módulos
+de candidatura ou alocação; quando forem implementados, deverão exigir médico
+com validação `APROVADO` para participar dos plantões.

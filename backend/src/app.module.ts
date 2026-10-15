@@ -6,6 +6,7 @@ import { ConfigModule } from '@nestjs/config'
 
 import { validateEnv } from './config/env.js'
 import { DatabaseModule } from './db/db.module.js'
+import { HealthModule } from './health/health.module.js'
 import { MedicosModule } from './medicos/medicos.module.js'
 
 @Module({
@@ -18,6 +19,7 @@ import { MedicosModule } from './medicos/medicos.module.js'
     }),
     DatabaseModule,
     AuthModule,
+    HealthModule,
     MedicosModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
   ],
