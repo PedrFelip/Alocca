@@ -6,6 +6,7 @@ import { ConfigModule } from '@nestjs/config'
 
 import { validateEnv } from './config/env.js'
 import { DatabaseModule } from './db/db.module.js'
+import { MedicosModule } from './medicos/medicos.module.js'
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { DatabaseModule } from './db/db.module.js'
     }),
     DatabaseModule,
     AuthModule,
+    MedicosModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
