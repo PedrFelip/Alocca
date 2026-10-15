@@ -1,21 +1,24 @@
 import { Module } from '@nestjs/common'
+import { APP_GUARD } from '@nestjs/core'
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
+import { AuthModule } from './auth/auth.module.js'
 import { ConfigModule } from '@nestjs/config'
 
-import { AppController } from './app.controller.js'
-import { AppService } from './app.service.js'
 import { validateEnv } from './config/env.js'
 import { DatabaseModule } from './db/db.module.js'
 
 @Module({
   imports: [
     ConfigModule.forRoot({
+      ignoreEnvFile: process.env.NODE_ENV === 'test',
       cache: true,
       isGlobal: true,
       validate: validateEnv,
     }),
     DatabaseModule,
+    AuthModule,
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

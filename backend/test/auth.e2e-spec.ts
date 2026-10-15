@@ -1,0 +1,222 @@
+import { PGlite } from '@electric-sql/pglite'
+import { type INestApplication } from '@nestjs/common'
+import { Test } from '@nestjs/testing'
+import { JwtService } from '@nestjs/jwt'
+import { drizzle } from 'drizzle-orm/pglite'
+import { readFile } from 'node:fs/promises'
+import request from 'supertest'
+import { AppModule } from '../src/app.module.js'
+import { DRIZZLE_DB } from '../src/db/db.provider.js'
+import type { Database } from '../src/db/db.provider.js'
+
+const cadastro = {
+  nome: 'Dra. Maria',
+  email: 'Maria@Example.com',
+  senha: 'senha-segura-123',
+  crm: '123456',
+  uf_crm: 'sp',
+  especialidade: 'Clínica médica',
+}
+
+describe('Autenticação e usuários (PostgreSQL)', () => {
+  let app: INestApplication
+  let database: PGlite
+
+  beforeAll(async () => {
+    database = new PGlite()
+    await database.exec(
+      await readFile(
+        'drizzle/20260917114458_peaceful_frog_thor/migration.sql',
+        'utf8',
+      ),
+    )
+    await database.exec(
+      "INSERT INTO usuarios (nome, email, senha_hash, tipo) VALUES ('Legado', 'Legado@Example.com', 'hash', 'admin')",
+    )
+    await database.exec(
+      await readFile(
+        'drizzle/20261009191003_classy_paper_doll/migration.sql',
+        'utf8',
+      ),
+    )
+    await database.exec(
+      await readFile(
+        'drizzle/20261009213113_amused_nextwave/migration.sql',
+        'utf8',
+      ),
+    )
+    const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(DRIZZLE_DB)
+      .useValue(drizzle({ client: database }))
+      .compile()
+    app = module.createNestApplication()
+    await app.init()
+  }, 30000)
+
+  afterAll(async () => {
+    await app?.close()
+    await database?.close()
+  })
+
+  it('migra o usuário existente sem recriar a tabela', async () => {
+    const result = await database.query<{
+      tipo: string
+      status: string
+      email: string
+    }>('SELECT tipo, status, email FROM usuarios')
+    expect(result.rows[0]).toEqual({
+      tipo: 'ADMIN',
+      status: 'ATIVO',
+      email: 'legado@example.com',
+    })
+  })
+
+  it('rejeita campos inválidos e tentativa de escolher cargo', async () => {
+    await request(app.getHttpServer())
+      .post('/auth/register/medico')
+      .send({ ...cadastro, tipo: 'ADMIN' })
+      .expect(400)
+    await request(app.getHttpServer())
+      .post('/auth/register/medico')
+      .send({ ...cadastro, uf_crm: 'XX' })
+      .expect(400)
+  })
+
+  it('cadastra médico e usuário, normaliza dados e protege o hash', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/auth/register/medico')
+      .send(cadastro)
+      .expect(201)
+    expect(response.body).toMatchObject({
+      tipo: 'MEDICO',
+      status: 'ATIVO',
+      email: 'maria@example.com',
+      medico: { crm: '123456', uf_crm: 'SP' },
+    })
+    expect(response.body).not.toHaveProperty('senha_hash')
+    const result = await database.query<{ senha_hash: string }>(
+      "SELECT senha_hash FROM usuarios WHERE email = 'maria@example.com'",
+    )
+    expect(result.rows[0].senha_hash).toMatch(/^scrypt:/)
+    expect(result.rows[0].senha_hash).not.toContain(cadastro.senha)
+  })
+
+  it('rejeita duplicidade de email/CRM e desfaz a criação do usuário', async () => {
+    await request(app.getHttpServer())
+      .post('/auth/register/medico')
+      .send(cadastro)
+      .expect(409)
+    await request(app.getHttpServer())
+      .post('/auth/register/medico')
+      .send({ ...cadastro, email: 'outro@example.com' })
+      .expect(409)
+    const result = await database.query(
+      "SELECT id FROM usuarios WHERE email = 'outro@example.com'",
+    )
+    expect(result.rows).toHaveLength(0)
+  })
+
+  it('retorna erro genérico para credenciais erradas ou inexistentes', async () => {
+    const wrong = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: cadastro.email, senha: 'incorreta' })
+      .expect(401)
+    const missing = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'missing@example.com', senha: 'incorreta' })
+      .expect(401)
+    expect(wrong.body.message).toBe(missing.body.message)
+  })
+
+  it('exige token válido para consultar perfil', async () => {
+    await request(app.getHttpServer()).get('/usuarios/me').expect(401)
+    await request(app.getHttpServer())
+      .get('/usuarios/me')
+      .set('Authorization', 'Bearer invalid')
+      .expect(401)
+    const expired = await app
+      .get(JwtService)
+      .signAsync(
+        { sub: '00000000-0000-4000-8000-000000000000' },
+        { expiresIn: -1 },
+      )
+    await request(app.getHttpServer())
+      .get('/usuarios/me')
+      .set('Authorization', `Bearer ${expired}`)
+      .expect(401)
+  })
+
+  it('autentica, atualiza último login e permite editar apenas o próprio perfil', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: cadastro.email, senha: cadastro.senha })
+      .expect(200)
+    expect(login.body.usuario.ultimo_login_at).toBeTruthy()
+    expect(login.body.usuario).not.toHaveProperty('senha_hash')
+    const bearer = `Bearer ${login.body.access_token}`
+    await request(app.getHttpServer())
+      .get('/usuarios/me')
+      .set('Authorization', bearer)
+      .expect(200)
+    await request(app.getHttpServer())
+      .patch('/usuarios/me')
+      .set('Authorization', bearer)
+      .send({ status: 'BLOQUEADO' })
+      .expect(400)
+    const updated = await request(app.getHttpServer())
+      .patch('/usuarios/me')
+      .set('Authorization', bearer)
+      .send({ nome: 'Dra. Maria Silva', especialidade: 'Cardiologia' })
+      .expect(200)
+    expect(updated.body).toMatchObject({
+      nome: 'Dra. Maria Silva',
+      medico: { especialidade: 'Cardiologia' },
+    })
+    await database.exec(
+      "UPDATE usuarios SET status = 'BLOQUEADO' WHERE email = 'maria@example.com'",
+    )
+    await request(app.getHttpServer())
+      .get('/usuarios/me')
+      .set('Authorization', bearer)
+      .expect(401)
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: cadastro.email, senha: cadastro.senha })
+      .expect(401)
+    await database.exec(
+      "UPDATE usuarios SET status = 'INATIVO' WHERE email = 'maria@example.com'",
+    )
+    await request(app.getHttpServer())
+      .get('/usuarios/me')
+      .set('Authorization', bearer)
+      .expect(401)
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: cadastro.email, senha: cadastro.senha })
+      .expect(401)
+    await database.exec(
+      "UPDATE usuarios SET status = 'ATIVO', deleted_at = now() WHERE email = 'maria@example.com'",
+    )
+    await request(app.getHttpServer())
+      .get('/usuarios/me')
+      .set('Authorization', bearer)
+      .expect(401)
+    await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: cadastro.email, senha: cadastro.senha })
+      .expect(401)
+  })
+
+  it('limita tentativas de login', async () => {
+    let status = 0
+    for (let attempt = 0; attempt < 11; attempt++) {
+      const response = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'missing@example.com', senha: 'incorreta' })
+      status = response.status
+      if (status === 429) break
+    }
+    expect(status).toBe(429)
+  })
+
+})
