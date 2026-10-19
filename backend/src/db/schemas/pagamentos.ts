@@ -10,11 +10,7 @@ import {
 import { alocacoesTable } from './alocacoes.js'
 import { gestoresTable } from './gestores.js'
 
-export const statusPagamento = pgEnum('status_pagamento', [
-  'PENDENTE',
-  'PAGO',
-  'CANCELADO',
-])
+export const statusPagamento = pgEnum('status_pagamento', ['PENDENTE', 'PAGO'])
 
 export const pagamentosTable = pgTable(
   'pagamentos',
@@ -38,8 +34,5 @@ export const pagamentosTable = pgTable(
       .$onUpdate(() => new Date()),
     deleted_at: timestamp('deleted_at'),
   },
-  (table) => [
-    // Um pagamento por alocação.
-    unique('pagamentos_alocacao_unique').on(table.alocacao_id),
-  ],
+  (table) => [unique('pagamentos_alocacao_unique').on(table.alocacao_id)],
 )

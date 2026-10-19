@@ -6,8 +6,12 @@ Marque `[x]` e mova para o spec quando decidir.
 ## Modelo
 - [ ] **D1 — Tipo das coordenadas GPS:** `Decimal(10,8)` (precisão fixa, versão AGENTS) ou `Float` (versão guide, atual no spec)? E o campo de distância: `distanciaMetros` ou `distanciaLocal`? Impacto: migration de `registros_presenca`.
 - [ ] **D2 — Herança usuarios → medico/gestor:** preferência é extensão (joined-table: `medicos.usuario_id → usuarios.id`), mas está como "ponto a definir". Alternativa: single-table com `tipo_usuario`. Impacto: todas as migrations de auth + FKs de `candidatura`/`alocacao`.
-- [ ] **D3 — `gestorCriadorId` em plantao:** mantido do guide original (quem publicou a vaga), mas nunca foi decidido. Vale? Impacto: coluna + FK extra.
+- [x] **D3 — Resolvido:** `plantao.gestor_criador_id` mantido, com FK para `usuarios.id` (spec: `Plantao.gestorCriadorId`), e não para `gestores.id`.
 - [ ] **D4 — `createdAt/updatedAt` em plantao/instituicao:** mantidos do guide; o AGENTS não tinha. Manter padrão em todas as tabelas? Impacto: migrations.
+- [ ] **D13 — Colunas extras do PR0 (fora do spec):** `plantoes` mantém `titulo`, `descricao`, `permite_candidatura`, `exige_checkin` e `permite_geolocalizacao`; `pagamentos` mantém `vencimento_em`/`observacoes`; `candidaturas` mantém `mensagem_medico`/`observacao_gestor`/`analisado_por_gestor_id`/`analisado_at`. Alinhar/validar com a frente de gestão de plantões. Impacto: colunas.
+- [ ] **D14 — `pagamentos.urlComprovantePdf`:** o spec cita a coluna, mas o download de comprovante ficou fora do PR0. Definir se vira coluna ou tabela de arquivos (relaciona com D11). Impacto: UC08/UC12.
+- [ ] **D15 — Tabelas fora do PR0:** `notificacoes` (D10) e `tokens_2fa` (D9) não foram criadas; entram quando as features chegarem. Impacto: UC02/UC11.
+- [ ] **D16 — Recandidatura:** `UNIQUE(plantao_id, medico_id)` em candidaturas impede nova candidatura após `REJEITADA` (spec). Decidir se rejeitado pode voltar a candidatar-se (índice parcial). Impacto: UC05.
 
 ## Regras e fluxos
 - [ ] **D5 — Convites diretos (RN31):** regra de expiração existe, mas não há nenhum endpoint/UC de convite no spec. Vai ter convite direto no MVP ou a RN31 cai? Impacto: escopo do MVP.

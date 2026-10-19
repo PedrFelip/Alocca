@@ -1,5 +1,17 @@
-import { numeric, pgTable, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import {
+  doublePrecision,
+  pgEnum,
+  pgTable,
+  timestamp,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core'
 import { alocacoesTable } from './alocacoes.js'
+
+export const tipoEventoPresenca = pgEnum('tipo_evento_presenca', [
+  'ENTRADA',
+  'SAIDA',
+])
 
 export const registrosPontoTable = pgTable(
   'registros_ponto',
@@ -8,22 +20,13 @@ export const registrosPontoTable = pgTable(
     alocacao_id: uuid('alocacao_id')
       .notNull()
       .references(() => alocacoesTable.id),
-    check_in_at: timestamp('check_in_at'),
-    check_out_at: timestamp('check_out_at'),
+    tipo_evento: tipoEventoPresenca().notNull(),
+    timestamp_servidor: timestamp('timestamp_servidor').notNull().defaultNow(),
     // Coordenadas nulas quando o GPS é negado ou a geolocalização não é permitida (LGPD).
-    check_in_latitude: numeric('check_in_latitude', { precision: 9, scale: 6 }),
-    check_in_longitude: numeric('check_in_longitude', {
-      precision: 9,
-      scale: 6,
-    }),
-    check_out_latitude: numeric('check_out_latitude', {
-      precision: 9,
-      scale: 6,
-    }),
-    check_out_longitude: numeric('check_out_longitude', {
-      precision: 9,
-      scale: 6,
-    }),
+    latitude: doublePrecision('latitude'),
+    longitude: doublePrecision('longitude'),
+    precisao_metros: doublePrecision('precisao_metros'),
+    distancia_local: doublePrecision('distancia_local'),
     created_at: timestamp('created_at').notNull().defaultNow(),
     updated_at: timestamp('updated_at')
       .notNull()
@@ -31,7 +34,10 @@ export const registrosPontoTable = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
-    // Uma linha por alocação, guardando check-in e check-out juntos.
-    unique('registros_ponto_alocacao_unique').on(table.alocacao_id),
+    // No máximo um registro por evento (entrada/saída) em cada alocação.
+    unique('registros_ponto_alocacao_evento_unique').on(
+      table.alocacao_id,
+      table.tipo_evento,
+    ),
   ],
 )

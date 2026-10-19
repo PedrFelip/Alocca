@@ -12,16 +12,14 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import { gestoresTable } from './gestores.js'
 import { instituicoesTable } from './instituicoes.js'
+import { usuariosTable } from './usuarios.js'
 
 export const statusPlantao = pgEnum('status_plantao', [
-  'RASCUNHO',
   'ABERTO',
   'PREENCHIDO',
-  'EM_ANDAMENTO',
-  'CONCLUIDO',
   'CANCELADO',
+  'CONCLUIDO',
 ])
 
 export const plantoesTable = pgTable(
@@ -31,9 +29,9 @@ export const plantoesTable = pgTable(
     instituicao_id: uuid('instituicao_id')
       .notNull()
       .references(() => instituicoesTable.id),
-    criado_por_gestor_id: uuid('criado_por_gestor_id')
+    gestor_criador_id: uuid('gestor_criador_id')
       .notNull()
-      .references(() => gestoresTable.id),
+      .references(() => usuariosTable.id),
     titulo: varchar('titulo', { length: 150 }).notNull(),
     descricao: text('descricao'),
     especialidade: varchar('especialidade', { length: 100 }),
@@ -43,7 +41,7 @@ export const plantoesTable = pgTable(
     quantidade_vagas: integer('quantidade_vagas').notNull(),
     // Controlado por decremento atômico na confirmação da alocação.
     vagas_disponiveis: integer('vagas_disponiveis').notNull(),
-    status: statusPlantao().notNull().default('RASCUNHO'),
+    status: statusPlantao().notNull().default('ABERTO'),
     permite_candidatura: boolean('permite_candidatura').notNull().default(true),
     exige_checkin: boolean('exige_checkin').notNull().default(true),
     permite_geolocalizacao: boolean('permite_geolocalizacao')
@@ -57,13 +55,10 @@ export const plantoesTable = pgTable(
     deleted_at: timestamp('deleted_at'),
   },
   (table) => [
-    // Feed do médico: apenas abertos que aceitam candidatura.
-    index('plantoes_status_candidatura_idx').on(
-      table.status,
-      table.permite_candidatura,
-    ),
+    // Feed do médico: filtra por status aberto e ordena por data de início.
+    index('plantoes_feed_idx').on(table.status, table.data_inicio),
     index('plantoes_instituicao_id_idx').on(table.instituicao_id),
-    index('plantoes_data_inicio_idx').on(table.data_inicio),
+    index('plantoes_gestor_criador_id_idx').on(table.gestor_criador_id),
     index('plantoes_especialidade_idx').on(table.especialidade),
     check(
       'plantoes_quantidade_vagas_check',

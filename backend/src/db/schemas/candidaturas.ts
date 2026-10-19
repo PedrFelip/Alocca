@@ -15,7 +15,6 @@ export const statusCandidatura = pgEnum('status_candidatura', [
   'PENDENTE',
   'APROVADA',
   'REJEITADA',
-  'CANCELADA',
 ])
 
 export const candidaturasTable = pgTable(

@@ -1,29 +1,7 @@
-import { sql } from 'drizzle-orm'
-import {
-  index,
-  pgEnum,
-  pgTable,
-  text,
-  timestamp,
-  uniqueIndex,
-  uuid,
-} from 'drizzle-orm/pg-core'
+import { index, pgTable, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { candidaturasTable } from './candidaturas.js'
-import { gestoresTable } from './gestores.js'
 import { medicosTable } from './medicos.js'
 import { plantoesTable } from './plantoes.js'
-
-export const origemAlocacao = pgEnum('origem_alocacao', [
-  'CANDIDATURA',
-  'ATRIBUICAO_DIRETA',
-])
-
-export const statusAlocacao = pgEnum('status_alocacao', [
-  'PENDENTE',
-  'CONFIRMADA',
-  'CANCELADA',
-  'CONCLUIDA',
-])
 
 export const alocacoesTable = pgTable(
   'alocacoes',
@@ -35,18 +13,11 @@ export const alocacoesTable = pgTable(
     medico_id: uuid('medico_id')
       .notNull()
       .references(() => medicosTable.id),
-    // Nulo apenas na atribuição direta (sem candidatura de origem).
-    candidatura_id: uuid('candidatura_id').references(
-      () => candidaturasTable.id,
-    ),
-    atribuido_por_gestor_id: uuid('atribuido_por_gestor_id').references(
-      () => gestoresTable.id,
-    ),
-    origem: origemAlocacao().notNull(),
-    status: statusAlocacao().notNull().default('PENDENTE'),
-    confirmado_at: timestamp('confirmado_at'),
-    cancelado_at: timestamp('cancelado_at'),
-    motivo_cancelamento: text('motivo_cancelamento'),
+    // Toda alocação nasce da aprovação de uma candidatura (spec: 1 — 0..1).
+    candidatura_id: uuid('candidatura_id')
+      .notNull()
+      .references(() => candidaturasTable.id),
+    confirmado_at: timestamp('confirmado_at').notNull().defaultNow(),
     created_at: timestamp('created_at').notNull().defaultNow(),
     updated_at: timestamp('updated_at')
       .notNull()
@@ -55,10 +26,8 @@ export const alocacoesTable = pgTable(
     deleted_at: timestamp('deleted_at'),
   },
   (table) => [
-    // Uma alocação por candidatura (quando houver candidatura de origem).
-    uniqueIndex('alocacoes_candidatura_unique')
-      .on(table.candidatura_id)
-      .where(sql`${table.candidatura_id} is not null`),
+    // Uma alocação por candidatura.
+    unique('alocacoes_candidatura_unique').on(table.candidatura_id),
     index('alocacoes_plantao_id_idx').on(table.plantao_id),
     index('alocacoes_medico_id_idx').on(table.medico_id),
   ],

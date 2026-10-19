@@ -12,6 +12,9 @@ import {
 } from './schemas/index.js'
 
 const env = validateEnv(process.env)
+if (env.NODE_ENV === 'production') {
+  throw new Error('Seed bloqueado em produção (NODE_ENV=production)')
+}
 const client = postgres(env.DATABASE_URL)
 const db = drizzle({ client })
 const passwords = new PasswordService()
@@ -85,7 +88,7 @@ async function garantirGestor(
 async function main(): Promise<void> {
   const usuarioId = await garantirUsuarioGestor()
   const instituicaoId = await garantirInstituicao(usuarioId)
-  const gestorId = await garantirGestor(usuarioId, instituicaoId)
+  await garantirGestor(usuarioId, instituicaoId)
 
   const plantoesExistentes = await db
     .select({ id: plantoesTable.id })
@@ -98,7 +101,7 @@ async function main(): Promise<void> {
     await db.insert(plantoesTable).values([
       {
         instituicao_id: instituicaoId,
-        criado_por_gestor_id: gestorId,
+        gestor_criador_id: usuarioId,
         titulo: 'Plantão UTI Adulto — Diurno',
         especialidade: 'Medicina Intensiva',
         data_inicio: new Date(base),
@@ -110,7 +113,7 @@ async function main(): Promise<void> {
       },
       {
         instituicao_id: instituicaoId,
-        criado_por_gestor_id: gestorId,
+        gestor_criador_id: usuarioId,
         titulo: 'Plantão Pronto Socorro — Noturno',
         especialidade: 'Clínica Médica',
         data_inicio: new Date(base + 2 * dia),

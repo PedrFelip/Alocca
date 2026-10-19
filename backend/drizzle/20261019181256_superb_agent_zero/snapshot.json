@@ -1,60 +1,76 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "2f0e8564-5c33-468c-a73b-78e3ea32b9b5",
-  "prevIds": ["a2a256c1-1bd8-456e-9261-5b831f1d5e21"],
+  "id": "f3ec096e-3b6a-48fb-b450-493535616423",
+  "prevIds": [
+    "a2a256c1-1bd8-456e-9261-5b831f1d5e21"
+  ],
   "ddl": [
     {
-      "values": ["ATIVO", "INATIVO", "BLOQUEADO"],
+      "values": [
+        "ATIVO",
+        "INATIVO",
+        "BLOQUEADO"
+      ],
       "name": "status_usuario",
       "entityType": "enums",
       "schema": "public"
     },
     {
-      "values": ["MEDICO", "GESTOR", "ADMIN"],
+      "values": [
+        "MEDICO",
+        "GESTOR",
+        "ADMIN"
+      ],
       "name": "tipo_usuario",
       "entityType": "enums",
       "schema": "public"
     },
     {
-      "values": ["PENDENTE", "APROVADO", "REJEITADO"],
+      "values": [
+        "PENDENTE",
+        "APROVADO",
+        "REJEITADO"
+      ],
       "name": "status_validacao_medico",
       "entityType": "enums",
       "schema": "public"
     },
     {
       "values": [
-        "RASCUNHO",
         "ABERTO",
         "PREENCHIDO",
-        "EM_ANDAMENTO",
-        "CONCLUIDO",
-        "CANCELADO"
+        "CANCELADO",
+        "CONCLUIDO"
       ],
       "name": "status_plantao",
       "entityType": "enums",
       "schema": "public"
     },
     {
-      "values": ["PENDENTE", "APROVADA", "REJEITADA", "CANCELADA"],
+      "values": [
+        "PENDENTE",
+        "APROVADA",
+        "REJEITADA"
+      ],
       "name": "status_candidatura",
       "entityType": "enums",
       "schema": "public"
     },
     {
-      "values": ["CANDIDATURA", "ATRIBUICAO_DIRETA"],
-      "name": "origem_alocacao",
+      "values": [
+        "ENTRADA",
+        "SAIDA"
+      ],
+      "name": "tipo_evento_presenca",
       "entityType": "enums",
       "schema": "public"
     },
     {
-      "values": ["PENDENTE", "CONFIRMADA", "CANCELADA", "CONCLUIDA"],
-      "name": "status_alocacao",
-      "entityType": "enums",
-      "schema": "public"
-    },
-    {
-      "values": ["PENDENTE", "PAGO", "CANCELADO"],
+      "values": [
+        "PENDENTE",
+        "PAGO"
+      ],
       "name": "status_pagamento",
       "entityType": "enums",
       "schema": "public"
@@ -868,7 +884,7 @@
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "criado_por_gestor_id",
+      "name": "gestor_criador_id",
       "entityType": "columns",
       "schema": "public",
       "table": "plantoes"
@@ -982,7 +998,7 @@
       "typeSchema": "public",
       "notNull": true,
       "dimensions": 0,
-      "default": "'RASCUNHO'",
+      "default": "'ABERTO'",
       "generated": null,
       "identity": null,
       "name": "status",
@@ -1253,7 +1269,7 @@
     {
       "type": "uuid",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -1264,79 +1280,14 @@
       "table": "alocacoes"
     },
     {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "atribuido_por_gestor_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "alocacoes"
-    },
-    {
-      "type": "origem_alocacao",
-      "typeSchema": "public",
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "origem",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "alocacoes"
-    },
-    {
-      "type": "status_alocacao",
-      "typeSchema": "public",
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'PENDENTE'",
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "alocacoes"
-    },
-    {
       "type": "timestamp",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
-      "default": null,
+      "default": "now()",
       "generated": null,
       "identity": null,
       "name": "confirmado_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "alocacoes"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "cancelado_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "alocacoes"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "motivo_cancelamento",
       "entityType": "columns",
       "schema": "public",
       "table": "alocacoes"
@@ -1407,14 +1358,14 @@
       "table": "registros_ponto"
     },
     {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
+      "type": "tipo_evento_presenca",
+      "typeSchema": "public",
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "check_in_at",
+      "name": "tipo_evento",
       "entityType": "columns",
       "schema": "public",
       "table": "registros_ponto"
@@ -1422,64 +1373,64 @@
     {
       "type": "timestamp",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
-      "default": null,
+      "default": "now()",
       "generated": null,
       "identity": null,
-      "name": "check_out_at",
+      "name": "timestamp_servidor",
       "entityType": "columns",
       "schema": "public",
       "table": "registros_ponto"
     },
     {
-      "type": "numeric(9,6)",
+      "type": "double precision",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "check_in_latitude",
+      "name": "latitude",
       "entityType": "columns",
       "schema": "public",
       "table": "registros_ponto"
     },
     {
-      "type": "numeric(9,6)",
+      "type": "double precision",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "check_in_longitude",
+      "name": "longitude",
       "entityType": "columns",
       "schema": "public",
       "table": "registros_ponto"
     },
     {
-      "type": "numeric(9,6)",
+      "type": "double precision",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "check_out_latitude",
+      "name": "precisao_metros",
       "entityType": "columns",
       "schema": "public",
       "table": "registros_ponto"
     },
     {
-      "type": "numeric(9,6)",
+      "type": "double precision",
       "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
       "identity": null,
-      "name": "check_out_longitude",
+      "name": "distancia_local",
       "entityType": "columns",
       "schema": "public",
       "table": "registros_ponto"
@@ -1657,14 +1608,7 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "status",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "permite_candidatura",
+          "value": "usuario_id",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -1676,7 +1620,56 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "plantoes_status_candidatura_idx",
+      "name": "instituicoes_usuario_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "instituicoes"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "instituicao_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "gestores_instituicao_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "gestores"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "data_inicio",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "plantoes_feed_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "plantoes"
@@ -1706,7 +1699,7 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "data_inicio",
+          "value": "gestor_criador_id",
           "isExpression": false,
           "asc": true,
           "nullsFirst": false,
@@ -1718,7 +1711,7 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "plantoes_data_inicio_idx",
+      "name": "plantoes_gestor_criador_id_idx",
       "entityType": "indexes",
       "schema": "public",
       "table": "plantoes"
@@ -1790,27 +1783,6 @@
       "nameExplicit": true,
       "columns": [
         {
-          "value": "candidatura_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": true,
-      "where": "\"candidatura_id\" is not null",
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "alocacoes_candidatura_unique",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "alocacoes"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
           "value": "plantao_id",
           "isExpression": false,
           "asc": true,
@@ -1851,10 +1823,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["usuario_id"],
+      "columns": [
+        "usuario_id"
+      ],
       "schemaTo": "public",
       "tableTo": "usuarios",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "medicos_usuario_id_usuarios_id_fkey",
@@ -1864,10 +1840,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["validado_por_usuario_id"],
+      "columns": [
+        "validado_por_usuario_id"
+      ],
       "schemaTo": "public",
       "tableTo": "usuarios",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "medicos_validado_por_usuario_id_usuarios_id_fkey",
@@ -1877,10 +1857,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["usuario_id"],
+      "columns": [
+        "usuario_id"
+      ],
       "schemaTo": "public",
       "tableTo": "usuarios",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "tokens_recuperacao_senha_usuario_id_usuarios_id_fkey",
@@ -1890,10 +1874,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["usuario_id"],
+      "columns": [
+        "usuario_id"
+      ],
       "schemaTo": "public",
       "tableTo": "usuarios",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "instituicoes_usuario_id_usuarios_id_fkey",
@@ -1903,10 +1891,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["usuario_id"],
+      "columns": [
+        "usuario_id"
+      ],
       "schemaTo": "public",
       "tableTo": "usuarios",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "gestores_usuario_id_usuarios_id_fkey",
@@ -1916,10 +1908,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["instituicao_id"],
+      "columns": [
+        "instituicao_id"
+      ],
       "schemaTo": "public",
       "tableTo": "instituicoes",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "gestores_instituicao_id_instituicoes_id_fkey",
@@ -1929,10 +1925,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["instituicao_id"],
+      "columns": [
+        "instituicao_id"
+      ],
       "schemaTo": "public",
       "tableTo": "instituicoes",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "plantoes_instituicao_id_instituicoes_id_fkey",
@@ -1942,23 +1942,31 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["criado_por_gestor_id"],
+      "columns": [
+        "gestor_criador_id"
+      ],
       "schemaTo": "public",
-      "tableTo": "gestores",
-      "columnsTo": ["id"],
+      "tableTo": "usuarios",
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
-      "name": "plantoes_criado_por_gestor_id_gestores_id_fkey",
+      "name": "plantoes_gestor_criador_id_usuarios_id_fkey",
       "entityType": "fks",
       "schema": "public",
       "table": "plantoes"
     },
     {
       "nameExplicit": false,
-      "columns": ["plantao_id"],
+      "columns": [
+        "plantao_id"
+      ],
       "schemaTo": "public",
       "tableTo": "plantoes",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "candidaturas_plantao_id_plantoes_id_fkey",
@@ -1968,10 +1976,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["medico_id"],
+      "columns": [
+        "medico_id"
+      ],
       "schemaTo": "public",
       "tableTo": "medicos",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "candidaturas_medico_id_medicos_id_fkey",
@@ -1981,10 +1993,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["analisado_por_gestor_id"],
+      "columns": [
+        "analisado_por_gestor_id"
+      ],
       "schemaTo": "public",
       "tableTo": "gestores",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "candidaturas_analisado_por_gestor_id_gestores_id_fkey",
@@ -1994,10 +2010,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["plantao_id"],
+      "columns": [
+        "plantao_id"
+      ],
       "schemaTo": "public",
       "tableTo": "plantoes",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "alocacoes_plantao_id_plantoes_id_fkey",
@@ -2007,10 +2027,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["medico_id"],
+      "columns": [
+        "medico_id"
+      ],
       "schemaTo": "public",
       "tableTo": "medicos",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "alocacoes_medico_id_medicos_id_fkey",
@@ -2020,10 +2044,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["candidatura_id"],
+      "columns": [
+        "candidatura_id"
+      ],
       "schemaTo": "public",
       "tableTo": "candidaturas",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "alocacoes_candidatura_id_candidaturas_id_fkey",
@@ -2033,23 +2061,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["atribuido_por_gestor_id"],
-      "schemaTo": "public",
-      "tableTo": "gestores",
-      "columnsTo": ["id"],
-      "onUpdate": "NO ACTION",
-      "onDelete": "NO ACTION",
-      "name": "alocacoes_atribuido_por_gestor_id_gestores_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "alocacoes"
-    },
-    {
-      "nameExplicit": false,
-      "columns": ["alocacao_id"],
+      "columns": [
+        "alocacao_id"
+      ],
       "schemaTo": "public",
       "tableTo": "alocacoes",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "registros_ponto_alocacao_id_alocacoes_id_fkey",
@@ -2059,10 +2078,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["alocacao_id"],
+      "columns": [
+        "alocacao_id"
+      ],
       "schemaTo": "public",
       "tableTo": "alocacoes",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "pagamentos_alocacao_id_alocacoes_id_fkey",
@@ -2072,10 +2095,14 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["registrado_por_gestor_id"],
+      "columns": [
+        "registrado_por_gestor_id"
+      ],
       "schemaTo": "public",
       "tableTo": "gestores",
-      "columnsTo": ["id"],
+      "columnsTo": [
+        "id"
+      ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
       "name": "pagamentos_registrado_por_gestor_id_gestores_id_fkey",
@@ -2084,7 +2111,9 @@
       "table": "pagamentos"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "usuarios_pkey",
       "schema": "public",
@@ -2092,7 +2121,9 @@
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "medicos_pkey",
       "schema": "public",
@@ -2100,7 +2131,9 @@
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "tokens_recuperacao_senha_pkey",
       "schema": "public",
@@ -2108,7 +2141,9 @@
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "instituicoes_pkey",
       "schema": "public",
@@ -2116,7 +2151,9 @@
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "gestores_pkey",
       "schema": "public",
@@ -2124,7 +2161,9 @@
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "plantoes_pkey",
       "schema": "public",
@@ -2132,7 +2171,9 @@
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "candidaturas_pkey",
       "schema": "public",
@@ -2140,7 +2181,9 @@
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "alocacoes_pkey",
       "schema": "public",
@@ -2148,7 +2191,9 @@
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "registros_ponto_pkey",
       "schema": "public",
@@ -2156,7 +2201,9 @@
       "entityType": "pks"
     },
     {
-      "columns": ["id"],
+      "columns": [
+        "id"
+      ],
       "nameExplicit": false,
       "name": "pagamentos_pkey",
       "schema": "public",
@@ -2165,7 +2212,10 @@
     },
     {
       "nameExplicit": true,
-      "columns": ["crm", "uf_crm"],
+      "columns": [
+        "crm",
+        "uf_crm"
+      ],
       "nullsNotDistinct": false,
       "name": "medicos_crm_uf_crm_unique",
       "entityType": "uniques",
@@ -2174,7 +2224,10 @@
     },
     {
       "nameExplicit": true,
-      "columns": ["plantao_id", "medico_id"],
+      "columns": [
+        "plantao_id",
+        "medico_id"
+      ],
       "nullsNotDistinct": false,
       "name": "candidaturas_plantao_medico_unique",
       "entityType": "uniques",
@@ -2183,16 +2236,32 @@
     },
     {
       "nameExplicit": true,
-      "columns": ["alocacao_id"],
+      "columns": [
+        "candidatura_id"
+      ],
       "nullsNotDistinct": false,
-      "name": "registros_ponto_alocacao_unique",
+      "name": "alocacoes_candidatura_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "alocacoes"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "alocacao_id",
+        "tipo_evento"
+      ],
+      "nullsNotDistinct": false,
+      "name": "registros_ponto_alocacao_evento_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "registros_ponto"
     },
     {
       "nameExplicit": true,
-      "columns": ["alocacao_id"],
+      "columns": [
+        "alocacao_id"
+      ],
       "nullsNotDistinct": false,
       "name": "pagamentos_alocacao_unique",
       "entityType": "uniques",
@@ -2201,7 +2270,9 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["email"],
+      "columns": [
+        "email"
+      ],
       "nullsNotDistinct": false,
       "name": "usuarios_email_key",
       "schema": "public",
@@ -2210,7 +2281,9 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["usuario_id"],
+      "columns": [
+        "usuario_id"
+      ],
       "nullsNotDistinct": false,
       "name": "medicos_usuario_id_key",
       "schema": "public",
@@ -2219,7 +2292,9 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["token"],
+      "columns": [
+        "token"
+      ],
       "nullsNotDistinct": false,
       "name": "tokens_recuperacao_senha_token_key",
       "schema": "public",
@@ -2228,7 +2303,9 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["cnpj"],
+      "columns": [
+        "cnpj"
+      ],
       "nullsNotDistinct": false,
       "name": "instituicoes_cnpj_key",
       "schema": "public",
@@ -2237,7 +2314,9 @@
     },
     {
       "nameExplicit": false,
-      "columns": ["usuario_id"],
+      "columns": [
+        "usuario_id"
+      ],
       "nullsNotDistinct": false,
       "name": "gestores_usuario_id_key",
       "schema": "public",
