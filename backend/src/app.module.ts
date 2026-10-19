@@ -8,6 +8,7 @@ import { validateEnv } from './config/env.js'
 import { DatabaseModule } from './db/db.module.js'
 import { HealthModule } from './health/health.module.js'
 import { MedicosModule } from './medicos/medicos.module.js'
+import { PlantoesModule } from './plantoes/plantoes.module.js'
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { MedicosModule } from './medicos/medicos.module.js'
     AuthModule,
     HealthModule,
     MedicosModule,
+    PlantoesModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
