@@ -22,6 +22,7 @@
     "fmt": "oxfmt",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
+    "seed": "bun run src/db/seed.ts",
     "studio": "drizzle-kit studio"
   },
   "dependencies": {
