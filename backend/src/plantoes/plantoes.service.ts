@@ -85,6 +85,7 @@ export class PlantoesService {
         id: plantoesTable.id,
         titulo: plantoesTable.titulo,
         descricao: plantoesTable.descricao,
+        local_unidade: plantoesTable.local_unidade,
         especialidade: plantoesTable.especialidade,
         data_inicio: plantoesTable.data_inicio,
         data_fim: plantoesTable.data_fim,

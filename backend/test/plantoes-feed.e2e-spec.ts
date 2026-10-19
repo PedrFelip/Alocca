@@ -15,6 +15,7 @@ function timestamp(dias: number): string {
 describe('Feed de plantões do médico', () => {
   let app: INestApplication
   let database: PGlite
+  let gestorUsuarioId: string
   let medicoId: string
   let medicoToken: string
   let gestorToken: string
@@ -24,6 +25,44 @@ describe('Feed de plantões do médico', () => {
   let plantaoPediatria: string
   let plantaoClinica: string
   const excluidos: string[] = []
+
+  async function criarPlantao(params: {
+    instituicaoId: string
+    titulo: string
+    especialidade?: string
+    valor?: string
+    inicioDias?: number
+    inicio?: string
+    fim?: string
+    status?: string
+    permiteCandidatura?: boolean
+    vagasDisponiveis?: number
+    excluido?: boolean
+  }): Promise<string> {
+    const inicio = params.inicio ?? timestamp(params.inicioDias ?? 1)
+    const fim = params.fim ?? timestamp((params.inicioDias ?? 1) + 0.5)
+    const result = await database.query<{ id: string }>(
+      `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade, especialidade,
+        data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status,
+        permite_candidatura, deleted_at)
+       VALUES ($1, $2, $3, 'UTI', $4, $5, $6, $7, 2, $8, $9, $10, $11)
+       RETURNING id`,
+      [
+        params.instituicaoId,
+        gestorUsuarioId,
+        params.titulo,
+        params.especialidade ?? 'Clínica Médica',
+        inicio,
+        fim,
+        params.valor ?? '1000.00',
+        params.vagasDisponiveis ?? 2,
+        params.status ?? 'ABERTO',
+        params.permiteCandidatura ?? true,
+        params.excluido ? timestamp(0) : null,
+      ],
+    )
+    return result.rows[0].id
+  }
 
   beforeAll(async () => {
     database = new PGlite()
@@ -43,7 +82,8 @@ describe('Feed de plantões do médico', () => {
   beforeEach(async () => {
     await database.exec(
       `TRUNCATE pagamentos, registros_ponto, alocacoes, candidaturas, plantoes,
-       gestores, instituicoes, medicos, tokens_recuperacao_senha, usuarios CASCADE`,
+       gestores_instituicoes, gestores, instituicoes, medicos,
+       tokens_recuperacao_senha, usuarios CASCADE`,
     )
 
     async function criarUsuario(email: string, tipo: string): Promise<string> {
@@ -55,7 +95,7 @@ describe('Feed de plantões do médico', () => {
     }
 
     const medicoUsuarioId = await criarUsuario('medico@example.com', 'MEDICO')
-    const gestorUsuarioId = await criarUsuario('gestor@example.com', 'GESTOR')
+    gestorUsuarioId = await criarUsuario('gestor@example.com', 'GESTOR')
     const adminUsuarioId = await criarUsuario('admin@example.com', 'ADMIN')
 
     const medico = await database.query<{ id: string }>(
@@ -97,42 +137,6 @@ describe('Feed de plantões do médico', () => {
       '33333333000133',
       false,
     )
-
-    async function criarPlantao(params: {
-      instituicaoId: string
-      titulo: string
-      especialidade?: string
-      valor?: string
-      inicioDias?: number
-      status?: string
-      permiteCandidatura?: boolean
-      vagasDisponiveis?: number
-      excluido?: boolean
-    }): Promise<string> {
-      const inicio = timestamp(params.inicioDias ?? 1)
-      const fim = timestamp((params.inicioDias ?? 1) + 0.5)
-      const result = await database.query<{ id: string }>(
-        `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, especialidade,
-          data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status,
-          permite_candidatura, deleted_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 2, $8, $9, $10, $11)
-         RETURNING id`,
-        [
-          params.instituicaoId,
-          gestorUsuarioId,
-          params.titulo,
-          params.especialidade ?? 'Clínica Médica',
-          inicio,
-          fim,
-          params.valor ?? '1000.00',
-          params.vagasDisponiveis ?? 2,
-          params.status ?? 'ABERTO',
-          params.permiteCandidatura ?? true,
-          params.excluido ? timestamp(0) : null,
-        ],
-      )
-      return result.rows[0].id
-    }
 
     plantaoPediatria = await criarPlantao({
       instituicaoId: instituicaoDf,
@@ -234,6 +238,7 @@ describe('Feed de plantões do médico', () => {
     const response = await listar().expect(200)
     expect(response.body[0]).toMatchObject({
       id: plantaoPediatria,
+      local_unidade: 'UTI',
       especialidade: 'Pediatria',
       valor: '1000.00',
       vagas_disponiveis: 2,
@@ -244,6 +249,27 @@ describe('Feed de plantões do médico', () => {
         uf: 'DF',
       },
     })
+  })
+
+  it('desempata por id quando dois plantões têm o mesmo horário', async () => {
+    const mesmoInicio = timestamp(3)
+    const mesmoFim = timestamp(3.5)
+    const primeiro = await criarPlantao({
+      instituicaoId: instituicaoDf,
+      titulo: 'Mesmo horário A',
+      inicio: mesmoInicio,
+      fim: mesmoFim,
+    })
+    const segundo = await criarPlantao({
+      instituicaoId: instituicaoDf,
+      titulo: 'Mesmo horário B',
+      inicio: mesmoInicio,
+      fim: mesmoFim,
+    })
+
+    const response = await listar().expect(200)
+    const ultimos = response.body.slice(-2).map((p: { id: string }) => p.id)
+    expect(ultimos).toEqual([primeiro, segundo].sort())
   })
 
   it('filtra por especialidade sem diferenciar maiúsculas', async () => {
