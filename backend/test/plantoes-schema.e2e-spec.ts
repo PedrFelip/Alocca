@@ -24,7 +24,8 @@ describe('Schema de plantões e interações do médico', () => {
   beforeEach(async () => {
     await database.exec(
       `TRUNCATE pagamentos, registros_ponto, alocacoes, candidaturas, plantoes,
-       gestores, instituicoes, medicos, tokens_recuperacao_senha, usuarios CASCADE`,
+       gestores_instituicoes, gestores, instituicoes, medicos,
+       tokens_recuperacao_senha, usuarios CASCADE`,
     )
 
     const gestorUsuario = await database.query<{ id: string }>(
@@ -39,9 +40,13 @@ describe('Schema de plantões e interações do médico', () => {
       [gestorUsuarioId],
     )
     instituicaoId = instituicao.rows[0].id
+    const gestor = await database.query<{ id: string }>(
+      'INSERT INTO gestores (usuario_id) VALUES ($1) RETURNING id',
+      [gestorUsuarioId],
+    )
     await database.query(
-      'INSERT INTO gestores (usuario_id, instituicao_id) VALUES ($1, $2)',
-      [gestorUsuarioId, instituicaoId],
+      'INSERT INTO gestores_instituicoes (gestor_id, instituicao_id) VALUES ($1, $2)',
+      [gestor.rows[0].id, instituicaoId],
     )
     const medico = await database.query<{ id: string }>(
       "INSERT INTO medicos (usuario_id, crm, uf_crm) VALUES ($1, '123456', 'DF') RETURNING id",
@@ -49,9 +54,9 @@ describe('Schema de plantões e interações do médico', () => {
     )
     medicoId = medico.rows[0].id
     const plantao = await database.query<{ id: string }>(
-      `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo,
+      `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade, especialidade,
         data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status)
-       VALUES ($1, $2, 'Plantão', now(), now() + interval '12 hours', '1800.00', 2, 2, 'ABERTO')
+       VALUES ($1, $2, 'Plantão', 'UTI', 'Clínica Médica', now(), now() + interval '12 hours', '1800.00', 2, 2, 'ABERTO')
        RETURNING id`,
       [instituicaoId, gestorUsuarioId],
     )
@@ -82,9 +87,9 @@ describe('Schema de plantões e interações do médico', () => {
     fim = "now() + interval '12 hours'",
   ) {
     return database.query(
-      `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo,
+      `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade, especialidade,
         data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status)
-       VALUES ($1, $2, 'Plantão', ${inicio}, ${fim}, '1800.00', $3, $4, 'ABERTO')`,
+       VALUES ($1, $2, 'Plantão', 'UTI', 'Clínica Médica', ${inicio}, ${fim}, '1800.00', $3, $4, 'ABERTO')`,
       [instituicaoId, gestorUsuarioId, quantidadeVagas, vagasDisponiveis],
     )
   }
@@ -209,12 +214,55 @@ describe('Schema de plantões e interações do médico', () => {
   it('rejeita plantão sem instituição válida', async () => {
     await expect(
       database.query(
-        `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo,
+        `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade, especialidade,
           data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status)
-         VALUES ('00000000-0000-0000-0000-000000000000', $1, 'Plantão',
+         VALUES ('00000000-0000-0000-0000-000000000000', $1, 'Plantão', 'UTI', 'Clínica Médica',
           now(), now() + interval '1 hour', '100.00', 1, 1, 'ABERTO')`,
         [gestorUsuarioId],
       ),
     ).rejects.toThrow(/plantoes_instituicao_id/)
+  })
+
+  it('exige local de unidade e especialidade no plantão', async () => {
+    await expect(
+      database.query(
+        `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo,
+          data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status)
+         VALUES ($1, $2, 'Plantão', now(), now() + interval '1 hour', '100.00', 1, 1, 'ABERTO')`,
+        [instituicaoId, gestorUsuarioId],
+      ),
+    ).rejects.toThrow(/local_unidade/)
+  })
+
+  it('não aceita alocação cujo plantão/médico não batem com a candidatura', async () => {
+    const candidaturaId = await criarCandidatura()
+    const outroPlantao = await database.query<{ id: string }>(
+      `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade, especialidade,
+        data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status)
+       VALUES ($1, $2, 'Outro', 'UTI', 'Clínica Médica', now(), now() + interval '1 hour', '100.00', 1, 1, 'ABERTO')
+       RETURNING id`,
+      [instituicaoId, gestorUsuarioId],
+    )
+    await expect(
+      database.query(
+        'INSERT INTO alocacoes (plantao_id, medico_id, candidatura_id) VALUES ($1, $2, $3)',
+        [outroPlantao.rows[0].id, medicoId, candidaturaId],
+      ),
+    ).rejects.toThrow(/alocacoes_candidatura_vinculo_fkey/)
+
+    const outroMedico = await database.query<{ id: string }>(
+      `INSERT INTO usuarios (nome, email, senha_hash, tipo)
+       VALUES ('Outro', 'outro@example.com', 'hash', 'MEDICO') RETURNING id`,
+    )
+    const outroMedicoId = await database.query<{ id: string }>(
+      "INSERT INTO medicos (usuario_id, crm, uf_crm) VALUES ($1, '654321', 'SP') RETURNING id",
+      [outroMedico.rows[0].id],
+    )
+    await expect(
+      database.query(
+        'INSERT INTO alocacoes (plantao_id, medico_id, candidatura_id) VALUES ($1, $2, $3)',
+        [plantaoId, outroMedicoId.rows[0].id, candidaturaId],
+      ),
+    ).rejects.toThrow(/alocacoes_candidatura_vinculo_fkey/)
   })
 })

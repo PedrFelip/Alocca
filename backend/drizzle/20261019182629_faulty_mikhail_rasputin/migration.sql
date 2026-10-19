@@ -26,12 +26,18 @@ CREATE TABLE "instituicoes" (
 CREATE TABLE "gestores" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 	"usuario_id" uuid NOT NULL UNIQUE,
-	"instituicao_id" uuid NOT NULL,
 	"cargo" varchar(100),
 	"ativa" boolean DEFAULT true NOT NULL,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	"deleted_at" timestamp
+);
+--> statement-breakpoint
+CREATE TABLE "gestores_instituicoes" (
+	"gestor_id" uuid,
+	"instituicao_id" uuid,
+	"created_at" timestamp DEFAULT now() NOT NULL,
+	CONSTRAINT "gestores_instituicoes_pkey" PRIMARY KEY("gestor_id","instituicao_id")
 );
 --> statement-breakpoint
 CREATE TABLE "plantoes" (
@@ -40,7 +46,8 @@ CREATE TABLE "plantoes" (
 	"gestor_criador_id" uuid NOT NULL,
 	"titulo" varchar(150) NOT NULL,
 	"descricao" text,
-	"especialidade" varchar(100),
+	"local_unidade" varchar(150) NOT NULL,
+	"especialidade" varchar(100) NOT NULL,
 	"data_inicio" timestamp NOT NULL,
 	"data_fim" timestamp NOT NULL,
 	"valor" numeric(10,2) NOT NULL,
@@ -70,7 +77,8 @@ CREATE TABLE "candidaturas" (
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	"deleted_at" timestamp,
-	CONSTRAINT "candidaturas_plantao_medico_unique" UNIQUE("plantao_id","medico_id")
+	CONSTRAINT "candidaturas_plantao_medico_unique" UNIQUE("plantao_id","medico_id"),
+	CONSTRAINT "candidaturas_id_plantao_medico_unique" UNIQUE("id","plantao_id","medico_id")
 );
 --> statement-breakpoint
 CREATE TABLE "alocacoes" (
@@ -113,7 +121,7 @@ CREATE TABLE "pagamentos" (
 );
 --> statement-breakpoint
 CREATE INDEX "instituicoes_usuario_id_idx" ON "instituicoes" ("usuario_id");--> statement-breakpoint
-CREATE INDEX "gestores_instituicao_id_idx" ON "gestores" ("instituicao_id");--> statement-breakpoint
+CREATE INDEX "gestores_instituicoes_instituicao_id_idx" ON "gestores_instituicoes" ("instituicao_id");--> statement-breakpoint
 CREATE INDEX "plantoes_feed_idx" ON "plantoes" ("status","data_inicio");--> statement-breakpoint
 CREATE INDEX "plantoes_instituicao_id_idx" ON "plantoes" ("instituicao_id");--> statement-breakpoint
 CREATE INDEX "plantoes_gestor_criador_id_idx" ON "plantoes" ("gestor_criador_id");--> statement-breakpoint
@@ -124,7 +132,8 @@ CREATE INDEX "alocacoes_plantao_id_idx" ON "alocacoes" ("plantao_id");--> statem
 CREATE INDEX "alocacoes_medico_id_idx" ON "alocacoes" ("medico_id");--> statement-breakpoint
 ALTER TABLE "instituicoes" ADD CONSTRAINT "instituicoes_usuario_id_usuarios_id_fkey" FOREIGN KEY ("usuario_id") REFERENCES "usuarios"("id");--> statement-breakpoint
 ALTER TABLE "gestores" ADD CONSTRAINT "gestores_usuario_id_usuarios_id_fkey" FOREIGN KEY ("usuario_id") REFERENCES "usuarios"("id");--> statement-breakpoint
-ALTER TABLE "gestores" ADD CONSTRAINT "gestores_instituicao_id_instituicoes_id_fkey" FOREIGN KEY ("instituicao_id") REFERENCES "instituicoes"("id");--> statement-breakpoint
+ALTER TABLE "gestores_instituicoes" ADD CONSTRAINT "gestores_instituicoes_gestor_id_gestores_id_fkey" FOREIGN KEY ("gestor_id") REFERENCES "gestores"("id");--> statement-breakpoint
+ALTER TABLE "gestores_instituicoes" ADD CONSTRAINT "gestores_instituicoes_instituicao_id_instituicoes_id_fkey" FOREIGN KEY ("instituicao_id") REFERENCES "instituicoes"("id");--> statement-breakpoint
 ALTER TABLE "plantoes" ADD CONSTRAINT "plantoes_instituicao_id_instituicoes_id_fkey" FOREIGN KEY ("instituicao_id") REFERENCES "instituicoes"("id");--> statement-breakpoint
 ALTER TABLE "plantoes" ADD CONSTRAINT "plantoes_gestor_criador_id_usuarios_id_fkey" FOREIGN KEY ("gestor_criador_id") REFERENCES "usuarios"("id");--> statement-breakpoint
 ALTER TABLE "candidaturas" ADD CONSTRAINT "candidaturas_plantao_id_plantoes_id_fkey" FOREIGN KEY ("plantao_id") REFERENCES "plantoes"("id");--> statement-breakpoint
@@ -133,6 +142,7 @@ ALTER TABLE "candidaturas" ADD CONSTRAINT "candidaturas_analisado_por_gestor_id_
 ALTER TABLE "alocacoes" ADD CONSTRAINT "alocacoes_plantao_id_plantoes_id_fkey" FOREIGN KEY ("plantao_id") REFERENCES "plantoes"("id");--> statement-breakpoint
 ALTER TABLE "alocacoes" ADD CONSTRAINT "alocacoes_medico_id_medicos_id_fkey" FOREIGN KEY ("medico_id") REFERENCES "medicos"("id");--> statement-breakpoint
 ALTER TABLE "alocacoes" ADD CONSTRAINT "alocacoes_candidatura_id_candidaturas_id_fkey" FOREIGN KEY ("candidatura_id") REFERENCES "candidaturas"("id");--> statement-breakpoint
+ALTER TABLE "alocacoes" ADD CONSTRAINT "alocacoes_candidatura_vinculo_fkey" FOREIGN KEY ("candidatura_id","plantao_id","medico_id") REFERENCES "candidaturas"("id","plantao_id","medico_id");--> statement-breakpoint
 ALTER TABLE "registros_ponto" ADD CONSTRAINT "registros_ponto_alocacao_id_alocacoes_id_fkey" FOREIGN KEY ("alocacao_id") REFERENCES "alocacoes"("id");--> statement-breakpoint
 ALTER TABLE "pagamentos" ADD CONSTRAINT "pagamentos_alocacao_id_alocacoes_id_fkey" FOREIGN KEY ("alocacao_id") REFERENCES "alocacoes"("id");--> statement-breakpoint
 ALTER TABLE "pagamentos" ADD CONSTRAINT "pagamentos_registrado_por_gestor_id_gestores_id_fkey" FOREIGN KEY ("registrado_por_gestor_id") REFERENCES "gestores"("id");

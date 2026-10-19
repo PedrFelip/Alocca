@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "f3ec096e-3b6a-48fb-b450-493535616423",
+  "id": "7e32b5df-b6eb-4bf5-8db7-12553dc9b2e8",
   "prevIds": [
     "a2a256c1-1bd8-456e-9261-5b831f1d5e21"
   ],
@@ -102,6 +102,12 @@
     {
       "isRlsEnabled": false,
       "name": "gestores",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "gestores_instituicoes",
       "entityType": "tables",
       "schema": "public"
     },
@@ -773,19 +779,6 @@
       "table": "gestores"
     },
     {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "instituicao_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "gestores"
-    },
-    {
       "type": "varchar(100)",
       "typeSchema": null,
       "notNull": false,
@@ -855,6 +848,45 @@
       "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "gestor_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "gestores_instituicoes"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "instituicao_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "gestores_instituicoes"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "gestores_instituicoes"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
       "default": "gen_random_uuid()",
       "generated": null,
       "identity": null,
@@ -916,9 +948,22 @@
       "table": "plantoes"
     },
     {
+      "type": "varchar(150)",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "local_unidade",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "plantoes"
+    },
+    {
       "type": "varchar(100)",
       "typeSchema": null,
-      "notNull": false,
+      "notNull": true,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -1641,10 +1686,10 @@
       "with": "",
       "method": "btree",
       "concurrently": false,
-      "name": "gestores_instituicao_id_idx",
+      "name": "gestores_instituicoes_instituicao_id_idx",
       "entityType": "indexes",
       "schema": "public",
-      "table": "gestores"
+      "table": "gestores_instituicoes"
     },
     {
       "nameExplicit": true,
@@ -1909,6 +1954,23 @@
     {
       "nameExplicit": false,
       "columns": [
+        "gestor_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "gestores",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "name": "gestores_instituicoes_gestor_id_gestores_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "gestores_instituicoes"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "instituicao_id"
       ],
       "schemaTo": "public",
@@ -1918,10 +1980,10 @@
       ],
       "onUpdate": "NO ACTION",
       "onDelete": "NO ACTION",
-      "name": "gestores_instituicao_id_instituicoes_id_fkey",
+      "name": "gestores_instituicoes_instituicao_id_instituicoes_id_fkey",
       "entityType": "fks",
       "schema": "public",
-      "table": "gestores"
+      "table": "gestores_instituicoes"
     },
     {
       "nameExplicit": false,
@@ -2060,6 +2122,27 @@
       "table": "alocacoes"
     },
     {
+      "nameExplicit": true,
+      "columns": [
+        "candidatura_id",
+        "plantao_id",
+        "medico_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "candidaturas",
+      "columnsTo": [
+        "id",
+        "plantao_id",
+        "medico_id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "NO ACTION",
+      "name": "alocacoes_candidatura_vinculo_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "alocacoes"
+    },
+    {
       "nameExplicit": false,
       "columns": [
         "alocacao_id"
@@ -2109,6 +2192,17 @@
       "entityType": "fks",
       "schema": "public",
       "table": "pagamentos"
+    },
+    {
+      "columns": [
+        "gestor_id",
+        "instituicao_id"
+      ],
+      "nameExplicit": false,
+      "name": "gestores_instituicoes_pkey",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "gestores_instituicoes"
     },
     {
       "columns": [
@@ -2230,6 +2324,19 @@
       ],
       "nullsNotDistinct": false,
       "name": "candidaturas_plantao_medico_unique",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "candidaturas"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "id",
+        "plantao_id",
+        "medico_id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "candidaturas_id_plantao_medico_unique",
       "entityType": "uniques",
       "schema": "public",
       "table": "candidaturas"

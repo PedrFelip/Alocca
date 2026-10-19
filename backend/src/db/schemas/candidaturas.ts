@@ -47,6 +47,12 @@ export const candidaturasTable = pgTable(
       table.plantao_id,
       table.medico_id,
     ),
+    // Alvo da FK composta de alocacoes: garante que plantão/médico batem com a candidatura.
+    unique('candidaturas_id_plantao_medico_unique').on(
+      table.id,
+      table.plantao_id,
+      table.medico_id,
+    ),
     index('candidaturas_plantao_id_idx').on(table.plantao_id),
     index('candidaturas_medico_id_idx').on(table.medico_id),
   ],

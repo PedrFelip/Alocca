@@ -5,6 +5,7 @@ import postgres from 'postgres'
 import { PasswordService } from '../auth/password.service.js'
 import { validateEnv } from '../config/env.js'
 import {
+  gestoresInstituicoesTable,
   gestoresTable,
   instituicoesTable,
   plantoesTable,
@@ -64,10 +65,7 @@ async function garantirInstituicao(usuarioId: string): Promise<string> {
   return criada.id
 }
 
-async function garantirGestor(
-  usuarioId: string,
-  instituicaoId: string,
-): Promise<string> {
+async function garantirGestor(usuarioId: string): Promise<string> {
   const [existente] = await db
     .select({ id: gestoresTable.id })
     .from(gestoresTable)
@@ -78,17 +76,27 @@ async function garantirGestor(
     .insert(gestoresTable)
     .values({
       usuario_id: usuarioId,
-      instituicao_id: instituicaoId,
       cargo: 'Diretor Clínico',
     })
     .returning({ id: gestoresTable.id })
   return criado.id
 }
 
+async function garantirVinculo(
+  gestorId: string,
+  instituicaoId: string,
+): Promise<void> {
+  await db
+    .insert(gestoresInstituicoesTable)
+    .values({ gestor_id: gestorId, instituicao_id: instituicaoId })
+    .onConflictDoNothing()
+}
+
 async function main(): Promise<void> {
   const usuarioId = await garantirUsuarioGestor()
   const instituicaoId = await garantirInstituicao(usuarioId)
-  await garantirGestor(usuarioId, instituicaoId)
+  const gestorId = await garantirGestor(usuarioId)
+  await garantirVinculo(gestorId, instituicaoId)
 
   const plantoesExistentes = await db
     .select({ id: plantoesTable.id })
@@ -103,6 +111,7 @@ async function main(): Promise<void> {
         instituicao_id: instituicaoId,
         gestor_criador_id: usuarioId,
         titulo: 'Plantão UTI Adulto — Diurno',
+        local_unidade: 'UTI Adulto — 3º andar',
         especialidade: 'Medicina Intensiva',
         data_inicio: new Date(base),
         data_fim: new Date(base + meioDia),
@@ -115,6 +124,7 @@ async function main(): Promise<void> {
         instituicao_id: instituicaoId,
         gestor_criador_id: usuarioId,
         titulo: 'Plantão Pronto Socorro — Noturno',
+        local_unidade: 'Pronto Socorro — Porta de entrada',
         especialidade: 'Clínica Médica',
         data_inicio: new Date(base + 2 * dia),
         data_fim: new Date(base + 2 * dia + meioDia),

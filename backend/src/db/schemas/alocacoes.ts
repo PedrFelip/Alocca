@@ -1,4 +1,11 @@
-import { index, pgTable, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import {
+  foreignKey,
+  index,
+  pgTable,
+  timestamp,
+  unique,
+  uuid,
+} from 'drizzle-orm/pg-core'
 import { candidaturasTable } from './candidaturas.js'
 import { medicosTable } from './medicos.js'
 import { plantoesTable } from './plantoes.js'
@@ -28,6 +35,16 @@ export const alocacoesTable = pgTable(
   (table) => [
     // Uma alocação por candidatura.
     unique('alocacoes_candidatura_unique').on(table.candidatura_id),
+    // Garante que o plantão e o médico da alocação são os da candidatura referenciada.
+    foreignKey({
+      name: 'alocacoes_candidatura_vinculo_fkey',
+      columns: [table.candidatura_id, table.plantao_id, table.medico_id],
+      foreignColumns: [
+        candidaturasTable.id,
+        candidaturasTable.plantao_id,
+        candidaturasTable.medico_id,
+      ],
+    }),
     index('alocacoes_plantao_id_idx').on(table.plantao_id),
     index('alocacoes_medico_id_idx').on(table.medico_id),
   ],
