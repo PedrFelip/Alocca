@@ -8,9 +8,14 @@ import request from 'supertest'
 import { AppModule } from '../src/app.module.js'
 import { DRIZZLE_DB } from '../src/db/db.provider.js'
 
+function timestamp(dias: number): string {
+  return new Date(Date.now() + dias * 86_400_000).toISOString().slice(0, 23)
+}
+
 describe('Feed de plantões do médico', () => {
   let app: INestApplication
   let database: PGlite
+  let medicoId: string
   let medicoToken: string
   let gestorToken: string
   let adminToken: string
@@ -18,10 +23,7 @@ describe('Feed de plantões do médico', () => {
   let instituicaoSaoPaulo: string
   let plantaoPediatria: string
   let plantaoClinica: string
-  let plantaoSemCandidatura: string
-  let plantaoRascunho: string
-  let plantaoSemVagas: string
-  let plantaoExcluido: string
+  const excluidos: string[] = []
 
   beforeAll(async () => {
     database = new PGlite()
@@ -56,20 +58,22 @@ describe('Feed de plantões do médico', () => {
     const gestorUsuarioId = await criarUsuario('gestor@example.com', 'GESTOR')
     const adminUsuarioId = await criarUsuario('admin@example.com', 'ADMIN')
 
-    await database.query(
-      "INSERT INTO medicos (usuario_id, crm, uf_crm) VALUES ($1, '123456', 'DF')",
+    const medico = await database.query<{ id: string }>(
+      "INSERT INTO medicos (usuario_id, crm, uf_crm) VALUES ($1, '123456', 'DF') RETURNING id",
       [medicoUsuarioId],
     )
+    medicoId = medico.rows[0].id
 
     async function criarInstituicao(
       nome: string,
       cidade: string,
       uf: string,
       cnpj: string,
+      ativa = true,
     ): Promise<string> {
       const result = await database.query<{ id: string }>(
-        'INSERT INTO instituicoes (usuario_id, nome, cnpj, cidade, uf) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-        [gestorUsuarioId, nome, cnpj, cidade, uf],
+        'INSERT INTO instituicoes (usuario_id, nome, cnpj, cidade, uf, ativa) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+        [gestorUsuarioId, nome, cnpj, cidade, uf, ativa],
       )
       return result.rows[0].id
     }
@@ -86,44 +90,45 @@ describe('Feed de plantões do médico', () => {
       'SP',
       '22222222000122',
     )
-
-    const gestor = await database.query<{ id: string }>(
-      'INSERT INTO gestores (usuario_id, instituicao_id) VALUES ($1, $2) RETURNING id',
-      [gestorUsuarioId, instituicaoDf],
+    const instituicaoInativa = await criarInstituicao(
+      'Hospital Fechado',
+      'Brasília',
+      'DF',
+      '33333333000133',
+      false,
     )
-    const gestorId = gestor.rows[0].id
 
     async function criarPlantao(params: {
       instituicaoId: string
       titulo: string
-      especialidade: string
-      valor: string
-      dataInicio?: string
+      especialidade?: string
+      valor?: string
+      inicioDias?: number
       status?: string
       permiteCandidatura?: boolean
-      quantidadeVagas?: number
       vagasDisponiveis?: number
       excluido?: boolean
     }): Promise<string> {
-      const dataInicio = params.dataInicio ?? '1 day'
+      const inicio = timestamp(params.inicioDias ?? 1)
+      const fim = timestamp((params.inicioDias ?? 1) + 0.5)
       const result = await database.query<{ id: string }>(
-        `INSERT INTO plantoes (instituicao_id, criado_por_gestor_id, titulo, especialidade,
+        `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, especialidade,
           data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status,
           permite_candidatura, deleted_at)
-         VALUES ($1, $2, $3, $4, now() + interval '${dataInicio}',
-          now() + interval '${dataInicio}' + interval '12 hours', $5, $6, $7, $8, $9,
-          ${params.excluido ? 'now()' : 'NULL'})
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 2, $8, $9, $10, $11)
          RETURNING id`,
         [
           params.instituicaoId,
-          gestorId,
+          gestorUsuarioId,
           params.titulo,
-          params.especialidade,
-          params.valor,
-          params.quantidadeVagas ?? 2,
+          params.especialidade ?? 'Clínica Médica',
+          inicio,
+          fim,
+          params.valor ?? '1000.00',
           params.vagasDisponiveis ?? 2,
           params.status ?? 'ABERTO',
           params.permiteCandidatura ?? true,
+          params.excluido ? timestamp(0) : null,
         ],
       )
       return result.rows[0].id
@@ -134,42 +139,57 @@ describe('Feed de plantões do médico', () => {
       titulo: 'Pediatria diurno',
       especialidade: 'Pediatria',
       valor: '1000.00',
+      inicioDias: 1,
     })
     plantaoClinica = await criarPlantao({
       instituicaoId: instituicaoSaoPaulo,
       titulo: 'Clínica médica noturno',
       especialidade: 'Clínica Médica',
       valor: '2000.00',
-      dataInicio: '2 days',
+      inicioDias: 2,
     })
-    plantaoSemCandidatura = await criarPlantao({
+
+    excluidos.length = 0
+    excluidos.push(
+      await criarPlantao({
+        instituicaoId: instituicaoDf,
+        titulo: 'Sem candidatura',
+        permiteCandidatura: false,
+      }),
+      await criarPlantao({
+        instituicaoId: instituicaoDf,
+        titulo: 'Preenchido',
+        status: 'PREENCHIDO',
+      }),
+      await criarPlantao({
+        instituicaoId: instituicaoDf,
+        titulo: 'Sem vagas',
+        vagasDisponiveis: 0,
+      }),
+      await criarPlantao({
+        instituicaoId: instituicaoDf,
+        titulo: 'Excluído',
+        excluido: true,
+      }),
+      await criarPlantao({
+        instituicaoId: instituicaoInativa,
+        titulo: 'Instituição inativa',
+      }),
+      await criarPlantao({
+        instituicaoId: instituicaoDf,
+        titulo: 'Já encerrado',
+        inicioDias: -2,
+      }),
+    )
+    const plantaoJaCandidatado = await criarPlantao({
       instituicaoId: instituicaoDf,
-      titulo: 'Fechado para candidatura',
-      especialidade: 'Pediatria',
-      valor: '1000.00',
-      permiteCandidatura: false,
+      titulo: 'Já me candidatei',
     })
-    plantaoRascunho = await criarPlantao({
-      instituicaoId: instituicaoDf,
-      titulo: 'Rascunho',
-      especialidade: 'Pediatria',
-      valor: '1000.00',
-      status: 'RASCUNHO',
-    })
-    plantaoSemVagas = await criarPlantao({
-      instituicaoId: instituicaoDf,
-      titulo: 'Sem vagas',
-      especialidade: 'Pediatria',
-      valor: '1000.00',
-      vagasDisponiveis: 0,
-    })
-    plantaoExcluido = await criarPlantao({
-      instituicaoId: instituicaoDf,
-      titulo: 'Excluído',
-      especialidade: 'Pediatria',
-      valor: '1000.00',
-      excluido: true,
-    })
+    await database.query(
+      'INSERT INTO candidaturas (plantao_id, medico_id) VALUES ($1, $2)',
+      [plantaoJaCandidatado, medicoId],
+    )
+    excluidos.push(plantaoJaCandidatado)
 
     const jwt = app.get(JwtService)
     medicoToken = `Bearer ${await jwt.signAsync({ sub: medicoUsuarioId })}`
@@ -199,20 +219,15 @@ describe('Feed de plantões do médico', () => {
     }
   })
 
-  it('lista só vagas abertas, com candidatura e vagas disponíveis', async () => {
+  it('lista só vagas elegíveis, na ordem de início', async () => {
     const response = await listar().expect(200)
     expect(response.body.map((p: { id: string }) => p.id)).toEqual([
       plantaoPediatria,
       plantaoClinica,
     ])
-    expect(response.body).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: plantaoSemCandidatura }),
-        expect.objectContaining({ id: plantaoRascunho }),
-        expect.objectContaining({ id: plantaoSemVagas }),
-        expect.objectContaining({ id: plantaoExcluido }),
-      ]),
-    )
+    for (const id of excluidos) {
+      expect(response.body).not.toContainEqual(expect.objectContaining({ id }))
+    }
   })
 
   it('devolve os dados da instituição aninhados', async () => {
@@ -249,7 +264,7 @@ describe('Feed de plantões do médico', () => {
     ])
   })
 
-  it('filtra por faixa de valor', async () => {
+  it('filtra por faixa de valor e aceita faixa vazia', async () => {
     const acima = await listar({ valor_min: '1500' }).expect(200)
     expect(acima.body.map((p: { id: string }) => p.id)).toEqual([
       plantaoClinica,
@@ -258,12 +273,32 @@ describe('Feed de plantões do médico', () => {
     expect(abaixo.body.map((p: { id: string }) => p.id)).toEqual([
       plantaoPediatria,
     ])
+    const vazios = await listar({ valor_min: '', valor_max: '' }).expect(200)
+    expect(vazios.body).toHaveLength(2)
+  })
+
+  it('limita e pagina a lista', async () => {
+    const primeira = await listar({ limit: '1' }).expect(200)
+    expect(primeira.body.map((p: { id: string }) => p.id)).toEqual([
+      plantaoPediatria,
+    ])
+    const segunda = await listar({ limit: '1', offset: '1' }).expect(200)
+    expect(segunda.body.map((p: { id: string }) => p.id)).toEqual([
+      plantaoClinica,
+    ])
+  })
+
+  it('aceita o status aberto do contrato', async () => {
+    const response = await listar({ status: 'Aberto' }).expect(200)
+    expect(response.body).toHaveLength(2)
   })
 
   it('rejeita filtros inválidos', async () => {
     await listar({ uf: 'XX' }).expect(400)
     await listar({ valor_min: '2000', valor_max: '1000' }).expect(400)
-    await listar({ status: 'RASCUNHO' }).expect(400)
+    await listar({ status: 'PREENCHIDO' }).expect(400)
+    await listar({ limit: '0' }).expect(400)
+    await listar({ limit: '51' }).expect(400)
     await listar({ desconhecido: '1' }).expect(400)
   })
 })
