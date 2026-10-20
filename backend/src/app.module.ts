@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common'
 import { APP_GUARD } from '@nestjs/core'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
-import { AuthModule } from './auth/auth.module.js'
+import { AuthModule } from './auth/auth.module.ts'
 import { ConfigModule } from '@nestjs/config'
 
-import { validateEnv } from './config/env.js'
-import { DatabaseModule } from './db/db.module.js'
-import { HealthModule } from './health/health.module.js'
-import { MedicosModule } from './medicos/medicos.module.js'
+import { validateEnv } from './config/env.ts'
+import { DatabaseModule } from './db/db.module.ts'
+import { HealthModule } from './health/health.module.ts'
+import { MedicosModule } from './medicos/medicos.module.ts'
 
 @Module({
   imports: [

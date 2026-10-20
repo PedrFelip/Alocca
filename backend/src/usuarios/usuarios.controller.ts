@@ -7,13 +7,13 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common'
-import { AuthGuard, type AuthenticatedRequest } from '../auth/auth.guard.js'
-import { ZodValidationPipe } from '../common/zod-validation.pipe.js'
+import { AuthGuard, type AuthenticatedRequest } from '../auth/auth.guard.ts'
+import { ZodValidationPipe } from '../common/zod-validation.pipe.ts'
 import {
   atualizarUsuarioSchema,
   type AtualizarUsuario,
-} from './usuarios.schemas.js'
-import { UsuariosService } from './usuarios.service.js'
+} from './usuarios.schemas.ts'
+import { UsuariosService } from './usuarios.service.ts'
 
 @Controller('usuarios')
 @UseGuards(AuthGuard)

@@ -7,8 +7,8 @@ import {
   unique,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { alocacoesTable } from './alocacoes.js'
-import { gestoresTable } from './gestores.js'
+import { alocacoesTable } from './alocacoes.ts'
+import { gestoresTable } from './gestores.ts'
 
 export const statusPagamento = pgEnum('status_pagamento', ['PENDENTE', 'PAGO'])
 

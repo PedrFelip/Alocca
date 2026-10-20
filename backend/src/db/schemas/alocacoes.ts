@@ -6,9 +6,9 @@ import {
   unique,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { candidaturasTable } from './candidaturas.js'
-import { medicosTable } from './medicos.js'
-import { plantoesTable } from './plantoes.js'
+import { candidaturasTable } from './candidaturas.ts'
+import { medicosTable } from './medicos.ts'
+import { plantoesTable } from './plantoes.ts'
 
 export const alocacoesTable = pgTable(
   'alocacoes',

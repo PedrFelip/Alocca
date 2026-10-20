@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtModule } from '@nestjs/jwt'
-import type { Env } from '../config/env.js'
-import { DatabaseModule } from '../db/db.module.js'
-import { AuthGuard } from './auth.guard.js'
-import { PasswordService } from './password.service.js'
-import { PermissoesGuard } from './permissoes.guard.js'
+import type { Env } from '../config/env.ts'
+import { DatabaseModule } from '../db/db.module.ts'
+import { AuthGuard } from './auth.guard.ts'
+import { PasswordService } from './password.service.ts'
+import { PermissoesGuard } from './permissoes.guard.ts'
 
 @Module({
   imports: [

@@ -6,7 +6,7 @@ import {
   unique,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { alocacoesTable } from './alocacoes.js'
+import { alocacoesTable } from './alocacoes.ts'
 
 export const tipoEventoPresenca = pgEnum('tipo_evento_presenca', [
   'ENTRADA',

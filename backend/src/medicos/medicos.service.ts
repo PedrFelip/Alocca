@@ -6,9 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq, isNull } from 'drizzle-orm'
-import { DRIZZLE_DB, type Database } from '../db/db.provider.js'
-import { medicosTable, usuariosTable } from '../db/schemas/index.js'
-import type { DecidirValidacao } from './medicos.schemas.js'
+import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
+import { medicosTable, usuariosTable } from '../db/schemas/index.ts'
+import type { DecidirValidacao } from './medicos.schemas.ts'
 
 @Injectable()
 export class MedicosService {

@@ -2,7 +2,7 @@ import { ConfigService } from '@nestjs/config'
 import { drizzle, type PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 
-import type { Env } from '../config/env.js'
+import type { Env } from '../config/env.ts'
 
 export const DRIZZLE_DB = 'DrizzleAsyncProvider'
 export type Database = PostgresJsDatabase

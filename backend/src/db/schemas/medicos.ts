@@ -7,7 +7,7 @@ import {
   varchar,
   char,
 } from 'drizzle-orm/pg-core'
-import { usuariosTable } from './usuarios.js'
+import { usuariosTable } from './usuarios.ts'
 
 export const statusValidacaoMedico = pgEnum('status_validacao_medico', [
   'PENDENTE',

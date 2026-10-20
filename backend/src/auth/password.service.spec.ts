@@ -1,4 +1,4 @@
-import { PasswordService } from './password.service.js'
+import { PasswordService } from './password.service.ts'
 
 describe('PasswordService', () => {
   const service = new PasswordService()
