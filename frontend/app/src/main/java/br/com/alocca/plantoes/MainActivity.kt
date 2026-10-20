@@ -1,6 +1,8 @@
 package br.com.alocca.plantoes
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.drawscope.Fill
+import org.json.JSONObject
 
 private val Navy = Color(0xFF063957)
 private val DeepTeal = Color(0xFF07566A)
@@ -48,6 +51,7 @@ private val Border = Color(0xFF48A8BC)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        TokenStore.discardLegacyPlaintext(this)
 
         // Permite que o fundo chegue até as bordas, atrás da barra de status e navegação.
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -67,6 +71,25 @@ private enum class Screen { Login, Register }
 @Composable
 private fun AuthApp() {
     var screen by remember { mutableStateOf(Screen.Login) }
+    var loading by remember { mutableStateOf(false) }
+    var feedback by remember { mutableStateOf("") }
+    var feedbackSuccess by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    fun submit(path: String, payload: JSONObject, onSuccess: (JSONObject?) -> Unit) {
+        if (loading) return
+        loading = true
+        feedback = ""
+        Thread {
+            val result = AuthApi.post(path, payload)
+            Handler(Looper.getMainLooper()).post {
+                loading = false
+                feedback = if (result.successful) "" else result.message
+                feedbackSuccess = false
+                if (result.successful) onSuccess(result.body)
+            }
+        }.start()
+    }
 
     Surface(Modifier.fillMaxSize(), color = CanvasColor) {
         Box(Modifier.fillMaxSize()) {
@@ -96,14 +119,47 @@ private fun AuthApp() {
                         textAlign = TextAlign.Center
                     )
                     Spacer(Modifier.height(40.dp))
-                    LoginForm(onRegister = { screen = Screen.Register })
+                    LoginForm(
+                        onRegister = { feedback = ""; screen = Screen.Register },
+                        loading = loading,
+                        feedback = feedback,
+                        feedbackSuccess = feedbackSuccess,
+                        onSubmit = { email, senha ->
+                            val payload = JSONObject().put("email", email.trim()).put("senha", senha)
+                            submit("auth/login", payload) { response ->
+                                val token = requireNotNull(response).getString("access_token").trim()
+                                try {
+                                    TokenStore.save(context, token)
+                                    feedback = "Login realizado com sucesso."
+                                    feedbackSuccess = true
+                                } catch (_: Exception) {
+                                    feedback = "Não foi possível salvar a sessão com segurança. Tente novamente."
+                                    feedbackSuccess = false
+                                }
+                            }
+                        }
+                    )
                 } else {
                     Spacer(Modifier.height(10.dp))
                     Text("Criar sua conta", color = Navy, fontSize = 23.sp, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(4.dp))
                     Text("Preencha os dados abaixo para começar.", color = Muted, fontSize = 13.sp)
                     Spacer(Modifier.height(18.dp))
-                    RegisterForm(onLogin = { screen = Screen.Login })
+                    RegisterForm(
+                        onLogin = { feedback = ""; screen = Screen.Login },
+                        loading = loading,
+                        feedback = feedback,
+                        feedbackSuccess = feedbackSuccess,
+                        onSubmit = { nome, email, crm, uf, senha ->
+                            val payload = JSONObject().put("nome", nome.trim()).put("email", email.trim())
+                                .put("senha", senha).put("crm", crm.trim()).put("uf_crm", uf.trim().uppercase())
+                            submit("auth/register/medico", payload) {
+                                feedback = "Cadastro enviado. Você já pode entrar."
+                                feedbackSuccess = true
+                                screen = Screen.Login
+                            }
+                        }
+                    )
                 }
 
                 Spacer(Modifier.height(18.dp))
@@ -174,10 +230,17 @@ private fun BrandLogo() {
 }
 
 @Composable
-private fun LoginForm(onRegister: () -> Unit) {
+private fun LoginForm(
+    onRegister: () -> Unit,
+    loading: Boolean,
+    feedback: String,
+    feedbackSuccess: Boolean,
+    onSubmit: (String, String) -> Unit
+) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
+    var formError by remember { mutableStateOf("") }
 
     AuthField("E-mail", email, { email = it }, "Seu@email.com", Icons.Default.Email, KeyboardType.Email)
     Spacer(Modifier.height(28.dp))
@@ -192,7 +255,17 @@ private fun LoginForm(onRegister: () -> Unit) {
         color = Border, fontWeight = FontWeight.SemiBold, fontSize = 11.sp
     )
     Spacer(Modifier.height(20.dp))
-    PrimaryButton("Entrar")
+    if (formError.isNotBlank()) FeedbackText(formError, false)
+    else if (feedback.isNotBlank()) FeedbackText(feedback, feedbackSuccess)
+    PrimaryButton("Entrar", loading) {
+        formError = when {
+            !email.trim().matches(Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) -> "Informe um e-mail válido."
+            password.isEmpty() -> "Informe sua senha."
+            password.length > 128 -> "A senha deve ter no máximo 128 caracteres."
+            else -> ""
+        }
+        if (formError.isEmpty()) onSubmit(email, password)
+    }
     Row(
         Modifier.fillMaxWidth().padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -212,26 +285,36 @@ private fun LoginForm(onRegister: () -> Unit) {
 }
 
 @Composable
-private fun RegisterForm(onLogin: () -> Unit) {
+private fun RegisterForm(
+    onLogin: () -> Unit,
+    loading: Boolean,
+    feedback: String,
+    feedbackSuccess: Boolean,
+    onSubmit: (String, String, String, String, String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
-    var cpf by remember { mutableStateOf("") }
-    var rm by remember { mutableStateOf("") }
+    var crm by remember { mutableStateOf("") }
+    var uf by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
+    var formError by remember { mutableStateOf("") }
 
+    AuthField("Nome completo", name, { name = it }, "Seu nome", Icons.Default.PersonOutline, KeyboardType.Text)
+    Spacer(Modifier.height(16.dp))
     AuthField("E-mail", email, { email = it }, "Seu@email.com", Icons.Default.Email, KeyboardType.Email)
     Spacer(Modifier.height(16.dp))
-    AuthField("CPF", cpf, { cpf = it }, "000.000.000-00", Icons.Default.PersonOutline, KeyboardType.Number)
+    AuthField("CRM", crm, { crm = it }, "Apenas números", Icons.Default.PersonOutline, KeyboardType.Number)
     Spacer(Modifier.height(16.dp))
-    AuthField("RM", rm, { rm = it }, "000000-DF", Icons.Default.PersonOutline, KeyboardType.Text)
+    AuthField("UF do CRM", uf, { uf = it.uppercase().take(2) }, "Ex.: SP", Icons.Default.PersonOutline, KeyboardType.Text)
     Spacer(Modifier.height(16.dp))
     AuthField(
         "Senha", password, { password = it }, "Crie uma senha segura", Icons.Default.Lock,
         KeyboardType.Password, password = true, visible = visible, onToggle = { visible = !visible }
     )
     Text(
-        "Mínimo de 8 caracteres com letras, números e símbolos",
+        "Use de 8 a 128 caracteres.",
         color = Color(0xFFA9B5B4), fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
         modifier = Modifier.fillMaxWidth().padding(start = 3.dp, top = 3.dp)
     )
@@ -241,7 +324,21 @@ private fun RegisterForm(onLogin: () -> Unit) {
         KeyboardType.Password, password = true, visible = visible, onToggle = { visible = !visible }
     )
     Spacer(Modifier.height(14.dp))
-    PrimaryButton("Cadastrar")
+    if (formError.isNotBlank()) FeedbackText(formError, false)
+    else if (feedback.isNotBlank()) FeedbackText(feedback, feedbackSuccess)
+    PrimaryButton("Cadastrar", loading) {
+        formError = when {
+            name.trim().length < 2 -> "Informe seu nome completo (mínimo 2 caracteres)."
+            !email.trim().matches(Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) -> "Informe um e-mail válido."
+            crm.isBlank() || !crm.matches(Regex("^\\d{1,20}$")) -> "O CRM deve conter apenas números."
+            uf !in setOf("AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO") -> "Informe uma UF válida para o CRM."
+            password.length < 8 -> "A senha deve ter pelo menos 8 caracteres."
+            password.length > 128 -> "A senha deve ter no máximo 128 caracteres."
+            password != confirm -> "As senhas não coincidem."
+            else -> ""
+        }
+        if (formError.isEmpty()) onSubmit(name, email, crm, uf, password)
+    }
     Row(Modifier.fillMaxWidth().padding(top = 13.dp), horizontalArrangement = Arrangement.Center) {
         Text("Já tem uma conta? ", color = Muted, fontSize = 13.sp)
         Text("Faça Login", Modifier.clickable(onClick = onLogin), color = Border, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -350,15 +447,28 @@ private fun AuthField(
 }
 
 @Composable
-private fun PrimaryButton(text: String) {
+private fun FeedbackText(text: String, success: Boolean) {
+    Text(
+        text = text,
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        color = if (success) Color(0xFF18794E) else Color(0xFFB3261E),
+        fontSize = 12.sp,
+        textAlign = TextAlign.Start
+    )
+}
+
+@Composable
+private fun PrimaryButton(text: String, loading: Boolean = false, onClick: () -> Unit = {}) {
     Button(
-        onClick = { },
+        onClick = onClick,
+        enabled = !loading,
         modifier = Modifier.fillMaxWidth().height(48.dp),
         shape = RoundedCornerShape(7.dp),
         colors = ButtonDefaults.buttonColors(containerColor = DeepTeal),
         elevation = ButtonDefaults.buttonElevation(defaultElevation = 3.dp)
     ) {
-        Text(text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        if (loading) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+        else Text(text, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
     }
 }
 

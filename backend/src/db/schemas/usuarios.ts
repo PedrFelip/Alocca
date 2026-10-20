@@ -1,4 +1,11 @@
-import { pgEnum, pgTable, timestamp, uuid, varchar } from 'drizzle-orm/pg-core'
+import {
+  integer,
+  pgEnum,
+  pgTable,
+  timestamp,
+  uuid,
+  varchar,
+} from 'drizzle-orm/pg-core'
 
 export const TipoUsuario = pgEnum('tipo_usuario', ['MEDICO', 'GESTOR', 'ADMIN'])
 
@@ -16,6 +23,8 @@ export const usuariosTable = pgTable('usuarios', {
   telefone: varchar('telefone', { length: 20 }),
   tipo: TipoUsuario().notNull(),
   status: StatusUsuario().notNull().default('ATIVO'),
+  tentativas_falhas: integer('tentativas_falhas').notNull().default(0),
+  bloqueado_ate: timestamp('bloqueado_ate'),
   ultimo_login_at: timestamp('ultimo_login_at'),
   created_at: timestamp('created_at').notNull().defaultNow(),
   updated_at: timestamp('updated_at')

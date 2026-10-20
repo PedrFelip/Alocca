@@ -15,6 +15,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        val apiBaseUrl = providers.gradleProperty("AloccaApiBaseUrl")
+            .orElse(providers.environmentVariable("ALOCCA_API_BASE_URL"))
+            .getOrElse("http://10.0.2.2:3000/")
+        buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl.trimEnd('/')}/\"")
     }
 
     // Configura Java e Kotlin para a mesma versão
@@ -29,6 +33,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
