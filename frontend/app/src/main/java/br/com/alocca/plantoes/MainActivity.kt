@@ -74,7 +74,35 @@ private fun AuthApp() {
     var loading by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf("") }
     var feedbackSuccess by remember { mutableStateOf(false) }
+    var perfil by remember { mutableStateOf<PerfilUsuario?>(null) }
+    var restoring by remember { mutableStateOf(true) }
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    LaunchedEffect(Unit) {
+        Thread {
+            val token = TokenStore.read(context)
+            if (token == null) {
+                Handler(Looper.getMainLooper()).post { restoring = false }
+            } else {
+                val result = AuthApi.getProfile(token)
+                val autenticado = if (result.successful) PerfilUsuario.fromJson(result.body) else null
+                val sessionExpired = result.status == 401 || result.status == 403
+                if (autenticado == null && (result.successful || sessionExpired)) {
+                    TokenStore.clear(context)
+                }
+                Handler(Looper.getMainLooper()).post {
+                    when {
+                        autenticado != null -> perfil = autenticado
+                        sessionExpired -> feedback = "Sua sessão expirou. Entre novamente."
+                        else -> feedback = result.message.ifBlank {
+                            "Não foi possível restaurar sua sessão. Entre novamente."
+                        }
+                    }
+                    restoring = false
+                }
+            }
+        }.start()
+    }
 
     fun submit(path: String, payload: JSONObject, onSuccess: (JSONObject?) -> Unit) {
         if (loading) return
@@ -91,82 +119,219 @@ private fun AuthApp() {
         }.start()
     }
 
+    fun logout() {
+        TokenStore.clear(context)
+        perfil = null
+        screen = Screen.Login
+        feedback = "Sessão encerrada."
+        feedbackSuccess = true
+    }
+
+    if (restoring) {
+        Surface(Modifier.fillMaxSize(), color = CanvasColor) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = DeepTeal)
+                    Spacer(Modifier.height(16.dp))
+                    Text("Restaurando sua sessão…", color = Muted, fontSize = 13.sp)
+                }
+            }
+        }
+        return
+    }
+
     Surface(Modifier.fillMaxSize(), color = CanvasColor) {
         Box(Modifier.fillMaxSize()) {
             DecorativeCorners()
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Espaço superior ajustado para aproximar a posição da logo do protótipo.
-                Spacer(Modifier.height(if (screen == Screen.Login) 66.dp else 24.dp))
+            val currentPerfil = perfil
+            if (currentPerfil != null) {
+                HomeScreen(currentPerfil, onLogout = ::logout)
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Espaço superior ajustado para aproximar a posição da logo do protótipo.
+                    Spacer(Modifier.height(if (screen == Screen.Login) 66.dp else 24.dp))
 
-                BrandLogo()
+                    BrandLogo()
 
-                if (screen == Screen.Login) {
-                    Spacer(Modifier.height(23.dp))
-                    Text(
-                        text = "Conectando profissionais de saúde às\nmelhores oportunidades de plantão.",
-                        color = Muted,
-                        fontSize = 13.sp,
-                        lineHeight = 17.sp,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(Modifier.height(40.dp))
-                    LoginForm(
-                        onRegister = { feedback = ""; screen = Screen.Register },
-                        loading = loading,
-                        feedback = feedback,
-                        feedbackSuccess = feedbackSuccess,
-                        onSubmit = { email, senha ->
-                            val payload = JSONObject().put("email", email.trim()).put("senha", senha)
-                            submit("auth/login", payload) { response ->
-                                val token = requireNotNull(response).getString("access_token").trim()
-                                try {
-                                    TokenStore.save(context, token)
-                                    feedback = "Login realizado com sucesso."
-                                    feedbackSuccess = true
-                                } catch (_: Exception) {
-                                    feedback = "Não foi possível salvar a sessão com segurança. Tente novamente."
-                                    feedbackSuccess = false
+                    if (screen == Screen.Login) {
+                        Spacer(Modifier.height(23.dp))
+                        Text(
+                            text = "Conectando profissionais de saúde às\nmelhores oportunidades de plantão.",
+                            color = Muted,
+                            fontSize = 13.sp,
+                            lineHeight = 17.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(40.dp))
+                        LoginForm(
+                            onRegister = { feedback = ""; screen = Screen.Register },
+                            loading = loading,
+                            feedback = feedback,
+                            feedbackSuccess = feedbackSuccess,
+                            onSubmit = { email, senha ->
+                                val payload = JSONObject().put("email", email.trim()).put("senha", senha)
+                                submit("auth/login", payload) { response ->
+                                    val token = response?.optString("access_token")?.trim().orEmpty()
+                                    val autenticado = PerfilUsuario.fromLoginResponse(response)
+                                    if (token.isBlank() || autenticado == null) {
+                                        feedback = "O servidor retornou uma sessão inválida. Tente novamente."
+                                        feedbackSuccess = false
+                                    } else {
+                                        try {
+                                            TokenStore.save(context, token)
+                                            perfil = autenticado
+                                            feedback = ""
+                                            feedbackSuccess = false
+                                        } catch (_: Exception) {
+                                            feedback = "Não foi possível salvar a sessão com segurança. Tente novamente."
+                                            feedbackSuccess = false
+                                        }
+                                    }
                                 }
                             }
-                        }
-                    )
-                } else {
-                    Spacer(Modifier.height(10.dp))
-                    Text("Criar sua conta", color = Navy, fontSize = 23.sp, fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.height(4.dp))
-                    Text("Preencha os dados abaixo para começar.", color = Muted, fontSize = 13.sp)
-                    Spacer(Modifier.height(18.dp))
-                    RegisterForm(
-                        onLogin = { feedback = ""; screen = Screen.Login },
-                        loading = loading,
-                        feedback = feedback,
-                        feedbackSuccess = feedbackSuccess,
-                        onSubmit = { nome, email, crm, uf, senha ->
-                            val payload = JSONObject().put("nome", nome.trim()).put("email", email.trim())
-                                .put("senha", senha).put("crm", crm.trim()).put("uf_crm", uf.trim().uppercase())
-                            submit("auth/register/medico", payload) {
-                                feedback = "Cadastro enviado. Você já pode entrar."
-                                feedbackSuccess = true
-                                screen = Screen.Login
+                        )
+                    } else {
+                        Spacer(Modifier.height(10.dp))
+                        Text("Criar sua conta", color = Navy, fontSize = 23.sp, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Preencha os dados abaixo para começar.", color = Muted, fontSize = 13.sp)
+                        Spacer(Modifier.height(18.dp))
+                        RegisterForm(
+                            onLogin = { feedback = ""; screen = Screen.Login },
+                            loading = loading,
+                            feedback = feedback,
+                            feedbackSuccess = feedbackSuccess,
+                            onSubmit = { nome, email, crm, uf, senha ->
+                                val payload = JSONObject().put("nome", nome.trim()).put("email", email.trim())
+                                    .put("senha", senha).put("crm", crm.trim()).put("uf_crm", uf.trim().uppercase())
+                                submit("auth/register/medico", payload) {
+                                    feedback = "Cadastro enviado. Você já pode entrar."
+                                    feedbackSuccess = true
+                                    screen = Screen.Login
+                                }
                             }
-                        }
-                    )
-                }
+                        )
+                    }
 
-                Spacer(Modifier.height(18.dp))
-                PrivacyCard()
-                Spacer(Modifier.height(28.dp))
+                    Spacer(Modifier.height(18.dp))
+                    PrivacyCard()
+                    Spacer(Modifier.height(28.dp))
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Spacer(Modifier.height(36.dp))
+        BrandLogo()
+        Spacer(Modifier.height(26.dp))
+        Text(
+            text = "Olá, ${perfil.nome}",
+            color = Navy,
+            fontSize = 23.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(perfil.email, color = Muted, fontSize = 13.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(24.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFFD3E9EA))
+                .padding(16.dp),
+        ) {
+            Text("Sessão ativa", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Você está conectado ao Alocca com segurança.",
+                color = Muted,
+                fontSize = 12.sp,
+                lineHeight = 16.sp,
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.White)
+                .border(1.dp, Color(0xFFD7E2E1), RoundedCornerShape(8.dp))
+                .padding(16.dp),
+        ) {
+            Text("Sua conta", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(10.dp))
+            InfoRow("Nome", perfil.nome)
+            InfoRow("E-mail", perfil.email)
+            InfoRow("Perfil", perfil.tipoDescricao)
+            InfoRow("Conta", perfil.statusDescricao)
+            if (perfil.crm != null) {
+                InfoRow("CRM", listOfNotNull(perfil.crm, perfil.ufCrm).joinToString(" / "))
+            }
+            if (perfil.statusValidacao != null) {
+                InfoRow("Validação", perfil.validacaoDescricao)
+            }
+            if (perfil.statusValidacao == "REJEITADO" && !perfil.motivoRejeicao.isNullOrBlank()) {
+                InfoRow("Motivo", perfil.motivoRejeicao)
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+        Button(
+            onClick = onLogout,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(7.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFD3E9EA),
+                contentColor = DeepTeal,
+            ),
+        ) {
+            Text("Sair da conta", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(28.dp))
+    }
+}
+
+@Composable
+private fun InfoRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = label,
+            color = Muted,
+            fontSize = 12.sp,
+            modifier = Modifier.weight(0.4f),
+        )
+        Text(
+            text = value,
+            color = Navy,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.End,
+            modifier = Modifier.weight(0.6f),
+        )
     }
 }
 
