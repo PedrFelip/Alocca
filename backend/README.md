@@ -19,8 +19,17 @@ Uma conta existente com o mesmo e-mail nunca é promovida, reativada ou tem a
 senha substituída. Reiniciar não duplica o admin; mudar o `.env` não redefine
 a senha de uma conta que já existe.
 `JWT_EXPIRES` define a duração do access token (padrão: 900 segundos).
+`HOST` define a interface de rede em que a API escuta (padrão: `127.0.0.1`,
+acessível somente na própria máquina). Para desenvolvimento com emulador ou
+celular na rede local, habilite o acesso explicitamente com `HOST=0.0.0.0` e
+use o IP da máquina que executa o backend. Antes de expor a API à rede, troque
+as credenciais admin de exemplo do `.env.example`, configure um `JWT_SECRET`
+próprio e limite o acesso pelo firewall.
 `ADMIN_WEB_ORIGIN` define a origem permitida pelo CORS para o painel Svelte
 (padrão: `http://localhost:5173`). Configure a origem exata do painel em produção.
+O app Android nativo não é limitado por CORS; mantenha esta origem restrita ao
+painel web. Em dispositivos físicos, permita a porta da API no firewall da rede
+local e use o endereço IP da máquina que executa o backend.
 
 Na raiz do projeto, inicie o banco local com `docker compose up -d --wait db`.
 A conexão padrão do `.env.example` corresponde ao serviço do Compose.
@@ -79,6 +88,16 @@ No login, envie apenas `email` e `senha`. Nas rotas protegidas, use o header
 `senha_hash` não é retornado. Contas inativas, bloqueadas ou excluídas não podem
 entrar nem usar tokens já emitidos. Os endpoints de auth permitem até 10
 requisições por minuto por IP por endpoint (contador em memória do processo).
+Cinco senhas incorretas consecutivas para uma conta ativa resultam em bloqueio
+persistido por 15 minutos (`tentativas_falhas`, `bloqueado_ate`); a quinta
+resposta e as tentativas durante o bloqueio usam HTTP 429 e a mensagem MSG-03.
+Um login bem-sucedido zera o contador. Credenciais inválidas permanecem com
+mensagem genérica MSG-01.
+
+O login atual não implementa o desafio 2FA. O formato e a expiração do
+`challengeToken`, além do provedor para envio do PIN, seguem pendentes em D9 de
+`docs/decisoes-pendentes.md`; implementar isso alteraria o contrato consumido
+atualmente pelo app Android.
 
 O cadastro público não aceita `tipo`, `status` ou IDs de terceiros. Gestores e
 administradores já existentes podem autenticar; a criação desses perfis fica

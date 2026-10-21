@@ -49,6 +49,12 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
         'utf8',
       ),
     )
+    await database.exec(
+      await readFile(
+        'drizzle/20261019230000_login_lockout/migration.sql',
+        'utf8',
+      ),
+    )
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(DRIZZLE_DB)
       .useValue(drizzle({ client: database }))
@@ -130,6 +136,86 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
       .send({ email: 'missing@example.com', senha: 'incorreta' })
       .expect(401)
     expect(wrong.body.message).toBe(missing.body.message)
+  })
+
+  it('aplica RN08 em cinco falhas, mantém bloqueio e permite login após expiração', async () => {
+    const account = {
+      ...cadastro,
+      nome: 'Dra. Bloqueio',
+      email: 'bloqueio@example.com',
+      crm: '654321',
+    }
+    await request(app.getHttpServer())
+      .post('/auth/register/medico')
+      .send(account)
+      .expect(201)
+
+    const auth = app.get(AuthService)
+    const attempt = async (senha: string) => {
+      try {
+        await auth.login({ email: account.email, senha })
+        return 200
+      } catch (error) {
+        return error instanceof Error && 'getStatus' in error
+          ? (error as { getStatus: () => number }).getStatus()
+          : 500
+      }
+    }
+
+    expect(await attempt('errada')).toBe(401)
+    expect(await attempt('errada')).toBe(401)
+    expect(await attempt('errada')).toBe(401)
+    expect(await attempt('errada')).toBe(401)
+    expect(await attempt('errada')).toBe(429)
+    const blocked = await database.query<{
+      tentativas_falhas: number
+      bloqueado_ate: Date
+    }>(
+      "SELECT tentativas_falhas, bloqueado_ate FROM usuarios WHERE email = 'bloqueio@example.com'",
+    )
+    expect(blocked.rows[0].tentativas_falhas).toBe(5)
+    expect(blocked.rows[0].bloqueado_ate.getTime()).toBeGreaterThan(Date.now())
+
+    expect(await attempt(account.senha)).toBe(429)
+    await database.exec(
+      "UPDATE usuarios SET bloqueado_ate = now() - interval '1 second' WHERE email = 'bloqueio@example.com'",
+    )
+    expect(await attempt('errada')).toBe(401)
+    const afterExpiry = await database.query<{
+      tentativas_falhas: number
+      bloqueado_ate: Date | null
+    }>(
+      "SELECT tentativas_falhas, bloqueado_ate FROM usuarios WHERE email = 'bloqueio@example.com'",
+    )
+    expect(afterExpiry.rows[0]).toMatchObject({
+      tentativas_falhas: 1,
+      bloqueado_ate: null,
+    })
+
+    expect(await attempt(account.senha)).toBe(200)
+    const afterSuccess = await database.query<{
+      tentativas_falhas: number
+      bloqueado_ate: Date | null
+    }>(
+      "SELECT tentativas_falhas, bloqueado_ate FROM usuarios WHERE email = 'bloqueio@example.com'",
+    )
+    expect(afterSuccess.rows[0]).toMatchObject({
+      tentativas_falhas: 0,
+      bloqueado_ate: null,
+    })
+
+    const concurrentAttempts = await Promise.all(
+      Array.from({ length: 5 }, () => attempt('errada')),
+    )
+    expect(concurrentAttempts.sort((a, b) => a - b)).toEqual([
+      401, 401, 401, 401, 429,
+    ])
+    const afterConcurrentFailures = await database.query<{
+      tentativas_falhas: number
+    }>(
+      "SELECT tentativas_falhas FROM usuarios WHERE email = 'bloqueio@example.com'",
+    )
+    expect(afterConcurrentFailures.rows[0].tentativas_falhas).toBe(5)
   })
 
   it('exige token válido para consultar perfil', async () => {
