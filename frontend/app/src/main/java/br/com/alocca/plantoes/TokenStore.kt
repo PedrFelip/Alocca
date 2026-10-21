@@ -44,6 +44,14 @@ internal object TokenStore {
         context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
             .edit().remove(LEGACY_TOKEN_KEY).commit()
 
+    /** Remove a sessão local, incluindo qualquer token legado em texto puro. */
+    @Synchronized
+    fun clear(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().remove(IV_KEY).remove(CIPHERTEXT_KEY).commit()
+        discardLegacyPlaintext(context)
+    }
+
     /** Returns null for an absent or undecryptable token and clears corrupt ciphertext. */
     @Synchronized
     fun read(context: Context): String? {
