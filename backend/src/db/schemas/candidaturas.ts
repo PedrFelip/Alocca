@@ -7,9 +7,9 @@ import {
   unique,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { gestoresTable } from './gestores.js'
-import { medicosTable } from './medicos.js'
-import { plantoesTable } from './plantoes.js'
+import { gestoresTable } from './gestores.ts'
+import { medicosTable } from './medicos.ts'
+import { plantoesTable } from './plantoes.ts'
 
 export const statusCandidatura = pgEnum('status_candidatura', [
   'PENDENTE',

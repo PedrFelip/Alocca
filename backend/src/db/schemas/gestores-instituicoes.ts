@@ -5,8 +5,8 @@ import {
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core'
-import { gestoresTable } from './gestores.js'
-import { instituicoesTable } from './instituicoes.js'
+import { gestoresTable } from './gestores.ts'
+import { instituicoesTable } from './instituicoes.ts'
 
 // Um gestor pode administrar várias instituições e vice-versa (spec: Gestor 1 — 0..* Instituicao).
 export const gestoresInstituicoesTable = pgTable(

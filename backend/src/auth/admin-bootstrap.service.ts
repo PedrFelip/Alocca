@@ -1,10 +1,10 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { eq } from 'drizzle-orm'
-import type { Env } from '../config/env.js'
-import { DRIZZLE_DB, type Database } from '../db/db.provider.js'
-import { usuariosTable } from '../db/schemas/usuarios.js'
-import { PasswordService } from './password.service.js'
+import type { Env } from '../config/env.ts'
+import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
+import { usuariosTable } from '../db/schemas/usuarios.ts'
+import { PasswordService } from './password.service.ts'
 
 @Injectable()
 export class AdminBootstrapService implements OnModuleInit {

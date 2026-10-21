@@ -9,15 +9,15 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { z } from 'zod'
-import { AuthGuard, type AuthenticatedRequest } from '../auth/auth.guard.js'
-import { Permissoes } from '../auth/permissoes.decorator.js'
-import { PermissoesGuard } from '../auth/permissoes.guard.js'
-import { ZodValidationPipe } from '../common/zod-validation.pipe.js'
+import { AuthGuard, type AuthenticatedRequest } from '../auth/auth.guard.ts'
+import { Permissoes } from '../auth/permissoes.decorator.ts'
+import { PermissoesGuard } from '../auth/permissoes.guard.ts'
+import { ZodValidationPipe } from '../common/zod-validation.pipe.ts'
 import {
   decidirValidacaoSchema,
   type DecidirValidacao,
-} from './medicos.schemas.js'
-import { MedicosService } from './medicos.service.js'
+} from './medicos.schemas.ts'
+import { MedicosService } from './medicos.service.ts'
 
 const uuidSchema = z.uuid()
 

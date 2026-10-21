@@ -1,5 +1,5 @@
 import { SetMetadata } from '@nestjs/common'
-import type { AuthenticatedRequest } from './auth.guard.js'
+import type { AuthenticatedRequest } from './auth.guard.ts'
 
 export const PERMISSOES_KEY = 'auth:permissoes'
 export type PermissaoUsuario = AuthenticatedRequest['tipoUsuario']
