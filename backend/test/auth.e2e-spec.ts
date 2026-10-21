@@ -11,6 +11,7 @@ import type { Database } from '../src/db/db.provider.ts'
 import { ConfigService } from '@nestjs/config'
 import type { Env } from '../src/config/env.ts'
 import { AdminBootstrapService } from '../src/auth/admin-bootstrap.service.ts'
+import { AuthService } from '../src/auth/auth.service.ts'
 import { PasswordService } from '../src/auth/password.service.ts'
 
 const cadastro = {
