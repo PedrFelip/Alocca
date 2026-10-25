@@ -1,8 +1,8 @@
 import { ConfigService } from '@nestjs/config'
 import { NestFactory } from '@nestjs/core'
 
-import { AppModule } from './app.module.js'
-import type { Env } from './config/env.js'
+import { AppModule } from './app.module.ts'
+import type { Env } from './config/env.ts'
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
@@ -12,6 +12,9 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type'],
   })
-  await app.listen(config.get('PORT', { infer: true }))
+  await app.listen(
+    config.get('PORT', { infer: true }),
+    config.get('HOST', { infer: true }),
+  )
 }
 await bootstrap()

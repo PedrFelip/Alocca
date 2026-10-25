@@ -1,13 +1,13 @@
 import { Controller, Get, Inject, Query, Req, UseGuards } from '@nestjs/common'
-import { AuthGuard, type AuthenticatedRequest } from '../auth/auth.guard.js'
-import { Permissoes } from '../auth/permissoes.decorator.js'
-import { PermissoesGuard } from '../auth/permissoes.guard.js'
-import { ZodValidationPipe } from '../common/zod-validation.pipe.js'
+import { AuthGuard, type AuthenticatedRequest } from '../auth/auth.guard.ts'
+import { Permissoes } from '../auth/permissoes.decorator.ts'
+import { PermissoesGuard } from '../auth/permissoes.guard.ts'
+import { ZodValidationPipe } from '../common/zod-validation.pipe.ts'
 import {
   listarPlantoesSchema,
   type ListarPlantoes,
-} from './plantoes.schemas.js'
-import { PlantoesService } from './plantoes.service.js'
+} from './plantoes.schemas.ts'
+import { PlantoesService } from './plantoes.service.ts'
 
 @Controller('plantoes')
 @UseGuards(AuthGuard, PermissoesGuard)

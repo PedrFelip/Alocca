@@ -11,14 +11,14 @@ import {
   notExists,
   sql,
 } from 'drizzle-orm'
-import { DRIZZLE_DB, type Database } from '../db/db.provider.js'
+import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
   candidaturasTable,
   instituicoesTable,
   medicosTable,
   plantoesTable,
-} from '../db/schemas/index.js'
-import type { ListarPlantoes } from './plantoes.schemas.js'
+} from '../db/schemas/index.ts'
+import type { ListarPlantoes } from './plantoes.schemas.ts'
 
 function trecho(value: string): string {
   return `%${value.replace(/[\\%_]/g, '\\$&')}%`

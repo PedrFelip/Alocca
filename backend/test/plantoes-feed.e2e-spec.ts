@@ -5,8 +5,8 @@ import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/pglite'
 import { readFile, readdir } from 'node:fs/promises'
 import request from 'supertest'
-import { AppModule } from '../src/app.module.js'
-import { DRIZZLE_DB } from '../src/db/db.provider.js'
+import { AppModule } from '../src/app.module.ts'
+import { DRIZZLE_DB } from '../src/db/db.provider.ts'
 
 function timestamp(dias: number): string {
   return new Date(Date.now() + dias * 86_400_000).toISOString().slice(0, 23)

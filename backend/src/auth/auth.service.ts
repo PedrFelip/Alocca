@@ -1,10 +1,15 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common'
+import {
+  HttpException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
-import type { Env } from '../config/env.js'
-import { UsuariosService } from '../usuarios/usuarios.service.js'
-import type { Login } from './auth.schemas.js'
-import { PasswordService } from './password.service.js'
+import type { Env } from '../config/env.ts'
+import { UsuariosService } from '../usuarios/usuarios.service.ts'
+import type { Login } from './auth.schemas.ts'
+import { PasswordService } from './password.service.ts'
 
 @Injectable()
 export class AuthService {
@@ -22,14 +27,34 @@ export class AuthService {
 
   async login(data: Login) {
     const usuario = await this.usuarios.buscarCredenciais(data.email)
+    if (usuario && (await this.usuarios.bloqueioLoginAtivo(usuario.id))) {
+      throw new HttpException(
+        'Conta bloqueada temporariamente. Tente novamente em 15 minutos.',
+        429,
+      )
+    }
     const valid = await this.passwords.verify(
       data.senha,
       usuario?.senha_hash ?? (await this.dummyHash),
     )
     if (!usuario || !valid || usuario.status !== 'ATIVO') {
+      if (usuario && !valid) {
+        const tentativa = await this.usuarios.registrarFalhaLogin(usuario.id)
+        if (tentativa?.bloqueado_ate) {
+          throw new HttpException(
+            'Conta bloqueada temporariamente. Tente novamente em 15 minutos.',
+            429,
+          )
+        }
+      }
       throw new UnauthorizedException('E-mail ou senha inválidos')
     }
-    await this.usuarios.registrarLogin(usuario.id)
+    if (!(await this.usuarios.registrarLogin(usuario.id))) {
+      throw new HttpException(
+        'Conta bloqueada temporariamente. Tente novamente em 15 minutos.',
+        429,
+      )
+    }
     return {
       access_token: await this.jwt.signAsync({ sub: usuario.id }),
       token_type: 'Bearer',

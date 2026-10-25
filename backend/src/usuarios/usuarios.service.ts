@@ -5,10 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { PasswordService } from '../auth/password.service.js'
-import { DRIZZLE_DB, type Database } from '../db/db.provider.js'
-import { medicosTable, usuariosTable } from '../db/schemas/index.js'
-import type { AtualizarUsuario, CadastroMedico } from './usuarios.schemas.js'
+import { PasswordService } from '../auth/password.service.ts'
+import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
+import { medicosTable, usuariosTable } from '../db/schemas/index.ts'
+import type { AtualizarUsuario, CadastroMedico } from './usuarios.schemas.ts'
 
 export type Usuario = typeof usuariosTable.$inferSelect
 
@@ -83,11 +83,56 @@ export class UsuariosService {
     return usuario
   }
 
-  async registrarLogin(id: string): Promise<void> {
-    await this.db
+  async registrarLogin(id: string): Promise<boolean> {
+    const [usuario] = await this.db
       .update(usuariosTable)
-      .set({ ultimo_login_at: new Date() })
+      .set({
+        ultimo_login_at: new Date(),
+        tentativas_falhas: 0,
+        bloqueado_ate: null,
+      })
+      .where(
+        and(
+          eq(usuariosTable.id, id),
+          sql`(${usuariosTable.bloqueado_ate} IS NULL OR ${usuariosTable.bloqueado_ate} <= now())`,
+        ),
+      )
+      .returning({ id: usuariosTable.id })
+    return Boolean(usuario)
+  }
+
+  async registrarFalhaLogin(id: string) {
+    const expirado = sql`${usuariosTable.bloqueado_ate} IS NOT NULL AND ${usuariosTable.bloqueado_ate} <= now()`
+    const bloqueado = sql`${usuariosTable.bloqueado_ate} > now()`
+    const tentativasAposFalha = sql`CASE
+      WHEN ${bloqueado} THEN ${usuariosTable.tentativas_falhas}
+      WHEN ${expirado} THEN 1
+      ELSE ${usuariosTable.tentativas_falhas} + 1
+    END`
+    const [usuario] = await this.db
+      .update(usuariosTable)
+      .set({
+        tentativas_falhas: tentativasAposFalha,
+        bloqueado_ate: sql`CASE
+          WHEN ${usuariosTable.bloqueado_ate} > now() THEN ${usuariosTable.bloqueado_ate}
+          WHEN ${tentativasAposFalha} >= 5 THEN now() + interval '15 minutes'
+          ELSE NULL
+        END`,
+      })
       .where(eq(usuariosTable.id, id))
+      .returning({
+        tentativas_falhas: usuariosTable.tentativas_falhas,
+        bloqueado_ate: usuariosTable.bloqueado_ate,
+      })
+    return usuario
+  }
+
+  async bloqueioLoginAtivo(id: string): Promise<boolean> {
+    const [resultado] = await this.db
+      .select({ ativo: sql<boolean>`${usuariosTable.bloqueado_ate} > now()` })
+      .from(usuariosTable)
+      .where(eq(usuariosTable.id, id))
+    return resultado?.ativo ?? false
   }
 
   async perfil(id: string) {

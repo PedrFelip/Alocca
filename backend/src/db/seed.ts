@@ -2,15 +2,15 @@ import 'dotenv/config'
 import { eq } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
-import { PasswordService } from '../auth/password.service.js'
-import { validateEnv } from '../config/env.js'
+import { PasswordService } from '../auth/password.service.ts'
+import { validateEnv } from '../config/env.ts'
 import {
   gestoresInstituicoesTable,
   gestoresTable,
   instituicoesTable,
   plantoesTable,
   usuariosTable,
-} from './schemas/index.js'
+} from './schemas/index.ts'
 
 const env = validateEnv(process.env)
 if (env.NODE_ENV === 'production') {

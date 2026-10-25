@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ufSchema } from '../usuarios/usuarios.schemas.js'
+import { ufSchema } from '../usuarios/usuarios.schemas.ts'
 
 // Query string vazia (ex.: ?valor_max=) deve ser tratada como filtro ausente.
 function opcional<T extends z.ZodType>(schema: T) {
