@@ -14,12 +14,13 @@ Marque `[x]` e mova para o spec quando decidir.
 - [ ] **D16 — Recandidatura:** `UNIQUE(plantao_id, medico_id)` em candidaturas impede nova candidatura após `REJEITADA` (spec). Decidir se rejeitado pode voltar a candidatar-se (índice parcial). Impacto: UC05.
 
 ## Regras e fluxos
+- [ ] **D17 — Completude de perfil na candidatura (RN17):** o spec pede checar RN17 ao candidatar-se (UC05), mas não define o limiar de `taxaCompletude` exigido nem se a especialidade declarada precisa casar com `especialidade` do plantão. Não implementado no UC05 até definir. Impacto: filtro de candidatos/publicação.
 - [ ] **D5 — Convites diretos (RN31):** regra de expiração existe, mas não há nenhum endpoint/UC de convite no spec. Vai ter convite direto no MVP ou a RN31 cai? Impacto: escopo do MVP.
 - [ ] **D6 — Numeração das RNs:** unifiquei pela base do AGENTS + RN31 por inferência (item 15). Validar se algum número conflita com doc externa (mobile/Kotlin).
 - [ ] **D7 — Nomenclatura do financeiro:** `totalRecebido`, `totalAReceber`, `totalPendente` (nomenclatura flexível por ora). Confirmar com o app o que ele espera. Impacto: contrato do UC08.
 - [ ] **D8 — Validação de CNPJ (RN30):** "CNPJ válido e ativo + ramo de saúde" — como? API da Receita na hora do vínculo, validação só de formato + dígito, ou manual? Impacto: UC de vínculo de instituição (ainda sem endpoint no spec).
 - [ ] **D9 — Fluxo 2FA completo:** não implementado no contrato atual do app Android. Permanecem pendentes o formato/expiração do `challengeToken`, expiração do refresh token (RNF05) e quem envia o e-mail do PIN (provedor SMTP?). Não adicionar 2FA até definir e alinhar o contrato de UC02/UC03 com o app.
-- [ ] **D10 — Notificações da cascata (UC11):** push/e-mail para aprovado + rejeitados — qual provedor (Firebase, SMTP próprio, fila interna)? Enfileirar onde (tabela `notificacoes`, BullMQ, outro)? Impacto: UC11.
+- [ ] **D10 — Notificações da cascata (UC11):** push/e-mail para aprovado + rejeitados — qual provedor (Firebase, SMTP próprio, fila interna)? Enfileirar onde (tabela `notificacoes`, BullMQ, outro)? Impacto: UC11. Implementação atual: eventos (`ALOCACAO_APROVADA`) registrados no log estruturado até definir provedor/fila.
 
 ## Infra
 - [ ] **D11 — SeaweedFS:** bucket, URL pública vs assinada, quem serve o download do comprovante (back-end proxy ou URL direta)? Impacto: UC08/UC12.
