@@ -76,9 +76,10 @@ private fun AuthApp() {
     var feedbackSuccess by remember { mutableStateOf(false) }
     var perfil by remember { mutableStateOf<PerfilUsuario?>(null) }
     var restoring by remember { mutableStateOf(true) }
+    var podeTentarRestaurar by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    LaunchedEffect(Unit) {
+    fun restaurarSessao() {
         Thread {
             val token = TokenStore.read(context)
             if (token == null) {
@@ -87,15 +88,29 @@ private fun AuthApp() {
                 val result = AuthApi.getProfile(token)
                 val autenticado = if (result.successful) PerfilUsuario.fromJson(result.body) else null
                 val sessionExpired = result.status == 401 || result.status == 403
+                // Remove só o token consultado: se um novo login acontecer durante
+                // a restauração, o token recém-salvo continua intacto.
                 if (autenticado == null && (result.successful || sessionExpired)) {
-                    TokenStore.clear(context)
+                    TokenStore.clearIfMatches(context, token)
                 }
                 Handler(Looper.getMainLooper()).post {
                     when {
-                        autenticado != null -> perfil = autenticado
-                        sessionExpired -> feedback = "Sua sessão expirou. Entre novamente."
-                        else -> feedback = result.message.ifBlank {
-                            "Não foi possível restaurar sua sessão. Entre novamente."
+                        autenticado != null -> {
+                            perfil = autenticado
+                            podeTentarRestaurar = false
+                            feedback = ""
+                        }
+                        sessionExpired -> {
+                            feedback = "Sua sessão expirou. Entre novamente."
+                            podeTentarRestaurar = false
+                        }
+                        else -> {
+                            feedback = result.message.ifBlank {
+                                "Não foi possível restaurar sua sessão. Entre novamente."
+                            }
+                            // Falha de rede preserva o token; oferecer nova tentativa
+                            // da restauração sem exigir credenciais.
+                            podeTentarRestaurar = true
                         }
                     }
                     restoring = false
@@ -103,6 +118,15 @@ private fun AuthApp() {
             }
         }.start()
     }
+
+    fun tentarRestaurarNovamente() {
+        feedback = ""
+        podeTentarRestaurar = false
+        restoring = true
+        restaurarSessao()
+    }
+
+    LaunchedEffect(Unit) { restaurarSessao() }
 
     fun submit(path: String, payload: JSONObject, onSuccess: (JSONObject?) -> Unit) {
         if (loading) return
@@ -120,7 +144,12 @@ private fun AuthApp() {
     }
 
     fun logout() {
-        TokenStore.clear(context)
+        if (!TokenStore.clear(context)) {
+            // Exclusão em disco falhou: avisar em vez de dizer que a sessão encerrou.
+            feedback = "Não foi possível encerrar a sessão. Tente novamente."
+            feedbackSuccess = false
+            return
+        }
         perfil = null
         screen = Screen.Login
         feedback = "Sessão encerrada."
@@ -172,6 +201,20 @@ private fun AuthApp() {
                             textAlign = TextAlign.Center
                         )
                         Spacer(Modifier.height(40.dp))
+                        if (podeTentarRestaurar) {
+                            Text(
+                                "Tentar novamente",
+                                Modifier
+                                    .clickable {
+                                        tentarRestaurarNovamente()
+                                    }
+                                    .padding(8.dp),
+                                color = Border,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                            Spacer(Modifier.height(16.dp))
+                        }
                         LoginForm(
                             onRegister = { feedback = ""; screen = Screen.Register },
                             loading = loading,
