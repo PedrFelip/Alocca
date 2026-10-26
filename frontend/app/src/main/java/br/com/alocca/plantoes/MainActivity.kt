@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -580,7 +581,13 @@ private fun RegisterForm(
         visualTransformation = crmMascara
     )
     Spacer(Modifier.height(16.dp))
-    AuthField("UF do CRM", uf, { uf = it.uppercase().take(2) }, "Ex.: SP", Icons.Default.PersonOutline, KeyboardType.Text)
+    AuthFieldDropdown(
+        "UF do CRM",
+        uf,
+        UF_OPCOES,
+        selecionar = { uf = it },
+        icon = Icons.Default.PersonOutline
+    )
     Spacer(Modifier.height(16.dp))
     AuthField(
         "Senha", password, { password = it }, "Crie uma senha segura", Icons.Default.Lock,
@@ -610,7 +617,7 @@ private fun RegisterForm(
             !email.trim().matches(Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) -> "Informe um e-mail válido."
             !cpfValido(cpf) -> "Informe um CPF válido (11 dígitos)."
             crm.isBlank() -> "Informe o número do CRM."
-            uf !in setOf("AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO") -> "Informe uma UF válida para o CRM."
+            uf !in UF_OPCOES.map(Pair<String, String>::first) -> "Informe uma UF válida para o CRM."
             !senhaAtendeRn05(password) -> "A senha deve ter de 8 a 128 caracteres, com maiúscula, minúscula e número."
             password != confirm -> "As senhas não coincidem."
             else -> ""
@@ -620,6 +627,104 @@ private fun RegisterForm(
     Row(Modifier.fillMaxWidth().padding(top = 13.dp), horizontalArrangement = Arrangement.Center) {
         Text("Já tem uma conta? ", color = Muted, fontSize = 13.sp)
         Text("Faça Login", Modifier.clickable(onClick = onLogin), color = Border, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+    }
+}
+
+// UFs com conselho regional (27), ordem alfabética por sigla.
+private val UF_OPCOES: List<Pair<String, String>> = listOf(
+    "AC" to "Acre", "AL" to "Alagoas", "AP" to "Amapá", "AM" to "Amazonas",
+    "BA" to "Bahia", "CE" to "Ceará", "DF" to "Distrito Federal", "ES" to "Espírito Santo",
+    "GO" to "Goiás", "MA" to "Maranhão", "MT" to "Mato Grosso", "MS" to "Mato Grosso do Sul",
+    "MG" to "Minas Gerais", "PA" to "Pará", "PB" to "Paraíba", "PR" to "Paraná",
+    "PE" to "Pernambuco", "PI" to "Piauí", "RJ" to "Rio de Janeiro", "RN" to "Rio Grande do Norte",
+    "RS" to "Rio Grande do Sul", "RO" to "Rondônia", "RR" to "Roraima", "SC" to "Santa Catarina",
+    "SP" to "São Paulo", "SE" to "Sergipe", "TO" to "Tocantins",
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AuthFieldDropdown(
+    label: String,
+    value: String,
+    opcoes: List<Pair<String, String>>,
+    selecionar: (String) -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+) {
+    var expandido by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expandido,
+        onExpandedChange = { expandido = it },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .align(Alignment.BottomCenter)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(CanvasColor)
+                    .border(width = 1.dp, color = Border, shape = RoundedCornerShape(8.dp))
+                    .padding(horizontal = 11.dp)
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = Border,
+                    modifier = Modifier.size(19.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = value.ifBlank { "UF" },
+                    color = if (value.isBlank()) Color(0xFFAAB7B6) else Navy,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Abrir lista de UFs",
+                    tint = Border,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Text(
+                text = label,
+                color = Border,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 14.dp)
+                    .background(CanvasColor)
+                    .padding(horizontal = 4.dp)
+            )
+
+            ExposedDropdownMenu(
+                expanded = expandido,
+                onDismissRequest = { expandido = false },
+                modifier = Modifier.exposedDropdownSize()
+            ) {
+                opcoes.forEach { (sigla, nome) ->
+                    DropdownMenuItem(
+                        text = {
+                            Text("$nome ($sigla)", color = Navy, fontSize = 13.sp, maxLines = 1)
+                        },
+                        onClick = {
+                            selecionar(sigla)
+                            expandido = false
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
