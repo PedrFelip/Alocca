@@ -101,7 +101,7 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
 
   beforeEach(async () => {
     await database.exec(
-      `TRUNCATE pagamentos, registros_ponto, alocacoes, candidaturas, plantoes,
+      `TRUNCATE notificacoes, pagamentos, registros_ponto, alocacoes, candidaturas, plantoes,
        gestores_instituicoes, gestores, instituicoes, medicos,
        tokens_recuperacao_senha, usuarios CASCADE`,
     )
@@ -122,10 +122,10 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
     const gestor2 = usuario('Gestor Dois')
 
     await database.query(
-      "INSERT INTO medicos (usuario_id, crm, uf_crm) SELECT id, '123456', 'DF' FROM usuarios WHERE nome = 'Médico Um'",
+      "INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade) SELECT id, '123456', 'DF', 'Clínica Médica' FROM usuarios WHERE nome = 'Médico Um'",
     )
     await database.query(
-      "INSERT INTO medicos (usuario_id, crm, uf_crm) SELECT id, '654321', 'SP' FROM usuarios WHERE nome = 'Médico Dois'",
+      "INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade) SELECT id, '654321', 'SP', 'Clínica Médica' FROM usuarios WHERE nome = 'Médico Dois'",
     )
     // Gestor Um tem perfil de gestor; Gestor Dois também, sem vínculo com a instituição.
     await database.query(
@@ -210,6 +210,30 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
     it('409: candidatura repetida ao mesmo plantão', async () => {
       await candidatar(plantaoAberto, medico1Token).expect(201)
       await candidatar(plantaoAberto, medico1Token).expect(409)
+    })
+
+    it('403 (RN17): médico sem especialidade não se candidata a vaga específica', async () => {
+      // Médico 3 cadastrado sem especialidade declarada.
+      const usuarioSemEspecialidade = (
+        await database.query<{ id: string }>(
+          "INSERT INTO usuarios (nome, email, senha_hash, tipo) VALUES ('Médico Três', 'medico3@example.com', 'hash', 'MEDICO') RETURNING id",
+        )
+      ).rows[0]
+      await database.query(
+        'INSERT INTO medicos (usuario_id, crm, uf_crm) VALUES ($1, $2, $3)',
+        [usuarioSemEspecialidade.id, '999111', 'DF'],
+      )
+      const tokenSemEspecialidade = `Bearer ${await app
+        .get(JwtService)
+        .signAsync({ sub: usuarioSemEspecialidade.id })}`
+
+      const resposta = await candidatar(
+        plantaoAberto,
+        tokenSemEspecialidade,
+      ).expect(403)
+      expect(resposta.body.message).toBe(
+        'Complete a especialidade do perfil para se candidatar a esta vaga.',
+      )
     })
 
     it('404: candidatura a plantão inexistente', async () => {
@@ -379,6 +403,14 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
       ).rows
       expect(plantaoFinal.status).toBe('ABERTO')
       expect(plantaoFinal.vagas_disponiveis).toBe(1)
+
+      // Outbox (UC11): evento do aprovado enfileirado na mesma transação.
+      const fila = (
+        await database.query<{ tipo: string; status: string }[]>(
+          'SELECT tipo, status FROM notificacoes',
+        )
+      ).rows
+      expect(fila).toEqual([{ tipo: 'ALOCACAO_APROVADA', status: 'PENDENTE' }])
     })
 
     it('409: candidatura já analisada não é re-aprovada', async () => {
@@ -479,6 +511,16 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
         status: 'PREENCHIDO',
         vagas_disponiveis: 0,
       })
+
+      // Outbox (UC11): aprovado e rejeitado notificados na mesma transação.
+      const fila = (
+        await database.query<{ tipo: string; status: string }[]>(
+          'SELECT tipo, status FROM notificacoes',
+        )
+      ).rows
+      expect(
+        fila.map((n) => n.tipo).sort((a, b) => a.localeCompare(b)),
+      ).toEqual(['ALOCACAO_APROVADA', 'CANDIDATURA_REJEITADA'])
     })
   })
 })
