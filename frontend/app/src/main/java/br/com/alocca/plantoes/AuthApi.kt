@@ -20,6 +20,14 @@ internal object AuthApi {
     private const val CONNECTION_ERROR =
         "Não foi possível conectar ao servidor. Verifique sua conexão e a URL do backend."
 
+    // Mensagens oficiais por código HTTP, seguindo o contrato (MSG-01, MSG-02, MSG-03).
+    // O aplicativo usa a mensagem exata do servidor quando ela já é humana; estas
+    // cobrem respostas sem corpo útil (ex.: 429 do throttler do Nest).
+    private const val MSG_01 = "E-mail, CPF, CRM ou senha incorretos."
+    private const val MSG_02 = "Este dado (E-mail/CPF/CRM) já pertence a uma conta ativa."
+    private const val MSG_03 = "Conta bloqueada temporariamente. Tente novamente em 15 minutos."
+    private const val FALHA_GENERICA = "Não foi possível concluir. Tente novamente."
+
     fun post(path: String, payload: JSONObject): ApiResult {
         val result = request(path, "POST", payload = payload)
         if (!result.successful) return result
@@ -68,19 +76,22 @@ internal object AuthApi {
             if (status in 200..299) {
                 ApiResult(true, body, "", status)
             } else {
-                ApiResult(
-                    false,
-                    body,
-                    body?.optString("message")?.takeIf(String::isNotBlank)
-                        ?: "Não foi possível concluir. Tente novamente.",
-                    status,
-                )
+                ApiResult(false, body, mensagemDeErro(status, body), status)
             }
         } catch (_: Exception) {
             ApiResult(false, null, CONNECTION_ERROR)
         } finally {
             connection?.disconnect()
         }
+    }
+
+    /** Erros de rede (status 0) têm mensagem própria; 401/409/429 usam as MSG oficiais. */
+    private fun mensagemDeErro(status: Int, body: JSONObject?): String = when (status) {
+        0 -> CONNECTION_ERROR
+        401 -> MSG_01
+        409 -> MSG_02
+        429 -> MSG_03
+        else -> body?.optString("message")?.takeIf(String::isNotBlank) ?: FALHA_GENERICA
     }
 
     private fun JSONObject?.hasValidLoginResponse(): Boolean {
