@@ -10,7 +10,7 @@ Marque `[x]` e mova para o spec quando decidir.
 - [ ] **D4 — `createdAt/updatedAt` em plantao/instituicao:** mantidos do guide; o AGENTS não tinha. Manter padrão em todas as tabelas? Impacto: migrations.
 - [ ] **D13 — Colunas extras do PR0 (fora do spec):** `plantoes` mantém `titulo`, `descricao`, `permite_candidatura`, `exige_checkin` e `permite_geolocalizacao`; `pagamentos` mantém `vencimento_em`/`observacoes`; `candidaturas` mantém `mensagem_medico`/`observacao_gestor`/`analisado_por_gestor_id`/`analisado_at`. Alinhar/validar com a frente de gestão de plantões. Impacto: colunas.
 - [ ] **D14 — `pagamentos.urlComprovantePdf`:** o spec cita a coluna, mas o download de comprovante ficou fora do PR0. Definir se vira coluna ou tabela de arquivos (relaciona com D11). Impacto: UC08/UC12.
-- [ ] **D15 — Tabelas fora do PR0:** `notificacoes` (D10) e `tokens_2fa` (D9) não foram criadas; entram quando as features chegarem. Impacto: UC02/UC11.
+- [ ] **D15 — Tabelas fora do PR0:** `notificacoes` criada (outbox UC11; entrega ainda em D10). `tokens_2fa` (D9) ainda não existe. Impacto: UC02.
 - [ ] **D16 — Recandidatura:** `UNIQUE(plantao_id, medico_id)` em candidaturas impede nova candidatura após `REJEITADA` (spec). Decidir se rejeitado pode voltar a candidatar-se (índice parcial). Impacto: UC05.
 
 ## Regras e fluxos
