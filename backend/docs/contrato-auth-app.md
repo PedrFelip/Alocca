@@ -1,23 +1,23 @@
-# Contrato de Auth para o App (Kotlin) — vivo em `main`
+# Contrato de Auth implementado — app Kotlin
 
-> Este arquivo descreve o contrato **implementado e em produção** dos endpoints de
-> autenticação, conforme resolveu a issue #27. O spec teórico completo é
-> `project-context.md` (UC01–UC12); quando os dois divergirem em rota/formato,
-> vale este arquivo até o spec ser alinhado.
+> Fonte oficial: `project-context.md` (UC01–UC12). Em conflito de rota, casing
+> ou mensagem, **vale o spec**. Este arquivo só descreve o que o backend
+> entrega hoje (`POST /auth/register/medico`, `POST /auth/login`, snake_case,
+> sem `/api/v1`) até o código ser alinhado (D18). Não substitui o spec.
 >
-> **Convenções:** snake_case no corpo, sem prefixo `/api/v1`, erros no shape do
-> NestJS (`{ message, error?, statusCode, errors? }`), mensagens no padrão MSG-XX.
+> **Convenções atuais do código:** snake_case no corpo, sem prefixo `/api/v1`,
+> erros no shape do NestJS (`{ message, error?, statusCode, errors? }`).
 
 ## Mensagens oficiais
 
-| Código | Mensagem exata                                                       | HTTP |
-| ------ | -------------------------------------------------------------------- | ---- |
-| MSG-01 | `E-mail, CPF, CRM ou senha incorretos.`                              | 401  |
-| MSG-02 | `Este dado (E-mail/CPF/CRM) já pertence a uma conta ativa.`          | 409  |
-| MSG-03 | `Conta bloqueada temporariamente. Tente novamente em 15 minutos.`    | 429  |
-| MSG-07 | Cadastro bem-sucedido (HTTP 201; o corpo não ecoa a frase da MSG-07) | 201  |
+| Código | Mensagem | HTTP |
+| ------ | -------- | ---- |
+| MSG-01 | `E-mail, CPF, CRM ou senha incorretos.` | 401 |
+| MSG-02 | `Este dado (E-mail/CPF/CRM) já pertence a uma conta ativa.` | 409 |
+| MSG-03 | `Conta bloqueada temporariamente. Tente novamente em 15 minutos.` | 429 |
+| MSG-07 | `Cadastro realizado com sucesso!` (spec). O 201 atual devolve o objeto do usuário, sem a frase — gap pendente. | 201 |
 
-## `POST /auth/register/medico` — UC01 (não autenticado, 10 req/min)
+## `POST /auth/register/medico` — implementado (spec UC01: `POST /api/v1/auth/medicos/registro`, `ufCrm`)
 
 ```json
 {

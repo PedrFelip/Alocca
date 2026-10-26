@@ -5,8 +5,8 @@ Marque `[x]` e mova para o spec quando decidir.
 
 ## Decidido (registro)
 
-- [x] **D17 — CPF do médico no MVP:** entra no MVP. Issue #27 (produto confirmou). Implementado: coluna `usuarios.cpf` (unique, 11 dígitos, nullable por compatibilidade com contas legadas/admin), RN02 (dígito verificador + rejeição de repetidos), RN04 (higienização), exigido no DTO de `POST /auth/register/medico`. Login por CPF (RN07) permanece fora do escopo.
-- [x] **D18 — Contrato auth (issue #27):** mantém o contrato implementado — `POST /auth/register/medico` e `POST /auth/login`, snake_case (`uf_crm`), sem prefixo `/api/v1`. Spec UC01 já reflete isso; `docs/contrato-auth-app.md` é o contrato vivo para o app. Prefixo `/api/v1` e camelCase ficam pendentes para um UC futuro decidir.
+- [x] **D19 — CPF do médico no MVP:** entra no MVP. Issue #27 (produto confirmou). Implementado: coluna `usuarios.cpf` (varchar 11, unique, **nullable na tabela** por contas legadas/admin; **obrigatório** no DTO de cadastro do médico), RN02 (dígito verificador + rejeição de repetidos), RN04 (higienização). Login por CPF (RN07) permanece fora do escopo. **D17 fica reservado** para completude de perfil na candidatura (RN17).
+- [x] **D18 — Contrato auth implementado (issue #27):** o código de auth hoje é `POST /auth/register/medico` e `POST /auth/login`, snake_case (`uf_crm`), sem prefixo `/api/v1`. Isso **não** altera o spec oficial (`project-context.md` UC01–UC12 continua `/api/v1` + camelCase). `docs/contrato-auth-app.md` documenta o que o app consome hoje, como “implementado, pendente alinhamento”. Alinhar todos os UCs de uma vez (ou o código ao spec) é decisão futura — não reescrever só o UC01.
 
 ## Modelo
 
