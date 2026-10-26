@@ -17,6 +17,10 @@ export function usuarioPublico(usuario: Usuario) {
   return publico
 }
 
+// MSG-02 — mensagem oficial para qualquer dado duplicado no cadastro.
+export const MSG_CONFLITO_CADASTRO =
+  'Este dado (E-mail/CPF/CRM) já pertence a uma conta ativa.'
+
 function tratarConflito(error: unknown): never {
   // Drizzle mantém o erro do PostgreSQL em cause.
   let cause = error
@@ -27,7 +31,7 @@ function tratarConflito(error: unknown): never {
     'code' in cause &&
     cause.code === '23505'
   ) {
-    throw new ConflictException('E-mail ou CRM/UF já cadastrado')
+    throw new ConflictException(MSG_CONFLITO_CADASTRO)
   }
   throw error
 }
@@ -47,6 +51,7 @@ export class UsuariosService {
           .insert(usuariosTable)
           .values({
             nome: data.nome,
+            cpf: data.cpf,
             email: data.email,
             senha_hash,
             telefone: data.telefone,
