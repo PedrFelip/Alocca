@@ -8,6 +8,7 @@ import { validateEnv } from './config/env.ts'
 import { DatabaseModule } from './db/db.module.ts'
 import { AgendaModule } from './agenda/agenda.module.ts'
 import { PresencaModule } from './presenca/presenca.module.ts'
+import { FinanceiroModule } from './financeiro/financeiro.module.ts'
 import { HealthModule } from './health/health.module.ts'
 import { MedicosModule } from './medicos/medicos.module.ts'
 import { CandidaturasModule } from './candidaturas/candidaturas.module.ts'
@@ -25,6 +26,7 @@ import { PlantoesModule } from './plantoes/plantoes.module.ts'
     AuthModule,
     AgendaModule,
     PresencaModule,
+    FinanceiroModule,
     HealthModule,
     MedicosModule,
     PlantoesModule,
