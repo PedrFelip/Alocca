@@ -32,8 +32,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -492,6 +495,25 @@ private fun LoginForm(
     }
 }
 
+// Máscara visual do CRM no cadastro: exibe "123456-SP" anexando a UF ao número.
+// O valor do campo guarda só os dígitos (a API continua recebendo crm e uf_crm
+// separados); o sufixo é puramente visual, via VisualTransformation.
+private const val CRM_DIGITOS_MAX = 20
+
+private class SufixoVisualTransformation(private val sufixo: String) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        if (sufixo.isEmpty() || text.isEmpty()) {
+            return TransformedText(text, OffsetMapping.Identity)
+        }
+        val formatado = AnnotatedString(text.text + sufixo)
+        val mapeamento = object : OffsetMapping {
+            override fun originalToTransformed(offset: Int): Int = offset.coerceAtMost(text.length)
+            override fun transformedToOriginal(offset: Int): Int = offset.coerceAtMost(text.length)
+        }
+        return TransformedText(formatado, mapeamento)
+    }
+}
+
 @Composable
 private fun RegisterForm(
     onLogin: () -> Unit,
@@ -502,18 +524,29 @@ private fun RegisterForm(
 ) {
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
-    var crm by remember { mutableStateOf("") }
+    var crm by remember { mutableStateOf("") } // apenas dígitos
     var uf by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
     var formError by remember { mutableStateOf("") }
 
+    // CRM guarda só dígitos; a UF aparece anexada visualmente ("123456-SP").
+    val crmMascara = remember(uf) { SufixoVisualTransformation(if (uf.length == 2) "-$uf" else "") }
+
     AuthField("Nome completo", name, { name = it }, "Seu nome", Icons.Default.PersonOutline, KeyboardType.Text)
     Spacer(Modifier.height(16.dp))
     AuthField("E-mail", email, { email = it }, "Seu@email.com", Icons.Default.Email, KeyboardType.Email)
     Spacer(Modifier.height(16.dp))
-    AuthField("CRM", crm, { crm = it }, "Apenas números", Icons.Default.PersonOutline, KeyboardType.Number)
+    AuthField(
+        "CRM",
+        crm,
+        { entrada -> crm = entrada.filter { it.isDigit() } },
+        "Ex.: 123456",
+        Icons.Default.PersonOutline,
+        KeyboardType.Number,
+        visualTransformation = crmMascara
+    )
     Spacer(Modifier.height(16.dp))
     AuthField("UF do CRM", uf, { uf = it.uppercase().take(2) }, "Ex.: SP", Icons.Default.PersonOutline, KeyboardType.Text)
     Spacer(Modifier.height(16.dp))
@@ -538,7 +571,8 @@ private fun RegisterForm(
         formError = when {
             name.trim().length < 2 -> "Informe seu nome completo (mínimo 2 caracteres)."
             !email.trim().matches(Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) -> "Informe um e-mail válido."
-            crm.isBlank() || !crm.matches(Regex("^\\d{1,20}$")) -> "O CRM deve conter apenas números."
+            crm.isBlank() -> "Informe o número do CRM."
+            crm.length > CRM_DIGITOS_MAX -> "O CRM deve ter no máximo 20 dígitos."
             uf !in setOf("AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO") -> "Informe uma UF válida para o CRM."
             password.length < 8 -> "A senha deve ter pelo menos 8 caracteres."
             password.length > 128 -> "A senha deve ter no máximo 128 caracteres."
@@ -563,7 +597,8 @@ private fun AuthField(
     keyboard: KeyboardType,
     password: Boolean = false,
     visible: Boolean = false,
-    onToggle: (() -> Unit)? = null
+    onToggle: (() -> Unit)? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     // Campo desenhado manualmente para reproduzir o protótipo:
     // borda fina, rótulo sobre a borda e placeholder visível.
@@ -607,7 +642,7 @@ private fun AuthField(
                 visualTransformation = if (password && !visible) {
                     PasswordVisualTransformation()
                 } else {
-                    VisualTransformation.None
+                    visualTransformation
                 },
                 keyboardOptions = KeyboardOptions(keyboardType = keyboard),
                 decorationBox = { innerTextField ->
