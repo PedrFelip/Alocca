@@ -16,8 +16,9 @@ import { PasswordService } from '../src/auth/password.service.ts'
 
 const cadastro = {
   nome: 'Dra. Maria',
+  cpf: '529.982.247-25',
   email: 'Maria@Example.com',
-  senha: 'senha-segura-123',
+  senha: 'Senha-Segura-123',
   crm: '123456',
   uf_crm: 'sp',
   especialidade: 'Clínica médica',
@@ -56,6 +57,12 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
         'utf8',
       ),
     )
+    await database.exec(
+      await readFile(
+        'drizzle/20261026133738_rainy_liz_osborn/migration.sql',
+        'utf8',
+      ),
+    )
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(DRIZZLE_DB)
       .useValue(drizzle({ client: database }))
@@ -82,7 +89,7 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
     })
   })
 
-  it('rejeita campos inválidos e tentativa de escolher cargo', async () => {
+  it('rejeita campos inválidos, senha fora da RN05 e CPF inválido', async () => {
     await request(app.getHttpServer())
       .post('/auth/register/medico')
       .send({ ...cadastro, tipo: 'ADMIN' })
@@ -90,6 +97,15 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
     await request(app.getHttpServer())
       .post('/auth/register/medico')
       .send({ ...cadastro, uf_crm: 'XX' })
+      .expect(400)
+    // Amostras via HTTP; variações completas em usuarios.schemas.spec.ts.
+    await request(app.getHttpServer())
+      .post('/auth/register/medico')
+      .send({ ...cadastro, senha: 'sem-maiuscula-1' })
+      .expect(400)
+    await request(app.getHttpServer())
+      .post('/auth/register/medico')
+      .send({ ...cadastro, cpf: '111.111.111-11' })
       .expect(400)
   })
 
@@ -101,28 +117,39 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
     expect(response.body).toMatchObject({
       tipo: 'MEDICO',
       status: 'ATIVO',
+      cpf: '52998224725',
       email: 'maria@example.com',
       medico: { crm: '123456', uf_crm: 'SP' },
     })
     expect(response.body).not.toHaveProperty('senha_hash')
     const result = await database.query<{ senha_hash: string }>(
-      "SELECT senha_hash FROM usuarios WHERE email = 'maria@example.com'",
+      "SELECT cpf, senha_hash FROM usuarios WHERE email = 'maria@example.com'",
     )
+    expect(result.rows[0].cpf).toBe('52998224725')
     expect(result.rows[0].senha_hash).toMatch(/^scrypt:/)
     expect(result.rows[0].senha_hash).not.toContain(cadastro.senha)
   })
 
-  it('rejeita duplicidade de email/CRM e desfaz a criação do usuário', async () => {
-    await request(app.getHttpServer())
-      .post('/auth/register/medico')
-      .send(cadastro)
-      .expect(409)
-    await request(app.getHttpServer())
-      .post('/auth/register/medico')
-      .send({ ...cadastro, email: 'outro@example.com' })
-      .expect(409)
+  it('retorna MSG-02 para duplicidade de email/CPF/CRM e desfaz a criação do usuário', async () => {
+    const mensagemMSG02 =
+      'Este dado (E-mail/CPF/CRM) já pertence a uma conta ativa.'
+    for (const corpo of [
+      cadastro, // e-mail duplicado
+      { ...cadastro, email: 'outro@example.com' }, // CPF duplicado
+      {
+        ...cadastro,
+        email: 'outro@example.com',
+        cpf: '111.444.777-35',
+      }, // CRM/UF duplicado
+    ]) {
+      const response = await request(app.getHttpServer())
+        .post('/auth/register/medico')
+        .send(corpo)
+        .expect(409)
+      expect(response.body.message).toBe(mensagemMSG02)
+    }
     const result = await database.query(
-      "SELECT id FROM usuarios WHERE email = 'outro@example.com'",
+      "SELECT id FROM usuarios WHERE email IN ('outro@example.com', 'mais@example.com')",
     )
     expect(result.rows).toHaveLength(0)
   })
@@ -143,6 +170,7 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
     const account = {
       ...cadastro,
       nome: 'Dra. Bloqueio',
+      cpf: '123.456.789-09',
       email: 'bloqueio@example.com',
       crm: '654321',
     }

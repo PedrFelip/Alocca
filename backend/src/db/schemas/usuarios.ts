@@ -18,6 +18,7 @@ export const StatusUsuario = pgEnum('status_usuario', [
 export const usuariosTable = pgTable('usuarios', {
   id: uuid('id').primaryKey().defaultRandom(),
   nome: varchar('nome', { length: 150 }).notNull(),
+  cpf: varchar('cpf', { length: 11 }).unique(),
   email: varchar('email', { length: 255 }).unique().notNull(),
   senha_hash: varchar('senha_hash', { length: 255 }).notNull(),
   telefone: varchar('telefone', { length: 20 }),
