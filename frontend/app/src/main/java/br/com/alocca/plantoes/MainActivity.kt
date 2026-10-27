@@ -498,7 +498,7 @@ private fun LoginForm(
 // Máscara visual do CRM no cadastro: exibe "123456-SP" anexando a UF ao número.
 // O valor do campo guarda só os dígitos (a API continua recebendo crm e uf_crm
 // separados); o sufixo é puramente visual, via VisualTransformation.
-private const val CRM_DIGITOS_MAX = 8
+private const val CRM_DIGITOS_MAX = 20
 
 private class SufixoVisualTransformation(private val sufixo: String) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
@@ -541,7 +541,7 @@ private fun RegisterForm(
     AuthField(
         "CRM",
         crm,
-        { entrada -> crm = entrada.filter { it.isDigit() }.take(CRM_DIGITOS_MAX) },
+        { entrada -> crm = entrada.filter { it.isDigit() } },
         "Ex.: 123456",
         Icons.Default.PersonOutline,
         KeyboardType.Number,
@@ -572,6 +572,7 @@ private fun RegisterForm(
             name.trim().length < 2 -> "Informe seu nome completo (mínimo 2 caracteres)."
             !email.trim().matches(Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) -> "Informe um e-mail válido."
             crm.isBlank() -> "Informe o número do CRM."
+            crm.length > CRM_DIGITOS_MAX -> "O CRM deve ter no máximo 20 dígitos."
             uf !in setOf("AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO") -> "Informe uma UF válida para o CRM."
             password.length < 8 -> "A senha deve ter pelo menos 8 caracteres."
             password.length > 128 -> "A senha deve ter no máximo 128 caracteres."
