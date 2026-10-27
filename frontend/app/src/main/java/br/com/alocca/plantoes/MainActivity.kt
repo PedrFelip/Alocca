@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -256,11 +257,12 @@ private fun AuthApp() {
                             loading = loading,
                             feedback = feedback,
                             feedbackSuccess = feedbackSuccess,
-                            onSubmit = { nome, email, crm, uf, senha ->
+                            onSubmit = { nome, email, cpf, crm, uf, senha ->
                                 val payload = JSONObject().put("nome", nome.trim()).put("email", email.trim())
-                                    .put("senha", senha).put("crm", crm.trim()).put("uf_crm", uf.trim().uppercase())
+                                    .put("cpf", cpf).put("senha", senha)
+                                    .put("crm", crm.trim()).put("uf_crm", uf.trim().uppercase())
                                 submit("auth/register/medico", payload) {
-                                    feedback = "Cadastro enviado. Você já pode entrar."
+                                    feedback = "Cadastro enviado. A validação do seu CRM é manual; você já pode entrar."
                                     feedbackSuccess = true
                                     screen = Screen.Login
                                 }
@@ -499,6 +501,27 @@ private fun LoginForm(
 // O valor do campo guarda só os dígitos (a API continua recebendo crm e uf_crm
 // separados); o sufixo é puramente visual, via VisualTransformation.
 private const val CRM_DIGITOS_MAX = 20
+private const val CPF_DIGITOS = 11
+
+// RN02 — CPF validado pelos dígitos verificadores; RN04 — o campo guarda só
+// dígitos, então a higienização já está garantida.
+private fun cpfValido(cpf: String): Boolean {
+    if (cpf.length != CPF_DIGITOS || cpf.all { it == cpf.first() }) return false
+    return listOf(9, 10).all { posicao ->
+        val soma = cpf.take(posicao).mapIndexed { indice, caractere ->
+            caractere.digitToInt() * (posicao + 1 - indice)
+        }.sum()
+        val digito = ((soma * 10) % 11).let { if (it == 10) 0 else it }
+        cpf[posicao].digitToInt() == digito
+    }
+}
+
+// RN05 — de 8 a 128 caracteres com maiúscula, minúscula e número.
+private fun senhaAtendeRn05(senha: String): Boolean =
+    senha.length in 8..128 &&
+        senha.any(Char::isLowerCase) &&
+        senha.any(Char::isUpperCase) &&
+        senha.any(Char::isDigit)
 
 private class SufixoVisualTransformation(private val sufixo: String) : VisualTransformation {
     override fun filter(text: AnnotatedString): TransformedText {
@@ -520,10 +543,11 @@ private fun RegisterForm(
     loading: Boolean,
     feedback: String,
     feedbackSuccess: Boolean,
-    onSubmit: (String, String, String, String, String) -> Unit
+    onSubmit: (String, String, String, String, String, String) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
+    var cpf by remember { mutableStateOf("") } // apenas dígitos
     var crm by remember { mutableStateOf("") } // apenas dígitos
     var uf by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -539,6 +563,15 @@ private fun RegisterForm(
     AuthField("E-mail", email, { email = it }, "Seu@email.com", Icons.Default.Email, KeyboardType.Email)
     Spacer(Modifier.height(16.dp))
     AuthField(
+        "CPF",
+        cpf,
+        { entrada -> cpf = entrada.filter { it.isDigit() }.take(CPF_DIGITOS) },
+        "11 dígitos",
+        Icons.Default.PersonOutline,
+        KeyboardType.Number
+    )
+    Spacer(Modifier.height(16.dp))
+    AuthField(
         "CRM",
         crm,
         { entrada -> crm = entrada.filter { it.isDigit() } },
@@ -548,14 +581,20 @@ private fun RegisterForm(
         visualTransformation = crmMascara
     )
     Spacer(Modifier.height(16.dp))
-    AuthField("UF do CRM", uf, { uf = it.uppercase().take(2) }, "Ex.: SP", Icons.Default.PersonOutline, KeyboardType.Text)
+    AuthFieldDropdown(
+        "UF do CRM",
+        uf,
+        UF_OPCOES,
+        selecionar = { uf = it },
+        icon = Icons.Default.PersonOutline
+    )
     Spacer(Modifier.height(16.dp))
     AuthField(
         "Senha", password, { password = it }, "Crie uma senha segura", Icons.Default.Lock,
         KeyboardType.Password, password = true, visible = visible, onToggle = { visible = !visible }
     )
     Text(
-        "Use de 8 a 128 caracteres.",
+        "Use de 8 a 128 caracteres, com maiúscula, minúscula e número.",
         color = Color(0xFFA9B5B4), fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
         modifier = Modifier.fillMaxWidth().padding(start = 3.dp, top = 3.dp)
     )
@@ -564,6 +603,11 @@ private fun RegisterForm(
         "Confirme sua senha", confirm, { confirm = it }, "Confirme sua senha", Icons.Default.Lock,
         KeyboardType.Password, password = true, visible = visible, onToggle = { visible = !visible }
     )
+    Text(
+        "Após o cadastro, seu CRM passa por análise manual do time Alocca.",
+        color = Color(0xFFA9B5B4), fontSize = 10.sp, fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.fillMaxWidth().padding(start = 3.dp, top = 3.dp)
+    )
     Spacer(Modifier.height(14.dp))
     if (formError.isNotBlank()) FeedbackText(formError, false)
     else if (feedback.isNotBlank()) FeedbackText(feedback, feedbackSuccess)
@@ -571,19 +615,117 @@ private fun RegisterForm(
         formError = when {
             name.trim().length < 2 -> "Informe seu nome completo (mínimo 2 caracteres)."
             !email.trim().matches(Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) -> "Informe um e-mail válido."
+            !cpfValido(cpf) -> "Informe um CPF válido (11 dígitos)."
             crm.isBlank() -> "Informe o número do CRM."
             crm.length > CRM_DIGITOS_MAX -> "O CRM deve ter no máximo 20 dígitos."
-            uf !in setOf("AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN", "RS", "RO", "RR", "SC", "SP", "SE", "TO") -> "Informe uma UF válida para o CRM."
-            password.length < 8 -> "A senha deve ter pelo menos 8 caracteres."
-            password.length > 128 -> "A senha deve ter no máximo 128 caracteres."
+            uf !in UF_OPCOES.map(Pair<String, String>::first) -> "Informe uma UF válida para o CRM."
+            !senhaAtendeRn05(password) -> "A senha deve ter de 8 a 128 caracteres, com maiúscula, minúscula e número."
             password != confirm -> "As senhas não coincidem."
             else -> ""
         }
-        if (formError.isEmpty()) onSubmit(name, email, crm, uf, password)
+        if (formError.isEmpty()) onSubmit(name, email, cpf, crm, uf, password)
     }
     Row(Modifier.fillMaxWidth().padding(top = 13.dp), horizontalArrangement = Arrangement.Center) {
         Text("Já tem uma conta? ", color = Muted, fontSize = 13.sp)
         Text("Faça Login", Modifier.clickable(onClick = onLogin), color = Border, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+    }
+}
+
+// UFs com conselho regional (27), ordem alfabética por sigla.
+private val UF_OPCOES: List<Pair<String, String>> = listOf(
+    "AC" to "Acre", "AL" to "Alagoas", "AP" to "Amapá", "AM" to "Amazonas",
+    "BA" to "Bahia", "CE" to "Ceará", "DF" to "Distrito Federal", "ES" to "Espírito Santo",
+    "GO" to "Goiás", "MA" to "Maranhão", "MT" to "Mato Grosso", "MS" to "Mato Grosso do Sul",
+    "MG" to "Minas Gerais", "PA" to "Pará", "PB" to "Paraíba", "PR" to "Paraná",
+    "PE" to "Pernambuco", "PI" to "Piauí", "RJ" to "Rio de Janeiro", "RN" to "Rio Grande do Norte",
+    "RS" to "Rio Grande do Sul", "RO" to "Rondônia", "RR" to "Roraima", "SC" to "Santa Catarina",
+    "SP" to "São Paulo", "SE" to "Sergipe", "TO" to "Tocantins",
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AuthFieldDropdown(
+    label: String,
+    value: String,
+    opcoes: List<Pair<String, String>>,
+    selecionar: (String) -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+) {
+    var expandido by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expandido,
+        onExpandedChange = { expandido = it },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+                    .align(Alignment.BottomCenter)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(CanvasColor)
+                    .border(width = 1.dp, color = Border, shape = RoundedCornerShape(8.dp))
+                    .padding(horizontal = 11.dp)
+                    .menuAnchor(MenuAnchorType.PrimaryNotEditable),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = Border,
+                    modifier = Modifier.size(19.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = value.ifBlank { "UF" },
+                    color = if (value.isBlank()) Color(0xFFAAB7B6) else Navy,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.weight(1f))
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Abrir lista de UFs",
+                    tint = Border,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Text(
+                text = label,
+                color = Border,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 14.dp)
+                    .background(CanvasColor)
+                    .padding(horizontal = 4.dp)
+            )
+
+            ExposedDropdownMenu(
+                expanded = expandido,
+                onDismissRequest = { expandido = false },
+                modifier = Modifier.exposedDropdownSize()
+            ) {
+                opcoes.forEach { (sigla, nome) ->
+                    DropdownMenuItem(
+                        text = {
+                            Text("$nome ($sigla)", color = Navy, fontSize = 13.sp, maxLines = 1)
+                        },
+                        onClick = {
+                            selecionar(sigla)
+                            expandido = false
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
