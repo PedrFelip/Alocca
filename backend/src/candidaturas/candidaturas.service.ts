@@ -6,7 +6,17 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common'
-import { and, eq, gt, inArray, isNull, lt, ne, sql } from 'drizzle-orm'
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNull,
+  lt,
+  ne,
+  sql,
+} from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
@@ -21,7 +31,10 @@ import {
   plantoesTable,
   usuariosTable,
 } from '../db/schemas/index.ts'
-import type { CriarCandidatura } from './candidaturas.schemas.ts'
+import type {
+  CriarCandidatura,
+  ListarMinhasCandidaturas,
+} from './candidaturas.schemas.ts'
 
 const MSG_CANDIDATURA_ENVIADA =
   'Candidatura enviada com sucesso! Acompanhe o status na sua agenda.'
@@ -159,6 +172,56 @@ export class CandidaturasService {
         throw erro
       }
     })
+  }
+
+  async listarMinhas(usuarioId: string, filtros: ListarMinhasCandidaturas) {
+    const medicoId = await this.perfilMedicoId(usuarioId)
+
+    const condicoes = [
+      eq(candidaturasTable.medico_id, medicoId),
+      isNull(candidaturasTable.deleted_at),
+      isNull(plantoesTable.deleted_at),
+      isNull(instituicoesTable.deleted_at),
+    ]
+    if (filtros.status) {
+      condicoes.push(eq(candidaturasTable.status, filtros.status))
+    }
+
+    return this.db
+      .select({
+        id: candidaturasTable.id,
+        status: candidaturasTable.status,
+        mensagem_medico: candidaturasTable.mensagem_medico,
+        criada_em: candidaturasTable.created_at,
+        plantao: {
+          id: plantoesTable.id,
+          titulo: plantoesTable.titulo,
+          especialidade: plantoesTable.especialidade,
+          data_inicio: plantoesTable.data_inicio,
+          data_fim: plantoesTable.data_fim,
+          valor: plantoesTable.valor,
+          local_unidade: plantoesTable.local_unidade,
+        },
+        instituicao: {
+          id: instituicoesTable.id,
+          nome: instituicoesTable.nome,
+          cidade: instituicoesTable.cidade,
+          uf: instituicoesTable.uf,
+        },
+      })
+      .from(candidaturasTable)
+      .innerJoin(
+        plantoesTable,
+        eq(candidaturasTable.plantao_id, plantoesTable.id),
+      )
+      .innerJoin(
+        instituicoesTable,
+        eq(plantoesTable.instituicao_id, instituicoesTable.id),
+      )
+      .where(and(...condicoes))
+      .orderBy(desc(candidaturasTable.created_at))
+      .limit(filtros.limit)
+      .offset(filtros.offset)
   }
 
   /** UC11 — Lista as candidaturas de um plantão para o gestor responsável. */
