@@ -5,9 +5,9 @@ import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/pglite'
 import { readFile, readdir } from 'node:fs/promises'
 import request from 'supertest'
-import { AppModule } from '../src/app.module.js'
-import { PasswordService } from '../src/auth/password.service.js'
-import { DRIZZLE_DB } from '../src/db/db.provider.js'
+import { AppModule } from '../src/app.module.ts'
+import { PasswordService } from '../src/auth/password.service.ts'
+import { DRIZZLE_DB } from '../src/db/db.provider.ts'
 
 describe('Validação manual de médicos', () => {
   let app: INestApplication
@@ -40,7 +40,7 @@ describe('Validação manual de médicos', () => {
 
   beforeEach(async () => {
     await database.exec(
-      'TRUNCATE medicos, usuarios, tokens_recuperacao_senha CASCADE',
+      'TRUNCATE notificacoes, medicos, usuarios, tokens_recuperacao_senha CASCADE',
     )
     async function criarUsuario(tipo: string): Promise<string> {
       const result = await database.query<{ id: string }>(

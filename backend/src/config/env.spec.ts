@@ -1,4 +1,4 @@
-import { validateEnv } from './env.js'
+import { validateEnv } from './env.ts'
 
 const required = {
   JWT_SECRET: 'test-only-secret-with-at-least-32-characters',

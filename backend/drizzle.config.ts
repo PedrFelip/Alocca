@@ -1,7 +1,7 @@
 import 'dotenv/config'
 import { defineConfig } from 'drizzle-kit'
 
-import { validateEnv } from './src/config/env.js'
+import { validateEnv } from './src/config/env.ts'
 
 const env = validateEnv(process.env)
 

@@ -7,11 +7,11 @@ import {
   type ExecutionContext,
 } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
-import type { AuthenticatedRequest } from './auth.guard.js'
+import type { AuthenticatedRequest } from './auth.guard.ts'
 import {
   PERMISSOES_KEY,
   type PermissaoUsuario,
-} from './permissoes.decorator.js'
+} from './permissoes.decorator.ts'
 
 @Injectable()
 export class PermissoesGuard implements CanActivate {

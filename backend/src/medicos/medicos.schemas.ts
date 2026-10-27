@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { cadastroMedicoSchema } from '../usuarios/usuarios.schemas.js'
+import { cadastroMedicoSchema } from '../usuarios/usuarios.schemas.ts'
 
 const registro = cadastroMedicoSchema.pick({
   nome: true,

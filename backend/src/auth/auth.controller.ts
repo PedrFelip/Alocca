@@ -1,13 +1,13 @@
 import { Body, Controller, HttpCode, Inject, Post } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
-import { ZodValidationPipe } from '../common/zod-validation.pipe.js'
+import { ZodValidationPipe } from '../common/zod-validation.pipe.ts'
 import {
   cadastroMedicoSchema,
   type CadastroMedico,
-} from '../usuarios/usuarios.schemas.js'
-import { UsuariosService } from '../usuarios/usuarios.service.js'
-import { loginSchema, type Login } from './auth.schemas.js'
-import { AuthService } from './auth.service.js'
+} from '../usuarios/usuarios.schemas.ts'
+import { UsuariosService } from '../usuarios/usuarios.service.ts'
+import { loginSchema, type Login } from './auth.schemas.ts'
+import { AuthService } from './auth.service.ts'
 
 @Controller('auth')
 @Throttle({ default: { limit: 10, ttl: 60000 } })
