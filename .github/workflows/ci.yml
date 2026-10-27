@@ -1,0 +1,169 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      upload_apk:
+        description: Save the debug APK as an artifact
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24.22.1"
+  BUN_VERSION: "1.4.3"
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      # Provisão para os testes de concorrência (candidaturas-concorrencia)
+      # com conexões independentes de PostgreSQL.
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ env.BUN_VERSION }}-backend-${{ hashFiles('backend/bun.lock') }}
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Lint
+        run: bun run lint
+      - name: Build
+        run: bun run build
+      - name: Unit tests
+        run: bun run test --reporter=default --reporter=junit --outputFile=reports/unit.xml
+      - name: End-to-end tests
+        run: bun run test:e2e --reporter=default --reporter=junit --outputFile=reports/e2e.xml
+      - name: Upload test reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: backend/reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  admin:
+    name: Admin
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ env.BUN_VERSION }}-admin-${{ hashFiles('admin/bun.lock') }}
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Check Svelte and TypeScript
+        run: bun run check
+      - name: Build
+        run: bun run build
+
+  android:
+    name: Android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v5
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          cmdline-tools-version: "13114758"
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
+          log-accepted-android-sdk-licenses: false
+      - name: Lint and build debug APK
+        run: ./gradlew --no-daemon --stacktrace lintDebug assembleDebug
+      - name: Upload debug APK
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_apk }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-apk
+          path: frontend/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload Android reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-reports
+          path: frontend/app/build/reports/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ci:
+    name: CI
+    if: ${{ always() }}
+    needs: [backend, admin, android]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require all checks to pass
+        env:
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          ADMIN_RESULT: ${{ needs.admin.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+        run: |
+          for result in "$BACKEND_RESULT" "$ADMIN_RESULT" "$ANDROID_RESULT"; do
+            if [ "$result" != success ]; then
+              echo "A required job did not succeed: $result"
+              exit 1
+            fi
+          done

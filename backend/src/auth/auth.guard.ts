@@ -9,8 +9,8 @@ import { JwtService } from '@nestjs/jwt'
 import { and, eq, isNull } from 'drizzle-orm'
 import type { Request } from 'express'
 import { z } from 'zod'
-import { DRIZZLE_DB, type Database } from '../db/db.provider.js'
-import { usuariosTable } from '../db/schemas/index.js'
+import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
+import { usuariosTable } from '../db/schemas/index.ts'
 
 export type AuthenticatedRequest = Request & {
   usuarioId: string

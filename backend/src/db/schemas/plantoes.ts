@@ -12,8 +12,8 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import { instituicoesTable } from './instituicoes.js'
-import { usuariosTable } from './usuarios.js'
+import { instituicoesTable } from './instituicoes.ts'
+import { usuariosTable } from './usuarios.ts'
 
 export const statusPlantao = pgEnum('status_plantao', [
   'ABERTO',

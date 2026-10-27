@@ -6,7 +6,7 @@ export const emailSchema = z
   .toLowerCase()
   .pipe(z.email().max(255))
 export const senhaSchema = z.string().min(8).max(128)
-const ufSchema = z.enum([
+export const ufSchema = z.enum([
   'AC',
   'AL',
   'AP',

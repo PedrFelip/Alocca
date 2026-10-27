@@ -6,10 +6,10 @@ import {
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
-import type { Env } from '../config/env.js'
-import { UsuariosService } from '../usuarios/usuarios.service.js'
-import type { Login } from './auth.schemas.js'
-import { PasswordService } from './password.service.js'
+import type { Env } from '../config/env.ts'
+import { UsuariosService } from '../usuarios/usuarios.service.ts'
+import type { Login } from './auth.schemas.ts'
+import { PasswordService } from './password.service.ts'
 
 @Injectable()
 export class AuthService {
