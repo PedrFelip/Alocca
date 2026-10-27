@@ -1,11 +1,19 @@
 import { z } from 'zod'
+import { higienizarCpf, validarCpf } from '../common/cpf.ts'
 
 export const emailSchema = z
   .string()
   .trim()
   .toLowerCase()
   .pipe(z.email().max(255))
-export const senhaSchema = z.string().min(8).max(128)
+// RN05 — mínimo de 8 caracteres com maiúscula, minúscula e número.
+export const senhaSchema = z
+  .string()
+  .min(8, 'A senha deve ter no mínimo 8 caracteres')
+  .max(128)
+  .regex(/[a-z]/, 'A senha deve conter uma letra minúscula')
+  .regex(/[A-Z]/, 'A senha deve conter uma letra maiúscula')
+  .regex(/\d/, 'A senha deve conter um número')
 export const ufSchema = z.enum([
   'AC',
   'AL',
@@ -36,8 +44,16 @@ export const ufSchema = z.enum([
   'TO',
 ])
 
+// RN02 — CPF único, validado pelo dígito verificador; RN04 — ponto e hífen removidos.
+export const cpfSchema = z
+  .string()
+  .trim()
+  .transform(higienizarCpf)
+  .refine(validarCpf, { message: 'CPF inválido' })
+
 export const cadastroMedicoSchema = z.strictObject({
   nome: z.string().trim().min(2).max(150),
+  cpf: cpfSchema,
   email: emailSchema,
   senha: senhaSchema,
   telefone: z.string().trim().min(8).max(20).optional(),

@@ -47,7 +47,7 @@ export class AuthService {
           )
         }
       }
-      throw new UnauthorizedException('E-mail ou senha inválidos')
+      throw new UnauthorizedException('E-mail, CPF, CRM ou senha incorretos.')
     }
     if (!(await this.usuarios.registrarLogin(usuario.id))) {
       throw new HttpException(

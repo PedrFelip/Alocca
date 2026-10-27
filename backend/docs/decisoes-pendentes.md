@@ -3,7 +3,13 @@
 Dúvidas em aberto que travam ou mudam implementação. Fonte oficial: `project-context.md`.
 Marque `[x]` e mova para o spec quando decidir.
 
+## Decidido (registro)
+
+- [x] **D19 — CPF do médico no MVP:** entra no MVP. Issue #27 (produto confirmou). Implementado: coluna `usuarios.cpf` (varchar 11, unique, **nullable na tabela** por contas legadas/admin; **obrigatório** no DTO de cadastro do médico), RN02 (dígito verificador + rejeição de repetidos), RN04 (higienização). Login por CPF (RN07) permanece fora do escopo. **D17 fica reservado** para completude de perfil na candidatura (RN17).
+- [x] **D18 — Contrato auth implementado (issue #27):** o código de auth hoje é `POST /auth/register/medico` e `POST /auth/login`, snake_case (`uf_crm`), sem prefixo `/api/v1`. Isso **não** altera o spec oficial (`project-context.md` UC01–UC12 continua `/api/v1` + camelCase). `docs/contrato-auth-app.md` documenta o que o app consome hoje, como “implementado, pendente alinhamento”. Alinhar todos os UCs de uma vez (ou o código ao spec) é decisão futura — não reescrever só o UC01.
+
 ## Modelo
+
 - [ ] **D1 — Tipo das coordenadas GPS:** `Decimal(10,8)` (precisão fixa, versão AGENTS) ou `Float` (versão guide, atual no spec)? E o campo de distância: `distanciaMetros` ou `distanciaLocal`? Impacto: migration de `registros_presenca`.
 - [ ] **D2 — Herança usuarios → medico/gestor:** preferência é extensão (joined-table: `medicos.usuario_id → usuarios.id`), mas está como "ponto a definir". Alternativa: single-table com `tipo_usuario`. Impacto: todas as migrations de auth + FKs de `candidatura`/`alocacao`.
 - [x] **D3 — Resolvido:** `plantao.gestor_criador_id` mantido, com FK para `usuarios.id` (spec: `Plantao.gestorCriadorId`), e não para `gestores.id`.
@@ -14,6 +20,7 @@ Marque `[x]` e mova para o spec quando decidir.
 - [ ] **D16 — Recandidatura:** `UNIQUE(plantao_id, medico_id)` em candidaturas impede nova candidatura após `REJEITADA` (spec). Decidir se rejeitado pode voltar a candidatar-se (índice parcial). Impacto: UC05.
 
 ## Regras e fluxos
+
 - [ ] **D17 — Completude de perfil na candidatura (RN17):** porção "Sem Especialidade, não aplica para vagas específicas" implementada no UC05 (médico sem `especialidade` recebe 403). Pendente: limiar de `taxaCompletude` exigido e se a especialidade declarada precisa casar com a `especialidade` do plantão. Impacto: filtro de candidatos/publicação.
 - [ ] **D5 — Convites diretos (RN31):** regra de expiração existe, mas não há nenhum endpoint/UC de convite no spec. Vai ter convite direto no MVP ou a RN31 cai? Impacto: escopo do MVP.
 - [ ] **D6 — Numeração das RNs:** unifiquei pela base do AGENTS + RN31 por inferência (item 15). Validar se algum número conflita com doc externa (mobile/Kotlin).
@@ -23,5 +30,6 @@ Marque `[x]` e mova para o spec quando decidir.
 - [ ] **D10 — Notificações da cascata (UC11):** UC11 grava os eventos em outbox (`notificacoes`) na MESMA transação da aprovação (RN21). Pendente: provedor de entrega (Firebase, SMTP próprio, worker de consumo do outbox) e colunas de canal/retry. Impacto: UC02/UC11.
 
 ## Infra
+
 - [ ] **D11 — SeaweedFS:** bucket, URL pública vs assinada, quem serve o download do comprovante (back-end proxy ou URL direta)? Impacto: UC08/UC12.
 - [ ] **D12 — Cadastro de gestor e de instituição:** não há UC para criar conta de gestor nem vincular instituição (só `GET /instituicoes/vinculadas`). Endpoints novos ou seed manual? Impacto: UC10 trava sem isso.

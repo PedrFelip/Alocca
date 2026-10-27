@@ -78,8 +78,9 @@ describe('Validação manual de médicos', () => {
   it('cadastra um médico pendente sem aceitar status informado pelo solicitante', async () => {
     const cadastro = {
       nome: 'Médico novo',
+      cpf: '123.456.789-09',
       email: 'novo@example.com',
-      senha: 'senha-segura-123',
+      senha: 'Senha-Segura-123',
       crm: '654321',
       uf_crm: 'RJ',
     }
