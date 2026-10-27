@@ -44,6 +44,26 @@ internal object TokenStore {
         context.getSharedPreferences(LEGACY_PREFS_NAME, Context.MODE_PRIVATE)
             .edit().remove(LEGACY_TOKEN_KEY).commit()
 
+    /** Remove a sessão local. Retorna `false` se a exclusão em disco falhar. */
+    @Synchronized
+    fun clear(context: Context): Boolean {
+        val removido = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().remove(IV_KEY).remove(CIPHERTEXT_KEY).commit()
+        return removido && discardLegacyPlaintext(context)
+    }
+
+    /**
+     * Encerra a sessão local apenas se o token salvo ainda for o consultado.
+     * Impede que uma restauração antiga apague o token de uma sessão mais nova:
+     * a comparação e a remoção são atômicas (mesmo lock do save/read).
+     */
+    @Synchronized
+    fun clearIfMatches(context: Context, token: String): Boolean {
+        if (token.isBlank()) return false
+        if (read(context) != token) return false
+        return clear(context)
+    }
+
     /** Returns null for an absent or undecryptable token and clears corrupt ciphertext. */
     @Synchronized
     fun read(context: Context): String? {
