@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
 import type { Env } from '../config/env.ts'
+import { mensagensOficiais } from '../common/mensagens.ts'
 import { UsuariosService } from '../usuarios/usuarios.service.ts'
 import type { Login } from './auth.schemas.ts'
 import { PasswordService } from './password.service.ts'
@@ -28,10 +29,7 @@ export class AuthService {
   async login(data: Login) {
     const usuario = await this.usuarios.buscarCredenciais(data.email)
     if (usuario && (await this.usuarios.bloqueioLoginAtivo(usuario.id))) {
-      throw new HttpException(
-        'Conta bloqueada temporariamente. Tente novamente em 15 minutos.',
-        429,
-      )
+      throw new HttpException(mensagensOficiais['MSG-03'], 429)
     }
     const valid = await this.passwords.verify(
       data.senha,
@@ -47,13 +45,10 @@ export class AuthService {
           )
         }
       }
-      throw new UnauthorizedException('E-mail, CPF, CRM ou senha incorretos.')
+      throw new UnauthorizedException(mensagensOficiais['MSG-01'])
     }
     if (!(await this.usuarios.registrarLogin(usuario.id))) {
-      throw new HttpException(
-        'Conta bloqueada temporariamente. Tente novamente em 15 minutos.',
-        429,
-      )
+      throw new HttpException(mensagensOficiais['MSG-03'], 429)
     }
     return {
       access_token: await this.jwt.signAsync({ sub: usuario.id }),

@@ -18,6 +18,7 @@ import {
   sql,
 } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
+import { mensagensOficiais } from '../common/mensagens.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
   alocacoesTable,
@@ -36,13 +37,11 @@ import type {
   ListarMinhasCandidaturas,
 } from './candidaturas.schemas.ts'
 
-const MSG_CANDIDATURA_ENVIADA =
-  'Candidatura enviada com sucesso! Acompanhe o status na sua agenda.'
-const MSG_ALOCACAO = 'Médico alocado com sucesso! Os demais candidatos foram notificados.'
-const MSG_DOUBLE_BOOKING =
-  'Conflito de agenda: você já possui um plantão confirmado neste horário.'
 const MSG_SEM_ESPECIALIDADE =
   'Complete a especialidade do perfil para se candidatar a esta vaga.'
+const MSG_CANDIDATURA_ENVIADA = mensagensOficiais['MSG-09']
+const MSG_ALOCACAO = mensagensOficiais['MSG-17']
+const MSG_DOUBLE_BOOKING = mensagensOficiais['MSG-10']
 
 @Injectable()
 export class CandidaturasService {

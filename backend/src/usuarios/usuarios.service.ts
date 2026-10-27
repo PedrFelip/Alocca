@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { PasswordService } from '../auth/password.service.ts'
+import { mensagensOficiais } from '../common/mensagens.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import { medicosTable, usuariosTable } from '../db/schemas/index.ts'
 import type { AtualizarUsuario, CadastroMedico } from './usuarios.schemas.ts'
@@ -19,7 +20,7 @@ export function usuarioPublico(usuario: Usuario) {
 
 // MSG-02 — mensagem oficial para qualquer dado duplicado no cadastro.
 export const MSG_CONFLITO_CADASTRO =
-  'Este dado (E-mail/CPF/CRM) já pertence a uma conta ativa.'
+  mensagensOficiais['MSG-02']
 
 function tratarConflito(error: unknown): never {
   // Drizzle mantém o erro do PostgreSQL em cause.
