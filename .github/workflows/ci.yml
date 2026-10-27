@@ -119,7 +119,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "25"
       - uses: gradle/actions/setup-gradle@v5
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
@@ -127,7 +127,7 @@ jobs:
         uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
         with:
           cmdline-tools-version: "13114758"
-          packages: platform-tools platforms;android-35 build-tools;34.0.0
+          packages: platform-tools platforms;android-37.0 build-tools;36.0.0
           log-accepted-android-sdk-licenses: false
       - name: Lint and build debug APK
         run: ./gradlew --no-daemon --stacktrace lintDebug assembleDebug
