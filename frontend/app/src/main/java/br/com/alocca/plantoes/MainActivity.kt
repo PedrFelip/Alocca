@@ -500,7 +500,7 @@ private fun LoginForm(
 // Máscara visual do CRM no cadastro: exibe "123456-SP" anexando a UF ao número.
 // O valor do campo guarda só os dígitos (a API continua recebendo crm e uf_crm
 // separados); o sufixo é puramente visual, via VisualTransformation.
-private const val CRM_DIGITOS_MAX = 8
+private const val CRM_DIGITOS_MAX = 20
 private const val CPF_DIGITOS = 11
 
 // RN02 — CPF validado pelos dígitos verificadores; RN04 — o campo guarda só
@@ -574,7 +574,7 @@ private fun RegisterForm(
     AuthField(
         "CRM",
         crm,
-        { entrada -> crm = entrada.filter { it.isDigit() }.take(CRM_DIGITOS_MAX) },
+        { entrada -> crm = entrada.filter { it.isDigit() } },
         "Ex.: 123456",
         Icons.Default.PersonOutline,
         KeyboardType.Number,
@@ -617,6 +617,7 @@ private fun RegisterForm(
             !email.trim().matches(Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) -> "Informe um e-mail válido."
             !cpfValido(cpf) -> "Informe um CPF válido (11 dígitos)."
             crm.isBlank() -> "Informe o número do CRM."
+            crm.length > CRM_DIGITOS_MAX -> "O CRM deve ter no máximo 20 dígitos."
             uf !in UF_OPCOES.map(Pair<String, String>::first) -> "Informe uma UF válida para o CRM."
             !senhaAtendeRn05(password) -> "A senha deve ter de 8 a 128 caracteres, com maiúscula, minúscula e número."
             password != confirm -> "As senhas não coincidem."

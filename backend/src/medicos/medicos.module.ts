@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common'
-import { SecurityModule } from '../auth/security.module.js'
-import { DatabaseModule } from '../db/db.module.js'
-import { MedicosController } from './medicos.controller.js'
-import { MedicosService } from './medicos.service.js'
+import { SecurityModule } from '../auth/security.module.ts'
+import { DatabaseModule } from '../db/db.module.ts'
+import { MedicosController } from './medicos.controller.ts'
+import { MedicosService } from './medicos.service.ts'
 
 @Module({
   imports: [DatabaseModule, SecurityModule],

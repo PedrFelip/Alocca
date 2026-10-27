@@ -13,6 +13,9 @@ NestJS 12 + Bun + TypeScript, Drizzle ORM + Postgres (`postgres-js`), Zod, Vites
 ## Estrutura
 `src/main.ts` · `src/app.module.ts` (ConfigModule global + DatabaseModule) · `src/config/env.ts` (valida `NODE_ENV, PORT, DATABASE_URL`) · `src/db/` (provider `DRIZZLE_DB`, `schema.ts`, `usuarios/`) · `test/` (e2e).
 
+## Imports
+Todo import relativo aponta para o arquivo `.ts` de origem (ex.: `import { UsuariosService } from './usuarios.service.ts'`), com `allowImportingTsExtensions` + `rewriteRelativeImportExtensions` no `tsconfig.json` — o `tsc` reescreve para `.js` no `dist/`. Não use alias de path (`@/`): o TypeScript só aceita a extensão `.ts` em caminhos relativos, e o `nest build` falharia com caminhos com alias. Arquivos fora de `src/` (ex.: `drizzle.config.ts`) seguem a mesma regra.
+
 ## Regras de ouro
 1. Camadas: controller só DTO/HTTP → service/use-case com a RN → repository SQL parametrizado → entity/drizzle schema.
 2. UC11 (alocação) sempre em transação atômica; UC05 checa double-booking antes de persistir.

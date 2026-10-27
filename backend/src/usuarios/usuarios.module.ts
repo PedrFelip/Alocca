@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common'
-import { SecurityModule } from '../auth/security.module.js'
-import { DatabaseModule } from '../db/db.module.js'
-import { UsuariosController } from './usuarios.controller.js'
-import { UsuariosService } from './usuarios.service.js'
+import { SecurityModule } from '../auth/security.module.ts'
+import { DatabaseModule } from '../db/db.module.ts'
+import { UsuariosController } from './usuarios.controller.ts'
+import { UsuariosService } from './usuarios.service.ts'
 
 @Module({
   imports: [DatabaseModule, SecurityModule],

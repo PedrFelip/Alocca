@@ -8,8 +8,8 @@ import { Reflector } from '@nestjs/core'
 import {
   PERMISSOES_KEY,
   type PermissaoUsuario,
-} from './permissoes.decorator.js'
-import { PermissoesGuard } from './permissoes.guard.js'
+} from './permissoes.decorator.ts'
+import { PermissoesGuard } from './permissoes.guard.ts'
 
 describe('PermissoesGuard', () => {
   const guard = new PermissoesGuard(new Reflector())

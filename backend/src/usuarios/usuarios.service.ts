@@ -5,10 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { PasswordService } from '../auth/password.service.js'
-import { DRIZZLE_DB, type Database } from '../db/db.provider.js'
-import { medicosTable, usuariosTable } from '../db/schemas/index.js'
-import type { AtualizarUsuario, CadastroMedico } from './usuarios.schemas.js'
+import { PasswordService } from '../auth/password.service.ts'
+import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
+import { medicosTable, usuariosTable } from '../db/schemas/index.ts'
+import type { AtualizarUsuario, CadastroMedico } from './usuarios.schemas.ts'
 
 export type Usuario = typeof usuariosTable.$inferSelect
 
