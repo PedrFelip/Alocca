@@ -81,7 +81,7 @@ describe('Feed de plantões do médico', () => {
 
   beforeEach(async () => {
     await database.exec(
-      `TRUNCATE pagamentos, registros_ponto, alocacoes, candidaturas, plantoes,
+      `TRUNCATE notificacoes, pagamentos, registros_ponto, alocacoes, candidaturas, plantoes,
        gestores_instituicoes, gestores, instituicoes, medicos,
        tokens_recuperacao_senha, usuarios CASCADE`,
     )
