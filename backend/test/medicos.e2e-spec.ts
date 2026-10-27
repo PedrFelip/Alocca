@@ -40,7 +40,7 @@ describe('Validação manual de médicos', () => {
 
   beforeEach(async () => {
     await database.exec(
-      'TRUNCATE medicos, usuarios, tokens_recuperacao_senha CASCADE',
+      'TRUNCATE notificacoes, medicos, usuarios, tokens_recuperacao_senha CASCADE',
     )
     async function criarUsuario(tipo: string): Promise<string> {
       const result = await database.query<{ id: string }>(
