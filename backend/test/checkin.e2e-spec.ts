@@ -290,6 +290,18 @@ describe('Check-in e check-out (UC06)', () => {
       }).expect(404)
     })
 
+    it('recusa quando o plantão não exige check-in', async () => {
+      await database.query(
+        'UPDATE plantoes SET exige_checkin = false FROM alocacoes WHERE alocacoes.plantao_id = plantoes.id AND alocacoes.id = $1',
+        [alocacao],
+      )
+      const resposta = await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+      }).expect(409)
+      expect(resposta.body.message).toBe('Este plantão não exige check-in')
+    })
+
     it('recusa coordenada impossível (400)', async () => {
       await presenca(medicoToken, {
         alocacao_id: alocacao,

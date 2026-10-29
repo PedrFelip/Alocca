@@ -56,6 +56,7 @@ export class CheckinService {
     const [alocacao] = await this.db
       .select({
         status_plantao: plantoesTable.status,
+        exige_checkin: plantoesTable.exige_checkin,
         data_inicio: plantoesTable.data_inicio,
         data_fim: plantoesTable.data_fim,
         permite_geolocalizacao: plantoesTable.permite_geolocalizacao,
@@ -79,6 +80,9 @@ export class CheckinService {
     if (!alocacao) throw new NotFoundException('Alocação não encontrada')
     if (alocacao.status_plantao === 'CANCELADO') {
       throw new ConflictException('Este plantão foi cancelado')
+    }
+    if (!alocacao.exige_checkin) {
+      throw new ConflictException('Este plantão não exige check-in')
     }
 
     // a hora é sempre a do servidor, a tela so mostra o que o back deixa
@@ -224,6 +228,7 @@ export class CheckinService {
           isNull(alocacoesTable.deleted_at),
           isNull(plantoesTable.deleted_at),
           ne(plantoesTable.status, 'CANCELADO'),
+          eq(plantoesTable.exige_checkin, true),
           notExists(registro('SAIDA')),
           // sem check-in: ate o fim. com check-in: ate o prazo do check-out
           or(
