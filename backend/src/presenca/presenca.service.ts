@@ -57,6 +57,8 @@ export class PresencaService {
           eq(alocacoesTable.id, consulta.alocacao_id),
           eq(alocacoesTable.medico_id, medicoId),
           isNull(alocacoesTable.deleted_at),
+          isNull(plantoesTable.deleted_at),
+          isNull(instituicoesTable.deleted_at),
         ),
       )
       .limit(1)
@@ -110,6 +112,8 @@ export class PresencaService {
         and(
           eq(alocacoesTable.medico_id, medicoId),
           isNull(alocacoesTable.deleted_at),
+          isNull(plantoesTable.deleted_at),
+          isNull(instituicoesTable.deleted_at),
         ),
       )
       .orderBy(desc(registrosPontoTable.timestamp_servidor))
