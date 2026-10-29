@@ -1,6 +1,9 @@
+import { sql } from 'drizzle-orm'
 import {
   boolean,
   char,
+  check,
+  doublePrecision,
   index,
   pgTable,
   timestamp,
@@ -28,6 +31,8 @@ export const instituicoesTable = pgTable(
     bairro: varchar('bairro', { length: 100 }),
     cidade: varchar('cidade', { length: 100 }),
     uf: char('uf', { length: 2 }),
+    latitude: doublePrecision('latitude'),
+    longitude: doublePrecision('longitude'),
     ativa: boolean('ativa').notNull().default(true),
     created_at: timestamp('created_at').notNull().defaultNow(),
     updated_at: timestamp('updated_at')
@@ -36,5 +41,19 @@ export const instituicoesTable = pgTable(
       .$onUpdate(() => new Date()),
     deleted_at: timestamp('deleted_at'),
   },
-  (table) => [index('instituicoes_usuario_id_idx').on(table.usuario_id)],
+  (table) => [
+    index('instituicoes_usuario_id_idx').on(table.usuario_id),
+    check(
+      'instituicoes_coordenadas_check',
+      sql`(${table.latitude} is null) = (${table.longitude} is null)`,
+    ),
+    check(
+      'instituicoes_latitude_check',
+      sql`${table.latitude} between -90 and 90`,
+    ),
+    check(
+      'instituicoes_longitude_check',
+      sql`${table.longitude} between -180 and 180`,
+    ),
+  ],
 )

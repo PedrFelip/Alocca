@@ -60,6 +60,8 @@ async function garantirInstituicao(usuarioId: string): Promise<string> {
       cnpj: CNPJ,
       cidade: 'Brasília',
       uf: 'DF',
+      latitude: -15.8011,
+      longitude: -47.8838,
     })
     .returning({ id: instituicoesTable.id })
   return criada.id
