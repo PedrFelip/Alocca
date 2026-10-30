@@ -11,7 +11,6 @@ import {
 import type { AgendaDia, AgendaPeriodo } from './agenda.tipos.ts'
 
 const FUSO_APRESENTACAO = 'America/Sao_Paulo'
-const FUSO_OFFSET = '-03:00'
 const FORMATO_DATA = new Intl.DateTimeFormat('en-CA', {
   timeZone: FUSO_APRESENTACAO,
   year: 'numeric',
@@ -62,11 +61,12 @@ export class AgendaService {
   async doMes(usuarioId: string, periodo: AgendaPeriodo): Promise<AgendaDia[]> {
     const medicoId = await this.perfilMedicoId(usuarioId)
 
-    const inicio = new Date(
-      `${periodo.ano}-${String(periodo.mes).padStart(2, '0')}-01T00:00:00${FUSO_OFFSET}`,
-    )
-    const fim = new Date(inicio)
-    fim.setUTCMonth(fim.getUTCMonth() + 1)
+    // Limites do mês no mesmo fuso nomeado usado para agrupar por dia
+    // (respeita o horário de verão histórico de America/Sao_Paulo).
+    const proximoAno = periodo.mes === 12 ? periodo.ano + 1 : periodo.ano
+    const proximoMes = periodo.mes === 12 ? 1 : periodo.mes + 1
+    const inicio = sql`make_timestamptz(${periodo.ano}::int, ${periodo.mes}::int, 1, 0, 0, 0, ${FUSO_APRESENTACAO})`
+    const fim = sql`make_timestamptz(${proximoAno}::int, ${proximoMes}::int, 1, 0, 0, 0, ${FUSO_APRESENTACAO})`
 
     const visao = and(
       gte(plantoesTable.data_inicio, inicio),

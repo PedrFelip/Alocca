@@ -260,6 +260,27 @@ describe('Agenda mensal (GET /agenda/mes, #16)', () => {
     )
   }
 
+  it('usa o fuso nomeado nos limites do mês (horário de verão histórico)', async () => {
+    // 2018-12-01T02:30Z é dia 1º em America/Sao_Paulo (UTC−2 no verão de 2018).
+    await database.query(
+      `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade,
+        especialidade, data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status)
+       SELECT '11111111-1111-4111-8111-111111111111', id, 'Borda Verao', 'Home Care',
+        'Clínica Médica', '2018-12-01T02:30:00Z', '2018-12-01T08:00:00Z', '800.00', 1, 1, 'ABERTO'
+       FROM usuarios WHERE email = 'gestor1@example.com'`,
+    )
+    await database.query(
+      "INSERT INTO candidaturas (plantao_id, medico_id, status) SELECT p.id, m.id, 'PENDENTE' FROM plantoes p, medicos m WHERE p.titulo = 'Borda Verao' AND m.crm = '123456'",
+    )
+
+    const dezembro = await consultar(2018, 12, medico1Token).expect(200)
+    expect(dezembro.body).toHaveLength(1)
+    expect(dezembro.body[0].dia).toBe('2018-12-01')
+
+    const novembro = await consultar(2018, 11, medico1Token).expect(200)
+    expect(novembro.body).toEqual([])
+  })
+
   it('mês inválido retorna 400', async () => {
     await request(app.getHttpServer())
       .get('/agenda/mes?ano=2026&mes=13')
