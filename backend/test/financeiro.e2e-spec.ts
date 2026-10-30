@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite'
 import type { INestApplication } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
+import { vi } from 'vitest'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/pglite'
 import { readFile, readdir } from 'node:fs/promises'
@@ -193,6 +194,21 @@ describe('Financeiro do médico (GET /financeiro/medico, #18)', () => {
       .filter((p) => p.status === 'PAGO')
       .reduce((acc, p) => acc + Number(p.valor), 0)
     expect(Number(resposta.body.resumo.total_recebido)).toBe(soma)
+  })
+
+  it('lê resumo e lista em uma transação REPEATABLE READ (mesmo snapshot)', async () => {
+    const db = app.get<{ transaction: (...args: unknown[]) => unknown }>(
+      DRIZZLE_DB,
+    )
+    const espiao = vi.spyOn(db, 'transaction')
+
+    await consultar(medico1Token).expect(200)
+
+    expect(espiao).toHaveBeenCalledTimes(1)
+    expect(espiao.mock.calls[0][1]).toMatchObject({
+      isolationLevel: 'repeatable read',
+    })
+    espiao.mockRestore()
   })
 
   it('isolamento: médico só vê os próprios pagamentos', async () => {
