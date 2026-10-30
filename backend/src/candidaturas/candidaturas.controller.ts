@@ -6,6 +6,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common'
@@ -17,6 +18,10 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.ts'
 import {
   criarCandidaturaSchema,
   type CriarCandidatura,
+} from './candidaturas.schemas.ts'
+import {
+  listarMinhasCandidaturasSchema,
+  type ListarMinhasCandidaturas,
 } from './candidaturas.schemas.ts'
 import { CandidaturasService } from './candidaturas.service.ts'
 
@@ -66,5 +71,26 @@ export class CandidaturasController {
       candidaturaId,
       request.usuarioId,
     )
+  }
+}
+
+@Controller('candidaturas/medico')
+@UseGuards(AuthGuard, PermissoesGuard)
+@Permissoes('MEDICO')
+export class MinhasCandidaturasController {
+  constructor(
+    @Inject(CandidaturasService)
+    private readonly candidaturas: CandidaturasService,
+  ) {}
+
+  @Get()
+  listar(
+    @Req() request: AuthenticatedRequest,
+    @Query(
+      new ZodValidationPipe(listarMinhasCandidaturasSchema),
+    )
+    filtros: ListarMinhasCandidaturas,
+  ) {
+    return this.candidaturas.listarMinhas(request.usuarioId, filtros)
   }
 }
