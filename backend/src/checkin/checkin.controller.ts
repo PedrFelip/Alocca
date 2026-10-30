@@ -25,9 +25,9 @@ export class CheckinController {
   ) {}
 
   @Permissoes('MEDICO')
-  @Get('proximo')
-  proximo(@Req() request: AuthenticatedRequest) {
-    return this.checkin.proximo(request.usuarioId)
+  @Get('proximos')
+  proximos(@Req() request: AuthenticatedRequest) {
+    return this.checkin.proximos(request.usuarioId)
   }
 
   @Permissoes('MEDICO')

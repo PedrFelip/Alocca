@@ -12,7 +12,8 @@ import { DRIZZLE_DB } from '../src/db/db.provider.ts'
 const HOSPITAL = { latitude: -15.8011, longitude: -47.8838 }
 const PERTO = { latitude: -15.8002, longitude: -47.8838 }
 
-const daqui = (minutos: number) => new Date(Date.now() + minutos * 60 * 1000)
+const MINUTO = 60 * 1000
+const daqui = (minutos: number) => new Date(Date.now() + minutos * MINUTO)
 
 describe('Check-in e check-out (UC06)', () => {
   let app: INestApplication
@@ -31,17 +32,24 @@ describe('Check-in e check-out (UC06)', () => {
       .send(corpo)
   }
 
-  function proximo(token: string) {
+  function proximos(token: string) {
     return request(app.getHttpServer())
-      .get('/presenca/proximo')
+      .get('/presenca/proximos')
       .set('Authorization', token)
   }
 
-  async function mudarHorario(alocacaoId: string, inicio: Date, fim: Date) {
+  async function mudarPlantao(alocacaoId: string, mudanca: string) {
     await database.query(
-      `UPDATE plantoes SET data_inicio = $1, data_fim = $2
-       FROM alocacoes WHERE alocacoes.plantao_id = plantoes.id AND alocacoes.id = $3`,
-      [inicio.toISOString(), fim.toISOString(), alocacaoId],
+      `UPDATE plantoes SET ${mudanca}
+       FROM alocacoes WHERE alocacoes.plantao_id = plantoes.id AND alocacoes.id = $1`,
+      [alocacaoId],
+    )
+  }
+
+  async function mudarHorario(alocacaoId: string, inicio: Date, fim: Date) {
+    await mudarPlantao(
+      alocacaoId,
+      `data_inicio = '${inicio.toISOString()}', data_fim = '${fim.toISOString()}'`,
     )
   }
 
@@ -50,6 +58,26 @@ describe('Check-in e check-out (UC06)', () => {
       "INSERT INTO registros_ponto (alocacao_id, tipo_evento) VALUES ($1, 'ENTRADA')",
       [alocacaoId],
     )
+  }
+
+  async function registroSalvo(alocacaoId: string, tipo: string) {
+    const [salvo] = (
+      await database.query<{
+        latitude: number | null
+        longitude: number | null
+        precisao_metros: number | null
+      }>(
+        'SELECT latitude, longitude, precisao_metros FROM registros_ponto WHERE alocacao_id = $1 AND tipo_evento = $2',
+        [alocacaoId, tipo],
+      )
+    ).rows
+    return salvo
+  }
+
+  // para o relogio do servidor num instante exato pra testar os limites
+  function pararRelogio(instante: Date) {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(instante)
   }
 
   beforeAll(async () => {
@@ -158,6 +186,10 @@ describe('Check-in e check-out (UC06)', () => {
     gestorToken = `Bearer ${await jwt.signAsync({ sub: gestor.id })}`
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   afterAll(async () => {
     await app?.close()
     await database?.close()
@@ -188,6 +220,9 @@ describe('Check-in e check-out (UC06)', () => {
       )
       expect(resposta.body.registro.tipo_evento).toBe('ENTRADA')
       expect(resposta.body.registro.distancia_local).toBeCloseTo(100, -1)
+      expect((await registroSalvo(alocacao, 'ENTRADA')).precisao_metros).toBe(
+        12.5,
+      )
     })
 
     it('faz check-in sem GPS só com o horário do servidor (MSG-12)', async () => {
@@ -201,13 +236,71 @@ describe('Check-in e check-out (UC06)', () => {
       expect(resposta.body.message).toBe(
         'Check-in registrado sem localização (GPS negado).',
       )
-      const [salvo] = (
-        await database.query<{ latitude: number | null }>(
-          'SELECT latitude FROM registros_ponto WHERE alocacao_id = $1',
-          [alocacao],
-        )
-      ).rows
-      expect(salvo.latitude).toBeNull()
+      expect((await registroSalvo(alocacao, 'ENTRADA')).latitude).toBeNull()
+    })
+
+    it('trata GPS fora do mapa como GPS negado na entrada e na saída', async () => {
+      const entrada = await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+        latitude: 999,
+        longitude: -47.88,
+        precisao_metros: 10,
+      }).expect(201)
+      expect(entrada.body.message).toBe(
+        'Check-in registrado sem localização (GPS negado).',
+      )
+      expect(entrada.body.registro.distancia_local).toBeNull()
+      expect(await registroSalvo(alocacao, 'ENTRADA')).toEqual({
+        latitude: null,
+        longitude: null,
+        precisao_metros: null,
+      })
+
+      const saida = await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'SAIDA',
+        latitude: -15.8,
+        longitude: 500,
+      }).expect(201)
+      expect(saida.body.message).toBe(
+        'Check-out registrado sem localização (GPS negado).',
+      )
+      expect((await registroSalvo(alocacao, 'SAIDA')).longitude).toBeNull()
+    })
+
+    it('salva sem localização quando vem só a latitude', async () => {
+      await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+        latitude: PERTO.latitude,
+      }).expect(201)
+      expect((await registroSalvo(alocacao, 'ENTRADA')).latitude).toBeNull()
+    })
+
+    it('ignora precisão negativa mas guarda as coordenadas', async () => {
+      await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+        ...PERTO,
+        precisao_metros: -5,
+      }).expect(201)
+      expect(await registroSalvo(alocacao, 'ENTRADA')).toEqual({
+        ...PERTO,
+        precisao_metros: null,
+      })
+    })
+
+    it('não guarda o GPS quando o plantão não permite geolocalização', async () => {
+      await mudarPlantao(alocacao, 'permite_geolocalizacao = false')
+      const resposta = await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+        ...PERTO,
+      }).expect(201)
+
+      expect(resposta.body.registro.distancia_local).toBeNull()
+      expect((await registroSalvo(alocacao, 'ENTRADA')).latitude).toBeNull()
     })
 
     it('registra sem distância quando o hospital não tem localização', async () => {
@@ -240,10 +333,11 @@ describe('Check-in e check-out (UC06)', () => {
 
     it('não deixa fazer check-in depois que o plantão terminou', async () => {
       await mudarHorario(alocacao, daqui(-400), daqui(-1))
-      await presenca(medicoToken, {
+      const resposta = await presenca(medicoToken, {
         alocacao_id: alocacao,
         tipo_evento: 'ENTRADA',
       }).expect(409)
+      expect(resposta.body.message).toBe('Este plantão já terminou')
     })
 
     it('não deixa fazer check-out sem check-in (409)', async () => {
@@ -279,6 +373,43 @@ describe('Check-in e check-out (UC06)', () => {
       await presenca(medicoToken, corpo).expect(201)
     })
 
+    it('aceita exatamente nos limites de horário', async () => {
+      const agora = new Date()
+      pararRelogio(agora)
+      const entrada = { alocacao_id: alocacao, tipo_evento: 'ENTRADA' }
+
+      // libera exatamente 10 minutos antes
+      await mudarHorario(
+        alocacao,
+        new Date(agora.getTime() + 10 * MINUTO),
+        new Date(agora.getTime() + 360 * MINUTO),
+      )
+      await presenca(medicoToken, entrada).expect(201)
+
+      // ultimo instante do check-in e o fim do plantao
+      await mudarHorario(
+        alocacaoSemCoordenadas,
+        new Date(agora.getTime() - 360 * MINUTO),
+        agora,
+      )
+      await presenca(medicoToken, {
+        alocacao_id: alocacaoSemCoordenadas,
+        tipo_evento: 'ENTRADA',
+      }).expect(201)
+
+      // ultimo instante do check-out e 45 minutos depois do fim
+      await checkinDireto(alocacaoOutroMedico)
+      await mudarHorario(
+        alocacaoOutroMedico,
+        new Date(agora.getTime() - 400 * MINUTO),
+        new Date(agora.getTime() - 45 * MINUTO),
+      )
+      await presenca(outroMedicoToken, {
+        alocacao_id: alocacaoOutroMedico,
+        tipo_evento: 'SAIDA',
+      }).expect(201)
+    })
+
     it('não acha a alocação de outro médico (404)', async () => {
       await presenca(outroMedicoToken, {
         alocacao_id: alocacao,
@@ -290,11 +421,25 @@ describe('Check-in e check-out (UC06)', () => {
       }).expect(404)
     })
 
+    it('não aceita plantão apagado (404)', async () => {
+      await mudarPlantao(alocacao, 'deleted_at = now()')
+      await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+      }).expect(404)
+    })
+
+    it('não aceita plantão cancelado (409)', async () => {
+      await mudarPlantao(alocacao, "status = 'CANCELADO'")
+      const resposta = await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+      }).expect(409)
+      expect(resposta.body.message).toBe('Este plantão foi cancelado')
+    })
+
     it('recusa quando o plantão não exige check-in', async () => {
-      await database.query(
-        'UPDATE plantoes SET exige_checkin = false FROM alocacoes WHERE alocacoes.plantao_id = plantoes.id AND alocacoes.id = $1',
-        [alocacao],
-      )
+      await mudarPlantao(alocacao, 'exige_checkin = false')
       const resposta = await presenca(medicoToken, {
         alocacao_id: alocacao,
         tipo_evento: 'ENTRADA',
@@ -302,41 +447,50 @@ describe('Check-in e check-out (UC06)', () => {
       expect(resposta.body.message).toBe('Este plantão não exige check-in')
     })
 
-    it('recusa coordenada impossível (400)', async () => {
+    it('recusa corpo malformado (400)', async () => {
+      await presenca(medicoToken, {
+        alocacao_id: 'nao-e-uuid',
+        tipo_evento: 'ENTRADA',
+      }).expect(400)
+      await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ALMOCO',
+      }).expect(400)
       await presenca(medicoToken, {
         alocacao_id: alocacao,
         tipo_evento: 'ENTRADA',
-        latitude: 999,
-        longitude: -47.88,
+        latitude: 'abc',
       }).expect(400)
     })
   })
 
-  // o medico dois so tem uma alocacao, fica mais facil de conferir
-  describe('GET /presenca/proximo', () => {
+  describe('GET /presenca/proximos', () => {
     it('exige login (401) e perfil de médico (403)', async () => {
-      await request(app.getHttpServer()).get('/presenca/proximo').expect(401)
-      await proximo(gestorToken).expect(403)
+      await request(app.getHttpServer()).get('/presenca/proximos').expect(401)
+      await proximos(gestorToken).expect(403)
     })
 
+    // o medico dois so tem uma alocacao, fica mais facil de conferir
     it('devolve o plantão em andamento com o check-in liberado', async () => {
-      const resposta = await proximo(outroMedicoToken).expect(200)
+      const resposta = await proximos(outroMedicoToken).expect(200)
 
-      expect(resposta.body.alocacao_id).toBe(alocacaoOutroMedico)
-      expect(resposta.body.instituicao.nome).toBe('Hospital Teste')
-      expect(resposta.body.checkin_feito).toBe(false)
-      expect(resposta.body.pode_fazer_checkin).toBe(true)
-      expect(resposta.body.pode_fazer_checkout).toBe(false)
+      expect(resposta.body).toHaveLength(1)
+      expect(resposta.body[0].alocacao_id).toBe(alocacaoOutroMedico)
+      expect(resposta.body[0].instituicao.nome).toBe('Hospital Teste')
+      expect(resposta.body[0].checkin_feito).toBe(false)
+      expect(resposta.body[0].pode_fazer_checkin).toBe(true)
+      expect(resposta.body[0].pode_fazer_checkout).toBe(false)
     })
 
     it('deixa o check-in bloqueado quando falta muito para começar', async () => {
       const inicio = daqui(60)
       await mudarHorario(alocacaoOutroMedico, inicio, daqui(420))
 
-      const resposta = await proximo(outroMedicoToken).expect(200)
-      expect(resposta.body.pode_fazer_checkin).toBe(false)
-      expect(new Date(resposta.body.checkin_liberado_em).getTime()).toBe(
-        inicio.getTime() - 10 * 60 * 1000,
+      const resposta = await proximos(outroMedicoToken).expect(200)
+      expect(resposta.body).toHaveLength(1)
+      expect(resposta.body[0].pode_fazer_checkin).toBe(false)
+      expect(new Date(resposta.body[0].checkin_liberado_em).getTime()).toBe(
+        inicio.getTime() - 10 * MINUTO,
       )
     })
 
@@ -346,29 +500,83 @@ describe('Check-in e check-out (UC06)', () => {
         tipo_evento: 'ENTRADA',
       }).expect(201)
 
-      const resposta = await proximo(outroMedicoToken).expect(200)
-      expect(resposta.body.checkin_feito).toBe(true)
-      expect(resposta.body.pode_fazer_checkin).toBe(false)
-      expect(resposta.body.pode_fazer_checkout).toBe(true)
+      const resposta = await proximos(outroMedicoToken).expect(200)
+      expect(resposta.body[0].checkin_feito).toBe(true)
+      expect(resposta.body[0].pode_fazer_checkin).toBe(false)
+      expect(resposta.body[0].pode_fazer_checkout).toBe(true)
     })
 
-    it('some depois do check-out (404)', async () => {
+    it('volta vazio depois do check-out', async () => {
       await checkinDireto(alocacaoOutroMedico)
       await presenca(outroMedicoToken, {
         alocacao_id: alocacaoOutroMedico,
         tipo_evento: 'SAIDA',
       }).expect(201)
 
-      const resposta = await proximo(outroMedicoToken).expect(404)
-      expect(resposta.body.message).toBe('Nenhum plantão próximo')
+      const resposta = await proximos(outroMedicoToken).expect(200)
+      expect(resposta.body).toEqual([])
     })
 
-    it('pega o que começa primeiro', async () => {
+    it('volta vazio quando o plantão terminou sem check-in', async () => {
+      await mudarHorario(alocacaoOutroMedico, daqui(-400), daqui(-1))
+
+      const resposta = await proximos(outroMedicoToken).expect(200)
+      expect(resposta.body).toEqual([])
+    })
+
+    it('mostra só o próximo quando nenhum está liberado', async () => {
       await mudarHorario(alocacao, daqui(120), daqui(480))
       await mudarHorario(alocacaoSemCoordenadas, daqui(60), daqui(420))
 
-      const resposta = await proximo(medicoToken).expect(200)
-      expect(resposta.body.alocacao_id).toBe(alocacaoSemCoordenadas)
+      const resposta = await proximos(medicoToken).expect(200)
+      expect(resposta.body).toHaveLength(1)
+      expect(resposta.body[0].alocacao_id).toBe(alocacaoSemCoordenadas)
+    })
+
+    it('mostra o check-out de um e o check-in do outro quando emenda plantões', async () => {
+      // A terminou ha 5 min sem check-out, B comecou ha 5 min
+      await checkinDireto(alocacao)
+      await mudarHorario(alocacao, daqui(-725), daqui(-5))
+
+      const resposta = await proximos(medicoToken).expect(200)
+      expect(resposta.body).toHaveLength(2)
+      expect(resposta.body[0].alocacao_id).toBe(alocacao)
+      expect(resposta.body[0].pode_fazer_checkout).toBe(true)
+      expect(resposta.body[1].alocacao_id).toBe(alocacaoSemCoordenadas)
+      expect(resposta.body[1].pode_fazer_checkin).toBe(true)
+    })
+
+    it('não mostra plantão apagado, cancelado ou que não exige check-in', async () => {
+      await mudarPlantao(alocacao, 'deleted_at = now()')
+      await mudarPlantao(alocacaoSemCoordenadas, "status = 'CANCELADO'")
+      await mudarPlantao(alocacaoOutroMedico, 'exige_checkin = false')
+
+      expect((await proximos(medicoToken).expect(200)).body).toEqual([])
+      expect((await proximos(outroMedicoToken).expect(200)).body).toEqual([])
+    })
+
+    it('concorda com o POST exatamente nos limites de horário', async () => {
+      const agora = new Date()
+      pararRelogio(agora)
+
+      // sem check-in, no instante exato do fim ainda da pra fazer check-in
+      await mudarHorario(
+        alocacaoOutroMedico,
+        new Date(agora.getTime() - 360 * MINUTO),
+        agora,
+      )
+      const noFim = await proximos(outroMedicoToken).expect(200)
+      expect(noFim.body[0].pode_fazer_checkin).toBe(true)
+
+      // com check-in, no instante exato dos 45 min ainda da pra fazer check-out
+      await checkinDireto(alocacaoOutroMedico)
+      await mudarHorario(
+        alocacaoOutroMedico,
+        new Date(agora.getTime() - 400 * MINUTO),
+        new Date(agora.getTime() - 45 * MINUTO),
+      )
+      const noPrazo = await proximos(outroMedicoToken).expect(200)
+      expect(noPrazo.body[0].pode_fazer_checkout).toBe(true)
     })
   })
 })

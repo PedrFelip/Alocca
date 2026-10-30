@@ -9,11 +9,10 @@ import {
   asc,
   eq,
   exists,
-  gt,
+  gte,
   isNull,
   ne,
   notExists,
-  or,
   sql,
 } from 'drizzle-orm'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
@@ -45,6 +44,25 @@ const MENSAGENS = {
   },
 }
 
+function gpsValido(latitude?: number | null, longitude?: number | null) {
+  return (
+    latitude != null &&
+    longitude != null &&
+    Math.abs(latitude) <= 90 &&
+    Math.abs(longitude) <= 180
+  )
+}
+
+// o POST e o GET usam os mesmos filtros pra nunca discordarem
+function alocacaoAtivaDoMedico(medicoId: string) {
+  return [
+    eq(alocacoesTable.medico_id, medicoId),
+    isNull(alocacoesTable.deleted_at),
+    isNull(plantoesTable.deleted_at),
+    isNull(instituicoesTable.deleted_at),
+  ]
+}
+
 @Injectable()
 export class CheckinService {
   constructor(@Inject(DRIZZLE_DB) private readonly db: Database) {}
@@ -72,8 +90,7 @@ export class CheckinService {
       .where(
         and(
           eq(alocacoesTable.id, dados.alocacao_id),
-          eq(alocacoesTable.medico_id, medicoId),
-          isNull(alocacoesTable.deleted_at),
+          ...alocacaoAtivaDoMedico(medicoId),
         ),
       )
       .limit(1)
@@ -93,7 +110,7 @@ export class CheckinService {
           'O check-in libera 10 minutos antes do plantão',
         )
       }
-      if (agora > alocacao.data_fim) {
+      if (!podeFazerCheckin(alocacao.data_inicio, alocacao.data_fim, agora)) {
         throw new ConflictException('Este plantão já terminou')
       }
     }
@@ -117,17 +134,20 @@ export class CheckinService {
       }
     }
 
-    // RN20: so salva o gps se o plantão aceitar
+    // RN19: so salva o gps se o plantão aceitar e se ele for valido
     let latitude: number | null = null
     let longitude: number | null = null
+    let precisao: number | null = null
     let distancia: number | null = null
     if (
       alocacao.permite_geolocalizacao &&
-      dados.latitude != null &&
-      dados.longitude != null
+      gpsValido(dados.latitude, dados.longitude)
     ) {
-      latitude = dados.latitude
-      longitude = dados.longitude
+      latitude = dados.latitude!
+      longitude = dados.longitude!
+      if (dados.precisao_metros != null && dados.precisao_metros >= 0) {
+        precisao = dados.precisao_metros
+      }
       // hospital sem coordenada salva sem distância
       if (alocacao.hospital_lat != null && alocacao.hospital_lon != null) {
         distancia = distanciaEmMetros(
@@ -148,8 +168,7 @@ export class CheckinService {
           tipo_evento: dados.tipo_evento,
           latitude,
           longitude,
-          precisao_metros:
-            latitude === null ? null : (dados.precisao_metros ?? null),
+          precisao_metros: precisao,
           distancia_local: distancia,
         })
         .returning({
@@ -181,8 +200,9 @@ export class CheckinService {
     }
   }
 
-  // plantao que a tela de check-in deve mostrar e se o botao fica liberado
-  async proximo(usuarioId: string) {
+  // plantoes que a tela de check-in deve mostrar. normalmente vem 1, mas
+  // se o medico emendar dois plantoes vem o check-out de um e o check-in do outro
+  async proximos(usuarioId: string) {
     const medicoId = await this.perfilMedicoId(usuarioId)
     const agora = new Date()
 
@@ -197,7 +217,9 @@ export class CheckinService {
           ),
         )
 
-    const [alocacao] = await this.db
+    // o banco so corta o que ja passou do prazo, quem decide o resto
+    // sao as mesmas funcoes do POST (horario.ts)
+    const candidatos = await this.db
       .select({
         alocacao_id: alocacoesTable.id,
         checkin_feito: sql<boolean>`${exists(registro('ENTRADA'))}`,
@@ -224,41 +246,42 @@ export class CheckinService {
       )
       .where(
         and(
-          eq(alocacoesTable.medico_id, medicoId),
-          isNull(alocacoesTable.deleted_at),
-          isNull(plantoesTable.deleted_at),
+          ...alocacaoAtivaDoMedico(medicoId),
           ne(plantoesTable.status, 'CANCELADO'),
           eq(plantoesTable.exige_checkin, true),
           notExists(registro('SAIDA')),
-          // sem check-in: ate o fim. com check-in: ate o prazo do check-out
-          or(
-            gt(plantoesTable.data_fim, agora),
-            and(
-              exists(registro('ENTRADA')),
-              gt(
-                plantoesTable.data_fim,
-                new Date(agora.getTime() - DEPOIS_DO_FIM),
-              ),
-            ),
+          gte(
+            plantoesTable.data_fim,
+            new Date(agora.getTime() - DEPOIS_DO_FIM),
           ),
         ),
       )
-      .orderBy(asc(plantoesTable.data_inicio))
-      .limit(1)
-    if (!alocacao) throw new NotFoundException('Nenhum plantão próximo')
+      .orderBy(asc(plantoesTable.data_inicio), asc(alocacoesTable.id))
 
-    const { data_inicio, data_fim } = alocacao.plantao
-    return {
-      ...alocacao,
-      checkin_feito: Boolean(alocacao.checkin_feito),
-      pode_fazer_checkin:
-        !alocacao.checkin_feito &&
-        podeFazerCheckin(data_inicio, data_fim, agora),
-      pode_fazer_checkout:
-        Boolean(alocacao.checkin_feito) && podeFazerCheckout(data_fim, agora),
-      checkin_liberado_em: checkinLiberadoEm(data_inicio),
-      checkout_ate: checkoutAte(data_fim),
-    }
+    const plantoes = candidatos.map((candidato) => {
+      const { data_inicio, data_fim } = candidato.plantao
+      const checkinFeito = Boolean(candidato.checkin_feito)
+      return {
+        ...candidato,
+        checkin_feito: checkinFeito,
+        pode_fazer_checkin:
+          !checkinFeito && podeFazerCheckin(data_inicio, data_fim, agora),
+        pode_fazer_checkout: checkinFeito && podeFazerCheckout(data_fim, agora),
+        checkin_liberado_em: checkinLiberadoEm(data_inicio),
+        checkout_ate: checkoutAte(data_fim),
+      }
+    })
+
+    const disponiveis = plantoes.filter(
+      (p) => p.pode_fazer_checkin || p.pode_fazer_checkout,
+    )
+    if (disponiveis.length > 0) return disponiveis
+
+    // nada liberado agora: mostra o proximo pra tela dizer quando libera
+    const proximo = plantoes.find(
+      (p) => !p.checkin_feito && agora < p.checkin_liberado_em,
+    )
+    return proximo ? [proximo] : []
   }
 
   private async perfilMedicoId(usuarioId: string) {
