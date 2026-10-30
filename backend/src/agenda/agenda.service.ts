@@ -103,6 +103,7 @@ export class AgendaService {
           and(
             eq(candidaturasTable.medico_id, medicoId),
             eq(candidaturasTable.status, 'PENDENTE'),
+            isNull(candidaturasTable.deleted_at),
             visaoComEstado,
           ),
         ),
@@ -121,7 +122,13 @@ export class AgendaService {
           instituicoesTable,
           eq(plantoesTable.instituicao_id, instituicoesTable.id),
         )
-        .where(and(eq(alocacoesTable.medico_id, medicoId), visaoComEstado)),
+        .where(
+          and(
+            eq(alocacoesTable.medico_id, medicoId),
+            isNull(alocacoesTable.deleted_at),
+            visaoComEstado,
+          ),
+        ),
     ])
 
     return this.agruparPorDia(pendentes, alocados)
@@ -145,11 +152,11 @@ export class AgendaService {
         plantao: registro.plantao,
         instituicao: registro.instituicao,
       }))
-      .sort((a, b) => a.plantao.data_fim.getTime() - b.plantao.data_fim.getTime())
+      .sort((a, b) => a.plantao.data_inicio.getTime() - b.plantao.data_inicio.getTime())
 
     const dias = new Map<string, AgendaDia>()
     for (const item of itens) {
-      const chave = FORMATO_DATA.format(item.plantao.data_fim)
+      const chave = FORMATO_DATA.format(item.plantao.data_inicio)
       const grupo = dias.get(chave) ?? { dia: chave, itens: [] }
       grupo.itens.push(item)
       dias.set(chave, grupo)
