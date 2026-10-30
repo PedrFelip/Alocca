@@ -220,6 +220,23 @@ describe('Presença do médico (GET /presenca e /presenca/historico, #50)', () =
     )
   })
 
+  it('histórico pagina sem repetir nem omitir registros com timestamp igual', async () => {
+    await database.query(
+      "UPDATE registros_ponto SET timestamp_servidor = '2026-10-19T08:00:00Z' WHERE alocacao_id = $1",
+      [alocacaoMedico1],
+    )
+
+    const todos = await historico('?limit=10&offset=0', medico1Token).expect(200)
+    const pagina1 = await historico('?limit=1&offset=0', medico1Token).expect(200)
+    const pagina2 = await historico('?limit=1&offset=1', medico1Token).expect(200)
+
+    const ids = (corpo: Array<{ id: string }>) => corpo.map((r) => r.id)
+    expect(ids(todos.body)).toHaveLength(2)
+    expect([...ids(pagina1.body), ...ids(pagina2.body)]).toEqual(
+      ids(todos.body),
+    )
+  })
+
   it('médico sem registros recebe lista vazia (empty state)', async () => {
     await database.query('DELETE FROM registros_ponto')
     const resposta = await historico('', medico1Token).expect(200)

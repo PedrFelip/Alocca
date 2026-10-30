@@ -69,7 +69,10 @@ export class PresencaService {
       .select(CAMPOS_REGISTRO)
       .from(registrosPontoTable)
       .where(eq(registrosPontoTable.alocacao_id, consulta.alocacao_id))
-      .orderBy(desc(registrosPontoTable.timestamp_servidor))
+      .orderBy(
+        desc(registrosPontoTable.timestamp_servidor),
+        desc(registrosPontoTable.id),
+      )
 
     return { alocacao, registros }
   }
