@@ -23,10 +23,11 @@ Marque `[x]` e mova para o spec quando decidir.
 
 ## Regras e fluxos
 
-- [ ] **D17 — Completude de perfil na candidatura (RN17):** porção "Sem Especialidade, não aplica para vagas específicas" implementada no UC05 (médico sem `especialidade` recebe 403). Pendente: limiar de `taxaCompletude` exigido e se a especialidade declarada precisa casar com a `especialidade` do plantão. Impacto: filtro de candidatos/publicação.
+- [ ] **D17 — Completude de perfil na candidatura (RN17):** porção "Sem Especialidade, não aplica para vagas específicas" implementada no UC05 (médico sem `especialidade` recebe 403). Pendente: limiar de `taxaCompletude` exigido e se a especialidade declarada precisa casar com a `especialidade` do plantão. Impacto: filtro de candidatos/publicação. **Perguntado ao produto em #19 (27/10) junto da confirmação dos campos `formacao`/`tempo_atuacao`/`vinculo`.**
 - [ ] **D5 — Convites diretos (RN31):** regra de expiração existe, mas não há nenhum endpoint/UC de convite no spec. Vai ter convite direto no MVP ou a RN31 cai? Impacto: escopo do MVP.
 - [ ] **D6 — Numeração das RNs:** unifiquei pela base do AGENTS + RN31 por inferência (item 15). Validar se algum número conflita com doc externa (mobile/Kotlin).
 - [ ] **D7 — Nomenclatura do financeiro:** `totalRecebido`, `totalAReceber`, `totalPendente` (nomenclatura flexível por ora). Confirmar com o app o que ele espera. Impacto: contrato do UC08.
+- [ ] **D7b — Semântica dos totais financeiros (proposta em #18/#59):** `total_recebido` = `PAGO`; `total_a_receber` = `PENDENTE` não vencido (`vencimento_em` nulo ou futuro); `total_pendente` = `PENDENTE` vencido. Aguardando ok do app/@PedrFelip para fechar a PR #59.
 - [ ] **D8 — Validação de CNPJ (RN30):** "CNPJ válido e ativo + ramo de saúde" — como? API da Receita na hora do vínculo, validação só de formato + dígito, ou manual? Impacto: UC de vínculo de instituição (ainda sem endpoint no spec).
 - [ ] **D9 — Fluxo 2FA completo:** não implementado no contrato atual do app Android. Permanecem pendentes o formato/expiração do `challengeToken`, expiração do refresh token (RNF05) e quem envia o e-mail do PIN (provedor SMTP?). Não adicionar 2FA até definir e alinhar o contrato de UC02/UC03 com o app.
 - [ ] **D10 — Notificações da cascata (UC11):** UC11 grava os eventos em outbox (`notificacoes`) na MESMA transação da aprovação (RN21). Pendente: provedor de entrega (Firebase, SMTP próprio, worker de consumo do outbox) e colunas de canal/retry. Impacto: UC02/UC11.
