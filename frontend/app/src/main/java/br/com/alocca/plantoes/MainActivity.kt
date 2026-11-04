@@ -6,6 +6,11 @@ import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandIn
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +27,20 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.NotificationsNone
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,8 +59,12 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.drawscope.Fill
 import org.json.JSONObject
 
@@ -51,6 +74,18 @@ private val Cyan = Color(0xFF09A9CE)
 private val Muted = Color(0xFF657775)
 private val CanvasColor = Color(0xFFF3F9F8)
 private val Border = Color(0xFF48A8BC)
+
+private data class ShiftDetails(
+    val day: String,
+    val month: String,
+    val weekday: String,
+    val status: String,
+    val hospital: String,
+    val specialty: String,
+    val location: String,
+    val value: String,
+    val confirmed: Boolean,
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -281,82 +316,508 @@ private fun AuthApp() {
 
 @Composable
 private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Spacer(Modifier.height(36.dp))
-        BrandLogo()
-        Spacer(Modifier.height(26.dp))
-        Text(
-            text = "Olá, ${perfil.nome}",
-            color = Navy,
-            fontSize = 23.sp,
-            fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.Center,
+    var activeTab by remember { mutableStateOf("Início") }
+    var notice by remember { mutableStateOf("") }
+    var selectedShift by remember { mutableStateOf<ShiftDetails?>(null) }
+    var notificationsOpen by remember { mutableStateOf(false) }
+    val primeiroNome = perfil.nome.trim().substringBefore(" ").ifBlank { "Doutor(a)" }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
+            ) {
+                HomeHeader(
+                    onNotification = { notificationsOpen = !notificationsOpen },
+                    onLogout = onLogout,
+                )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp),
+            ) {
+                Spacer(Modifier.height(19.dp))
+                Text("Olá, Dr. $primeiroNome", color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    "Encontre plantões, acompanhe suas\natividades e gerencie seus plantões.",
+                    color = Navy,
+                    fontSize = 13.sp,
+                    lineHeight = 16.sp,
+                )
+                Spacer(Modifier.height(16.dp))
+                QuickSummary()
+                Spacer(Modifier.height(18.dp))
+                SectionTitle("Próximos plantões", "Ver todos") { notice = "Em breve você poderá ver todos os plantões." }
+                Spacer(Modifier.height(9.dp))
+                ShiftCard("20", "JUN", "Sex. 19h", "CONFIRMADO", "Hospital Santa Clara", "Clínica Médica", "Gama - DF", "R$ 800,00", true) { shift -> selectedShift = shift }
+                Spacer(Modifier.height(8.dp))
+                ShiftCard("20", "JUN", "Sex. 19h", "PENDENTE", "Hospital Santa Lúcia", "Clínica Médica", "Taguatinga - DF", "R$ 950,00", false) { shift -> selectedShift = shift }
+                Spacer(Modifier.height(8.dp))
+                ShiftCard("24", "JUN", "Ter. 19h", "CONFIRMADO", "Hospital Brasília", "Pediatria", "Brasília - DF", "R$ 700,00", true) { shift -> selectedShift = shift }
+                Spacer(Modifier.height(18.dp))
+                Text("Ações rápidas", color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(10.dp))
+                QuickActions { notice = "$it estará disponível em breve." }
+                if (notice.isNotBlank()) {
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        notice,
+                        color = DeepTeal,
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFE1F3F4))
+                            .padding(11.dp),
+                    )
+                }
+                Spacer(Modifier.height(22.dp))
+            }
+                HomeBottomNavigation(activeTab, onSelected = { selected ->
+                    activeTab = selected
+                    notice = "$selected estará disponível em breve."
+                })
+            }
+
+            AnimatedVisibility(
+                visible = notificationsOpen,
+                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 68.dp, end = 16.dp),
+                enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
+                exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
+            ) {
+                NotificationsPanel(onClose = { notificationsOpen = false })
+            }
+
+            selectedShift?.let { shift ->
+                ShiftDetailsDialog(shift = shift, onDismiss = { selectedShift = null })
+            }
+        }
+    }
+}
+
+/** Tela isolada para inspeção no Android Studio, sem login ou backend. */
+@Preview(showBackground = true, backgroundColor = 0xFFFFFFFF, widthDp = 393, heightDp = 852)
+@Composable
+private fun HomeScreenPreview() {
+    MaterialTheme {
+        HomeScreen(
+            PerfilUsuario(
+                id = "preview-medico",
+                nome = "Bean",
+                email = "bean@alocca.com",
+                tipo = "MEDICO",
+                status = "ATIVO",
+                crm = "123456",
+                ufCrm = "DF",
+                statusValidacao = "APROVADO",
+                motivoRejeicao = null,
+            ),
+            onLogout = {},
         )
-        Spacer(Modifier.height(6.dp))
-        Text(perfil.email, color = Muted, fontSize = 13.sp, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(24.dp))
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color(0xFFD3E9EA))
-                .padding(16.dp),
+    }
+}
+
+@Composable
+private fun HomeHeader(onNotification: () -> Unit, onLogout: () -> Unit) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(76.dp)
+            .border(width = 1.dp, color = Color(0xFFE0E5E5))
+            .padding(horizontal = 19.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier.size(40.dp).clickable { menuOpen = !menuOpen },
+            contentAlignment = Alignment.Center,
         ) {
-            Text("Sessão ativa", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(4.dp))
+            Icon(Icons.Default.Menu, contentDescription = "Menu", tint = Navy, modifier = Modifier.size(25.dp))
+            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                DropdownMenuItem(
+                    text = { Text("Sair da conta") },
+                    leadingIcon = { Icon(Icons.Default.Logout, contentDescription = null) },
+                    onClick = {
+                        menuOpen = false
+                        onLogout()
+                    },
+                )
+            }
+        }
+        Spacer(Modifier.width(17.dp))
+        Image(
+            painter = painterResource(id = R.drawable.alocca_logo),
+            contentDescription = "Alocca Plantões",
+            modifier = Modifier.width(110.dp).height(46.dp),
+        )
+        Spacer(Modifier.weight(1f))
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clickable(onClick = onNotification),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Default.NotificationsNone,
+                contentDescription = "Notificações",
+                tint = Navy,
+                modifier = Modifier.size(27.dp),
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = (-1).dp, y = 2.dp)
+                    .size(16.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(Cyan),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "3",
+                    color = Color.White,
+                    fontSize = 9.sp,
+                    lineHeight = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotificationsPanel(onClose: () -> Unit) {
+    Surface(
+        modifier = Modifier.width(300.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = Color.White,
+        shadowElevation = 10.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E5E5)),
+    ) {
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Notificações", color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.weight(1f))
+                Text("3 novas", color = Cyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.height(15.dp))
+            NotificationItem(Icons.Default.EventNote, "Plantão confirmado", "Hospital Santa Clara • Sex. 19h")
+            Spacer(Modifier.height(13.dp))
+            NotificationItem(Icons.Default.AccessTime, "Confirmação pendente", "Responda ao plantão do Hospital Santa Lúcia")
+            Spacer(Modifier.height(13.dp))
+            NotificationItem(Icons.Default.AccountBalanceWallet, "Pagamento recebido", "R$ 2.459,00 disponível em seu saldo")
+            Spacer(Modifier.height(16.dp))
             Text(
-                "Você está conectado ao Alocca com segurança.",
-                color = Muted,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
+                "Fechar",
+                color = DeepTeal,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.End).clickable(onClick = onClose).padding(5.dp),
             )
         }
-        Spacer(Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun NotificationItem(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, description: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        Box(
+            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(9.dp)).background(Color(0xFFE1F3F4)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = DeepTeal, modifier = Modifier.size(19.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(2.dp))
+            Text(description, color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
+        }
+    }
+}
+
+@Composable
+private fun QuickSummary() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(9.dp))
+            .background(Color(0xFF004180))
+            .padding(vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        SummaryItem(Icons.Default.CalendarMonth, Color(0xFF316B9E), "3", "Plantões\nconfirmados")
+        SummaryItem(Icons.Default.AccessTime, Color(0xFF009A7B), "1", "Pendências de\nconfirmação")
+        SummaryItem(Icons.Default.AccountBalanceWallet, Color(0xFF7564A9), "R$2.459,00", "Recebidos")
+        SummaryItem(Icons.Default.Star, Color(0xFFF5A600), "4,8", "Avaliação\nmédia")
+    }
+}
+
+@Composable
+private fun SummaryItem(icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, value: String, label: String) {
+    Column(
+        modifier = Modifier.width(78.dp).height(79.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // Todos os indicadores usam o mesmo espaço reservado: isso evita que o
+        // desenho interno de cada ícone altere o alinhamento visual da linha.
+        Box(
+            modifier = Modifier.size(30.dp).clip(RoundedCornerShape(8.dp)).background(color),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            value,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            modifier = Modifier.height(17.dp),
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            label,
+            color = Color.White,
+            fontSize = 8.sp,
+            lineHeight = 10.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.height(22.dp),
+        )
+    }
+}
+
+@Composable
+private fun SectionTitle(title: String, action: String, onAction: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.weight(1f))
+        Text(action, color = Cyan, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable(onClick = onAction))
+    }
+}
+
+@Composable
+private fun ShiftCard(
+    day: String, month: String, weekday: String, status: String, hospital: String, specialty: String,
+    location: String, value: String, confirmed: Boolean, onClick: (ShiftDetails) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(103.dp)
+            .clip(RoundedCornerShape(13.dp))
+            .background(Color.White)
+            .border(1.dp, Color(0xFF9DA5A6), RoundedCornerShape(13.dp))
+            .clickable {
+                onClick(ShiftDetails(day, month, weekday, status, hospital, specialty, location, value, confirmed))
+            }
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White)
-                .border(1.dp, Color(0xFFD7E2E1), RoundedCornerShape(8.dp))
-                .padding(16.dp),
+                .width(66.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (confirmed) Color(0xFFD9F3FC) else Color(0xFFFFF1DF)),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
-            Text("Sua conta", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(10.dp))
-            InfoRow("Nome", perfil.nome)
-            InfoRow("E-mail", perfil.email)
-            InfoRow("Perfil", perfil.tipoDescricao)
-            InfoRow("Conta", perfil.statusDescricao)
-            if (perfil.crm != null) {
-                InfoRow("CRM", listOfNotNull(perfil.crm, perfil.ufCrm).joinToString(" / "))
+            Text(day, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(month, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(7.dp))
+            Text(weekday, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    status,
+                    color = if (confirmed) Color(0xFF1381C8) else Color(0xFFF49A19),
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.background(if (confirmed) Color(0xFFD7EFFF) else Color(0xFFFFECD3)).padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+                Spacer(Modifier.weight(1f))
+                Text(value, color = if (confirmed) Color(0xFF008872) else Color(0xFFF49A19), fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.background(if (confirmed) Color(0xFFD7EFEA) else Color(0xFFFFF1DF)).padding(horizontal = 6.dp, vertical = 2.dp))
             }
-            if (perfil.statusValidacao != null) {
-                InfoRow("Validação", perfil.validacaoDescricao)
+            Spacer(Modifier.height(4.dp))
+            Text(hospital, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(specialty, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LocationOn, null, tint = Muted, modifier = Modifier.size(11.dp))
+                Text(location, color = Muted, fontSize = 9.sp)
             }
-            if (perfil.statusValidacao == "REJEITADO" && !perfil.motivoRejeicao.isNullOrBlank()) {
-                InfoRow("Motivo", perfil.motivoRejeicao)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AccessTime, null, tint = Muted, modifier = Modifier.size(11.dp))
+                Text("19:00 - 7:00 (12h)", color = Muted, fontSize = 9.sp)
             }
         }
-        Spacer(Modifier.height(24.dp))
-        Button(
-            onClick = onLogout,
-            modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(7.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFFD3E9EA),
-                contentColor = DeepTeal,
-            ),
+        Icon(Icons.Default.ChevronRight, contentDescription = "Abrir plantão", tint = Muted, modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun ShiftDetailsDialog(shift: ShiftDetails, onDismiss: () -> Unit) {
+    val accent = if (shift.confirmed) Color(0xFF008872) else Color(0xFFF49A19)
+    val statusBackground = if (shift.confirmed) Color(0xFFD7EFEA) else Color(0xFFFFECD3)
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            shape = RoundedCornerShape(20.dp),
+            color = Color.White,
+            shadowElevation = 12.dp,
         ) {
-            Text("Sair da conta", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Column(modifier = Modifier.padding(24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Detalhes do plantão", color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        Text("${shift.day} ${shift.month} • ${shift.weekday}", color = Muted, fontSize = 13.sp)
+                    }
+                    Text(
+                        shift.status,
+                        color = accent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(statusBackground).padding(horizontal = 9.dp, vertical = 6.dp),
+                    )
+                }
+                Spacer(Modifier.height(22.dp))
+                Text(shift.hospital, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text(shift.specialty, color = Muted, fontSize = 14.sp)
+                Spacer(Modifier.height(20.dp))
+                DetailLine(Icons.Default.LocationOn, "Local", shift.location)
+                Spacer(Modifier.height(14.dp))
+                DetailLine(Icons.Default.AccessTime, "Horário", "19:00 às 07:00 • duração de 12h")
+                Spacer(Modifier.height(14.dp))
+                DetailLine(Icons.Default.AccountBalanceWallet, "Valor do plantão", shift.value, accent)
+                Spacer(Modifier.height(24.dp))
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Navy),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Text("Fechar", fontWeight = FontWeight.Bold)
+                }
+            }
         }
-        Spacer(Modifier.height(28.dp))
+    }
+}
+
+@Composable
+private fun DetailLine(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, valueColor: Color = Navy) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = null, tint = Cyan, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(label, color = Muted, fontSize = 11.sp)
+            Text(value, color = valueColor, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+@Composable
+private fun QuickActions(onAction: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        ActionItem(Icons.Default.Security, "Segurança", Color(0xFFDDF4FC), Color(0xFF1683BF)) { onAction("Segurança") }
+        ActionItem(Icons.Default.CalendarMonth, "Calendário", Color(0xFFE0F7EE), Color(0xFF008A70)) { onAction("Calendário") }
+        ActionItem(Icons.Default.LocationOn, "Locais de\ntrabalho", Color(0xFFF1EAFE), Color(0xFF7351A5)) { onAction("Locais de trabalho") }
+        ActionItem(Icons.Default.PersonOutline, "Seu perfil", Color(0xFFFFF0D9), Color(0xFFF29A14)) { onAction("Seu perfil") }
+    }
+}
+
+@Composable
+private fun ActionItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, background: Color, tint: Color, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .width(70.dp)
+            .height(68.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(background)
+            .clickable(onClick = onClick)
+            .padding(vertical = 7.dp, horizontal = 3.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
+        Text(
+            label,
+            color = tint,
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            textAlign = TextAlign.Center,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.height(22.dp),
+        )
+    }
+}
+
+@Composable
+private fun HomeBottomNavigation(active: String, onSelected: (String) -> Unit) {
+    val items = listOf(
+        Triple("Início", Icons.Default.Home, "Início"),
+        Triple("Buscar", Icons.Default.Search, "Buscar"),
+        Triple("Plantões", Icons.Default.EventNote, "Plantões"),
+        Triple("Financeiro", Icons.Default.AccountBalanceWallet, "Financeiro"),
+        Triple("Configurações", Icons.Default.Settings, "Configurações"),
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth().height(65.dp).border(1.dp, Color(0xFFE2E5E6)).background(Color.White),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        items.forEach { (name, icon, label) ->
+            val selected = active == name
+            val isShiftsTab = name == "Plantões"
+            Column(
+                modifier = Modifier.width(65.dp).clickable { onSelected(name) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(if (selected && !isShiftsTab) 37.dp else if (isShiftsTab) 38.dp else 29.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(if (selected && !isShiftsTab) Color(0xFF1475D1) else Color.Transparent),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isShiftsTab) {
+                        Image(
+                            painter = painterResource(id = R.drawable.alocca_hotbar_mark),
+                            contentDescription = "Plantões",
+                            modifier = Modifier.size(38.dp),
+                        )
+                    } else {
+                        Icon(
+                            icon,
+                            contentDescription = label,
+                            tint = if (selected) Color.White else Color(0xFF152226),
+                            modifier = Modifier.size(21.dp),
+                        )
+                    }
+                }
+                Text(
+                    label,
+                    color = if (selected || isShiftsTab) Color(0xFF1475D1) else Color(0xFF152226),
+                    fontSize = 9.sp,
+                    fontWeight = if (selected || isShiftsTab) FontWeight.Bold else FontWeight.Normal,
+                )
+            }
+        }
     }
 }
 
