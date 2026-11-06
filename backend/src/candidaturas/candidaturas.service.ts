@@ -218,7 +218,7 @@ export class CandidaturasService {
         eq(plantoesTable.instituicao_id, instituicoesTable.id),
       )
       .where(and(...condicoes))
-      .orderBy(desc(candidaturasTable.created_at))
+      .orderBy(desc(candidaturasTable.created_at), desc(candidaturasTable.id))
       .limit(filtros.limit)
       .offset(filtros.offset)
   }
