@@ -38,8 +38,17 @@ Dentro de `backend`:
 
 ```sh
 bun run migrate
+bun run seed   # opcional: dados de demonstração
 bun run dev
 ```
+
+O seed cria um gestor (`gestor.seed@alocca.local`), três hospitais e um médico
+demo aprovado (`medico.demo@alocca.local`), ambos com a senha `senha-segura-123`.
+O médico já tem plantões passados (com ponto e pagamento), um plantão em andamento
+com check-in liberado, plantões futuros confirmados e candidaturas pendente e
+rejeitada. As datas são relativas ao momento em que o seed roda; para recriar só
+os dados demo com datas novas (ex.: antes de uma apresentação), use
+`bun run seed --reset-demo`. O seed é bloqueado com `NODE_ENV=production`.
 
 A migração reutiliza a tabela `usuarios`, converte os enums para os valores do MER
 (`MEDICO`, `GESTOR`, `ADMIN`; `ATIVO`, `INATIVO`, `BLOQUEADO`) e normaliza e-mails.
