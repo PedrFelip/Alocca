@@ -1021,19 +1021,37 @@ private fun ManagerBottomNavigation(active: InstitutionScreen, onNavigate: (Inst
 
 @Composable
 private fun InstitutionDoctorsScreen(onNavigate: (InstitutionScreen) -> Unit) {
+    val doctors = listOf(
+        Triple("Dr. Carlos Mendes", "UTI Adulto", "Ativo"), Triple("Dra. Ana Souza", "Pediatria", "Ativo"),
+        Triple("Dr. Rafael Lima", "Clínica Médica", "Ativo"), Triple("Dra. Juliana Alves", "Ginecologia e Obstetrícia", "Ativo"),
+        Triple("Dr. Bruno Costa", "Ortopedia", "Em análise"), Triple("Dra. Larissa Gomes", "Cardiologia", "Inativo"),
+    )
+    var query by remember { mutableStateOf("") }
+    var specialty by remember { mutableStateOf("Todas") }
+    var status by remember { mutableStateOf("Todas") }
+    var selectedDoctor by remember { mutableStateOf<Triple<String, String, String>?>(null) }
+    val filtered = doctors.filter { doctor ->
+        (query.isBlank() || listOf(doctor.first, doctor.second, "123456/DF").any { it.contains(query.trim(), ignoreCase = true) }) &&
+            (specialty == "Todas" || doctor.second == specialty) && (status == "Todas" || doctor.third == status)
+    }
     InstitutionPage(InstitutionScreen.Doctors, onNavigate) {
         SimpleManagerTitle("Médicos", "Gerencie os médicos cadastrados na sua instituição e visualize seus perfis.")
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            ManagerSearch("Buscar por nome, especialidade ou CRM...")
+            OutlinedTextField(value = query, onValueChange = { query = it }, placeholder = { Text("Buscar por nome, especialidade ou CRM...") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             Spacer(Modifier.height(10.dp))
-            ManagerFilterRow()
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Todos", modifier = Modifier.clickable { specialty = "Todas"; status = "Todas" }.padding(8.dp))
+                DoctorFilter("Especialidade", specialty, listOf("Todas") + doctors.map { it.second }.distinct()) { specialty = it }
+                DoctorFilter("Situação", status, listOf("Todas", "Ativo", "Em análise", "Inativo")) { status = it }
+            }
             Spacer(Modifier.height(16.dp))
             Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp)).background(Color.White).border(1.dp, Color(0xFFE1E8ED), RoundedCornerShape(13.dp)).padding(vertical = 13.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                 listOf("48" to "Cadastrados", "42" to "Ativos", "4" to "Em análise", "2" to "Inativos").forEach { (value, label) -> Column(horizontalAlignment = Alignment.CenterHorizontally) { Text(value, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold); Text(label, color = Muted, fontSize = 8.sp) } }
             }
             Spacer(Modifier.height(14.dp))
-            listOf("Dr. Carlos Mendes" to "UTI Adulto", "Dra. Ana Souza" to "Pediatria", "Dr. Rafael Lima" to "Clínica Médica", "Dra. Juliana Alves" to "Ginecologia e Obstetrícia", "Dr. Bruno Costa" to "Ortopedia", "Dra. Larissa Gomes" to "Cardiologia").forEachIndexed { index, doctor ->
-                DoctorListCard(doctor.first, doctor.second, if (index == 4) "Em análise" else if (index == 5) "Inativo" else "Ativo")
+            if (filtered.isEmpty()) Text("Nenhum médico encontrado.", color = Muted)
+            filtered.forEach { doctor ->
+                DoctorListCard(doctor.first, doctor.second, doctor.third) { selectedDoctor = doctor }
                 Spacer(Modifier.height(8.dp))
             }
             Spacer(Modifier.height(10.dp))
@@ -1041,6 +1059,19 @@ private fun InstitutionDoctorsScreen(onNavigate: (InstitutionScreen) -> Unit) {
             Spacer(Modifier.height(14.dp))
         }
         ManagerBottomNavigation(InstitutionScreen.Doctors, onNavigate)
+        selectedDoctor?.let { doctor ->
+            Dialog(onDismissRequest = { selectedDoctor = null }) {
+                Surface(shape = RoundedCornerShape(18.dp), color = Color.White) {
+                    Column(Modifier.padding(20.dp)) {
+                        Text(doctor.first, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text(doctor.second, color = Muted)
+                        Text("CRM 123456/DF", color = Muted)
+                        Text(doctor.third, color = Muted)
+                        Button(onClick = { selectedDoctor = null }) { Text("Voltar") }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1058,15 +1089,22 @@ private fun ManagerSearch(placeholder: String) {
 }
 
 @Composable
-private fun ManagerFilterRow() {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("⚭ Todos", "Especialidade⌄", "Situação⌄").forEachIndexed { index, label -> Text(label, color = if (index == 0) Color.White else Color(0xFF45617D), fontSize = 10.sp, fontWeight = if (index == 0) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.clip(RoundedCornerShape(9.dp)).background(if (index == 0) Color(0xFF0785C9) else Color.White).border(if (index == 0) 0.dp else 1.dp, Color(0xFFDDE5EB), RoundedCornerShape(9.dp)).padding(horizontal = 13.dp, vertical = 8.dp)) }
+private fun DoctorFilter(label: String, selected: String, options: List<String>, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Text("$label: $selected ⌄", fontSize = 10.sp, modifier = Modifier.clickable { expanded = true }.padding(8.dp))
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(text = { Text(option) }, onClick = { onSelect(option); expanded = false })
+            }
+        }
     }
 }
 
 @Composable
-private fun DoctorListCard(name: String, specialty: String, status: String) {
+private fun DoctorListCard(name: String, specialty: String, status: String, onClick: () -> Unit) {
     val color = when (status) { "Ativo" -> Color(0xFF10B878); "Em análise" -> Color(0xFF4089EE); else -> Color(0xFFE85A76) }
-    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp)).background(Color.White).border(1.dp, Color(0xFFE1E8ED), RoundedCornerShape(13.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(13.dp)).background(Color.White).border(1.dp, Color(0xFFE1E8ED), RoundedCornerShape(13.dp)).clickable(onClick = onClick).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.size(42.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFFDDF0FF)), contentAlignment = Alignment.Center) { Icon(Icons.Default.PersonOutline, null, tint = Color(0xFF1671B7), modifier = Modifier.size(26.dp)) }
         Spacer(Modifier.width(10.dp)); Column(modifier = Modifier.weight(1f)) { Text(name, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold); Text("♡ $specialty", color = Color(0xFF667E96), fontSize = 10.sp); Text("▣ CRM 123456/DF", color = Color(0xFF91A3B7), fontSize = 9.sp) }
         Text("• $status", color = color, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (status == "Ativo") Color(0xFFE0F9EF) else Color(0xFFFFEEF1)).padding(horizontal = 8.dp, vertical = 5.dp)); Spacer(Modifier.width(3.dp)); Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF7C92A8), modifier = Modifier.size(18.dp))
@@ -1247,10 +1285,10 @@ private fun SettingsDetailsDialog(title: String, name: String, email: String, on
                 if (title != "Sobre o aplicativo") {
                     Spacer(Modifier.height(16.dp))
                     Text(if (title == "Segurança") "Senha atual" else "Nome", color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    OutlinedTextField(value = firstField, onValueChange = { firstField = it }, placeholder = { Text(if (title == "Segurança") "Digite sua senha atual" else "Digite o nome", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth().height(52.dp), singleLine = true, shape = RoundedCornerShape(8.dp))
+                    OutlinedTextField(value = firstField, onValueChange = { firstField = it }, placeholder = { Text(if (title == "Segurança") "Digite sua senha atual" else "Digite o nome", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth().height(52.dp), singleLine = true, visualTransformation = if (title == "Segurança") PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = if (title == "Segurança") KeyboardType.Password else KeyboardType.Text), shape = RoundedCornerShape(8.dp))
                     Spacer(Modifier.height(10.dp))
                     Text(if (title == "Segurança") "Nova senha" else "E-mail ou contato", color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    OutlinedTextField(value = secondField, onValueChange = { secondField = it }, placeholder = { Text(if (title == "Segurança") "Defina uma nova senha" else "Digite o contato", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth().height(52.dp), singleLine = true, shape = RoundedCornerShape(8.dp))
+                    OutlinedTextField(value = secondField, onValueChange = { secondField = it }, placeholder = { Text(if (title == "Segurança") "Defina uma nova senha" else "Digite o contato", fontSize = 11.sp) }, modifier = Modifier.fillMaxWidth().height(52.dp), singleLine = true, visualTransformation = if (title == "Segurança") PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None, keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = if (title == "Segurança") KeyboardType.Password else KeyboardType.Text), shape = RoundedCornerShape(8.dp))
                 }
                 if (saved) Text("Informações salvas com sucesso.", color = Color(0xFF0B8A5D), fontSize = 11.sp, modifier = Modifier.padding(top = 12.dp))
                 Spacer(Modifier.height(20.dp))
