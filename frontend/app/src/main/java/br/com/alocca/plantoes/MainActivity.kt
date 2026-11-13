@@ -349,6 +349,11 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit) {
         null -> Unit
     }
 
+    if (activeTab == "Plantões") {
+        PlantoesScreen(gestor = false, onBack = { activeTab = "Início" })
+        return
+    }
+
     if (activeTab == "Financeiro") {
         FinanceScreen(onTabSelected = { activeTab = it }, onLogout = onLogout)
         return
@@ -875,7 +880,7 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         when (screen) {
             InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, open) { notificationsOpen = !notificationsOpen }
-            InstitutionScreen.Shifts -> InstitutionShiftsScreen(open)
+            InstitutionScreen.Shifts -> PlantoesScreen(gestor = true, onBack = { screen = InstitutionScreen.Home })
             InstitutionScreen.Doctors -> InstitutionDoctorsScreen(open)
             InstitutionScreen.Payments -> InstitutionPaymentsScreen(open)
             InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(open)

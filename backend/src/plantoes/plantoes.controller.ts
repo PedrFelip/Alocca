@@ -11,13 +11,19 @@ import { PlantoesService } from './plantoes.service.ts'
 
 @Controller('plantoes')
 @UseGuards(AuthGuard, PermissoesGuard)
-@Permissoes('MEDICO')
 export class PlantoesController {
   constructor(
     @Inject(PlantoesService) private readonly plantoes: PlantoesService,
   ) {}
 
+  @Get('gestor')
+  @Permissoes('GESTOR')
+  listarDoGestor(@Req() request: AuthenticatedRequest) {
+    return this.plantoes.listarDoGestor(request.usuarioId)
+  }
+
   @Get()
+  @Permissoes('MEDICO')
   listar(
     @Req() request: AuthenticatedRequest,
     @Query(new ZodValidationPipe(listarPlantoesSchema)) filtros: ListarPlantoes,
