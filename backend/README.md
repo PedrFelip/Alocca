@@ -42,8 +42,9 @@ bun run seed   # opcional: dados de demonstração
 bun run dev
 ```
 
-O seed cria um gestor (`gestor.seed@alocca.local`), três hospitais e um médico
-demo aprovado (`medico.demo@alocca.local`), ambos com a senha `senha-segura-123`.
+O seed cria um gestor, três hospitais e um médico
+demo aprovado. Credenciais: gestor `gestor.seed@alocca.local` / `senha-segura-123`
+e médico `medico.demo@alocca.local` / `SenhaSegura123`.
 O médico já tem plantões passados (com ponto e pagamento), um plantão em andamento
 com check-in liberado, plantões futuros confirmados e candidaturas pendente e
 rejeitada. As datas são relativas ao momento em que o seed roda; para recriar só
@@ -84,7 +85,7 @@ Exemplo de cadastro:
 {
   "nome": "Dra. Maria Silva",
   "email": "maria@example.com",
-  "senha": "senha-segura-123",
+  "senha": "SenhaSegura123",
   "telefone": "11999999999",
   "crm": "123456",
   "uf_crm": "SP",

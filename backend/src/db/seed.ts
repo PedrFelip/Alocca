@@ -178,7 +178,9 @@ async function main(): Promise<void> {
 
 const RESET_DEMO = process.argv.includes('--reset-demo')
 const EMAIL_MEDICO = 'medico.demo@alocca.local'
-const SENHA_MEDICO = 'senha-segura-123'
+// Segue a RN05 (maiúscula, minúscula e número) para não quebrar se o app
+// passar a validar o formato também no login.
+const SENHA_MEDICO = 'SenhaSegura123'
 
 const HORA = 60 * 60 * 1000
 const DIA = 24 * HORA
@@ -246,6 +248,8 @@ function seteDaManhaDeHoje(ms: number): number {
 
 // Títulos dos plantões demo: é por eles (+ gestor do seed) que o --reset-demo
 // encontra o que apagar. criarPlantao recusa título fora desta lista.
+// Atenção: se o gestor do seed criar pela UC10 um plantão com um destes
+// títulos, o --reset-demo também vai apagá-lo. Aceitável para dados de demo.
 const TITULOS_DEMO = [
   'Plantão Clínica Médica — Diurno',
   'Plantão Emergência — Noturno',
