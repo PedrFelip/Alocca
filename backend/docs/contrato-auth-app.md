@@ -95,6 +95,8 @@ status, …`, **sem `senha_hash`**) + `medico`:
 
 ## Padrões para o app
 
-- 401/403 → limpar token e voltar ao login; 409 → MSG-02; 429 → MSG-03;
+- 401 → limpar token e voltar ao login. **403 não encerra a sessão**: em várias
+  rotas ele é regra de negócio (ex.: candidatura sem especialidade compatível) e
+  deve mostrar a mensagem do servidor; 409 → MSG-02; 429 → MSG-03;
   exceção de rede → mensagem de conexão distinta das anteriores.
 - Senha do cadastro deve espelhar RN05 no cliente (mesma exigência do backend).
