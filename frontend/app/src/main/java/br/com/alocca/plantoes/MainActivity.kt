@@ -97,7 +97,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { Login, Register }
+private enum class Screen { Login, Register, EsqueciSenha }
 private enum class QuickActionScreen { Security, Calendar, Profile, Workplaces }
 private enum class InstitutionScreen { Home, Shifts, Doctors, Payments, TimeRecord, Settings, PublishShift }
 
@@ -189,6 +189,12 @@ private fun AuthApp() {
         feedbackSuccess = true
     }
 
+    // voltar do celular na tela de esqueci a senha volta pro login em vez de fechar o app
+    BackHandler(enabled = perfil == null && screen == Screen.EsqueciSenha) {
+        feedback = ""
+        screen = Screen.Login
+    }
+
     fun expirarSessao() {
         TokenStore.clear(context)
         perfil = null
@@ -264,6 +270,7 @@ private fun AuthApp() {
                         }
                         LoginForm(
                             onRegister = { feedback = ""; screen = Screen.Register },
+                            onEsqueciSenha = { feedback = ""; screen = Screen.EsqueciSenha },
                             loading = loading,
                             feedback = feedback,
                             feedbackSuccess = feedbackSuccess,
@@ -287,6 +294,27 @@ private fun AuthApp() {
                                         }
                                     }
                                 }
+                            }
+                        )
+                    } else if (screen == Screen.EsqueciSenha) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("Esqueceu sua senha?", color = Navy, fontSize = 23.sp, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "Informe seu e-mail para receber\num código de redefinição.",
+                            color = Muted,
+                            fontSize = 13.sp,
+                            lineHeight = 17.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(24.dp))
+                        EsqueciSenhaForm(
+                            onLogin = { feedback = ""; screen = Screen.Login },
+                            // MSG-08: volta pro login ja com o aviso de sucesso
+                            onSenhaTrocada = { mensagem ->
+                                feedback = mensagem
+                                feedbackSuccess = true
+                                screen = Screen.Login
                             }
                         )
                     } else {
@@ -1722,6 +1750,7 @@ private fun BrandLogo() {
 @Composable
 private fun LoginForm(
     onRegister: () -> Unit,
+    onEsqueciSenha: () -> Unit,
     loading: Boolean,
     feedback: String,
     feedbackSuccess: Boolean,
@@ -1741,7 +1770,7 @@ private fun LoginForm(
     )
     Text(
         "Esqueceu sua senha?",
-        Modifier.fillMaxWidth().wrapContentWidth(Alignment.End).padding(top = 8.dp).clickable { },
+        Modifier.fillMaxWidth().wrapContentWidth(Alignment.End).padding(top = 8.dp).clickable(onClick = onEsqueciSenha),
         color = Border, fontWeight = FontWeight.SemiBold, fontSize = 11.sp
     )
     Spacer(Modifier.height(20.dp))
@@ -1771,6 +1800,96 @@ private fun LoginForm(
             Modifier.clickable(onClick = onRegister),
             color = Border, fontWeight = FontWeight.Bold, fontSize = 13.sp
         )
+    }
+}
+
+// UC04: a resposta e sempre a mesma (MSG-05), exista o e-mail ou nao,
+// pra ninguem descobrir quais e-mails tem conta.
+// mockado: o back de recuperar senha ainda nao existe. quando existir,
+// chamar POST auth/recuperar-senha no lugar do "enviado = true"
+@Composable
+private fun EsqueciSenhaForm(onLogin: () -> Unit, onSenhaTrocada: (String) -> Unit) {
+    var email by remember { mutableStateOf("") }
+    var codigo by remember { mutableStateOf("") }
+    var senha by remember { mutableStateOf("") }
+    var confirma by remember { mutableStateOf("") }
+    var visivel by remember { mutableStateOf(false) }
+    // false = pede o e-mail, true = digita o codigo e a senha nova
+    var temCodigo by remember { mutableStateOf(false) }
+    var aviso by remember { mutableStateOf("") }
+    var erro by remember { mutableStateOf("") }
+    var carregando by remember { mutableStateOf(false) }
+
+    fun chamar(acao: () -> ApiResult, deuCerto: (String) -> Unit) {
+        if (carregando) return
+        carregando = true
+        erro = ""
+        Thread {
+            val resultado = acao()
+            Handler(Looper.getMainLooper()).post {
+                carregando = false
+                if (resultado.successful) deuCerto(resultado.message) else erro = resultado.message
+            }
+        }.start()
+    }
+
+    if (!temCodigo) {
+        AuthField("E-mail", email, { email = it; erro = "" }, "Seu@email.com", Icons.Default.Email, KeyboardType.Email)
+        // mensagem colada na caixa do e-mail e com respiro antes do botao
+        Spacer(Modifier.height(4.dp))
+        if (erro.isNotBlank()) FeedbackText(erro, false)
+        Spacer(Modifier.height(16.dp))
+        PrimaryButton("Enviar código", carregando) {
+            // mesma validacao de e-mail do login
+            if (!email.trim().matches(Regex("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"))) {
+                erro = "Informe um e-mail válido."
+                return@PrimaryButton
+            }
+            chamar({ AuthApi.recuperarSenha(email.trim()) }) { mensagem ->
+                aviso = mensagem
+                temCodigo = true
+            }
+        }
+    } else {
+        // MSG-05 do back: nao diz se o e-mail existe
+        FeedbackText(aviso, true)
+        Spacer(Modifier.height(12.dp))
+        AuthField("Código", codigo, { codigo = it.uppercase().take(8); erro = "" }, "Código do e-mail", Icons.Default.Lock, KeyboardType.Ascii)
+        // mesmo espaco entre campos do cadastro
+        Spacer(Modifier.height(16.dp))
+        AuthField(
+            "Nova senha", senha, { senha = it; erro = "" }, "Crie uma senha segura", Icons.Default.Lock,
+            KeyboardType.Password, password = true, visible = visivel, onToggle = { visivel = !visivel }
+        )
+        Spacer(Modifier.height(16.dp))
+        AuthField(
+            "Confirme a nova senha", confirma, { confirma = it; erro = "" }, "Confirme sua senha", Icons.Default.Lock,
+            KeyboardType.Password, password = true, visible = visivel, onToggle = { visivel = !visivel }
+        )
+        Spacer(Modifier.height(4.dp))
+        if (erro.isNotBlank()) FeedbackText(erro, false)
+        Spacer(Modifier.height(16.dp))
+        PrimaryButton("Redefinir senha", carregando) {
+            erro = when {
+                codigo.trim().length != 8 -> "O código tem 8 caracteres."
+                !senhaAtendeRn05(senha) -> "A senha deve ter de 8 a 128 caracteres, com maiúscula, minúscula e número."
+                senha != confirma -> "As senhas não coincidem."
+                else -> ""
+            }
+            if (erro.isEmpty()) chamar({ AuthApi.redefinirSenha(codigo.trim(), senha) }, onSenhaTrocada)
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 13.dp), horizontalArrangement = Arrangement.Center) {
+            Text("Não recebeu? ", color = Muted, fontSize = 13.sp)
+            Text(
+                "Enviar de novo",
+                Modifier.clickable(enabled = !carregando) { temCodigo = false; codigo = ""; erro = "" },
+                color = Border, fontWeight = FontWeight.Bold, fontSize = 13.sp
+            )
+        }
+    }
+    Row(Modifier.fillMaxWidth().padding(top = 13.dp), horizontalArrangement = Arrangement.Center) {
+        Text("Lembrou a senha? ", color = Muted, fontSize = 13.sp)
+        Text("Voltar para o login", Modifier.clickable(onClick = onLogin), color = Border, fontWeight = FontWeight.Bold, fontSize = 13.sp)
     }
 }
 
