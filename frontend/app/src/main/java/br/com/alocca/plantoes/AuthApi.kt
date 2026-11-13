@@ -1,7 +1,6 @@
 package br.com.alocca.plantoes
 
 import android.util.Base64
-import org.json.JSONArray
 import org.json.JSONObject
 
 internal data class ApiResult(
@@ -9,8 +8,6 @@ internal data class ApiResult(
     val body: JSONObject?,
     val message: String,
     val status: Int = 0,
-    // Respostas que são um array JSON (ex.: listagens) não cabem em `body`.
-    val array: JSONArray? = null,
 )
 
 internal object AuthApi {

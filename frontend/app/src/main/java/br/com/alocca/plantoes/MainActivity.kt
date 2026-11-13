@@ -1359,6 +1359,7 @@ private fun InstitutionShiftsPreview(onNavigate: (InstitutionScreen) -> Unit) {
 @Composable
 private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScreen) -> Unit) {
     var selectedShift by remember { mutableStateOf<InstitutionShift?>(null) }
+    val tokenVigente by rememberUpdatedState(token)
     var selectedFilter by remember { mutableStateOf("Todos") }
     var shifts by remember { mutableStateOf<List<PlantaoGerenciado>>(emptyList()) }
     var loading by remember { mutableStateOf(token != null) }
@@ -1380,11 +1381,11 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
 
     // Rodada da última requisição iniciada; respostas de rodadas anteriores ou
     // da tela já desmontada são descartadas.
-    fun carregarPagina(tokenAtual: String, offset: Int, reset: Boolean, rodada: Int) {
+    fun carregarPagina(tokenAtual: String, offset: Int, reset: Boolean, rodada: Int, filtro: String) {
         Thread {
-            val resultado = runCatching { PlantoesApi.listarPlantoesGerenciados(tokenAtual, offset) }
+            val resultado = runCatching { PlantoesApi.listarPlantoesGerenciados(tokenAtual, offset, statusDoFiltro(filtro)) }
             Handler(Looper.getMainLooper()).post {
-                if (desmontada.value || rodadas != rodada) return@post
+                if (desmontada.value || rodadas != rodada || tokenVigente != tokenAtual) return@post
                 resultado.fold(
                     onSuccess = { pagina ->
                         shifts = if (reset) pagina else shifts + pagina
@@ -1413,19 +1414,22 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
     // Recarrega a cada entrada na tela (ex.: ao voltar da publicação) e em cada
     // "tentar novamente".
     LaunchedEffect(token, rodadas) {
-        if (token == null) {
-            errorMessage = "Sessão expirada. Faça login novamente."
-            return@LaunchedEffect
-        }
-        loading = true
+        shifts = emptyList()
+        loadingMore = false
         hasMore = false
         paginasCarregadas = 0
-        carregarPagina(token, 0, reset = true, rodada = rodadas)
+        falhaPagina = null
+        errorMessage = ""
+        loading = token != null
+        if (token == null) {
+            errorMessage = PlantoesApi.MSG_SESSAO_EXPIRADA
+            return@LaunchedEffect
+        }
+        carregarPagina(token, 0, reset = true, rodada = rodadas, filtro = selectedFilter)
     }
 
-    val visibleShifts = shifts
-        .filter { plantao -> filtroVisivel(plantao, selectedFilter) }
-        .map { plantao ->
+    val visibleShifts = shifts.map { plantao ->
+            val (dia, mes, diaSemanaHora) = PlantoesApi.dataDoCard(plantao.dataInicio)
             InstitutionShift(
                 status = when (plantao.status) {
                     "ABERTO" -> "Aberto"
@@ -1439,20 +1443,16 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
                 date = "${PlantoesApi.formatarDataHora(plantao.dataInicio)} — ${PlantoesApi.formatarHora(plantao.dataFim)}",
                 vacancies = "${plantao.vagasPreenchidas}/${plantao.quantidadeVagas} vagas preenchidas",
                 value = PlantoesApi.formatarValor(plantao.valor),
+                day = dia, month = mes, weekdayTime = diaSemanaHora,
             )
-        }
-        .mapIndexed { index, card ->
-            val plantao = shifts.filter { filtroVisivel(it, selectedFilter) }[index]
-            val (dia, mes, diaSemanaHora) = PlantoesApi.dataDoCard(plantao.dataInicio)
-            card.copy(day = dia, month = mes, weekdayTime = diaSemanaHora)
         }
     InstitutionPage(InstitutionScreen.Shifts, onNavigate) {
         SimpleManagerTitle("Plantões", "")
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Color(0xFFE9F3FC))) {
-                listOf("Todos", "Abertos", "Preenchidos", "Encerrados").forEach { label ->
+                listOf("Todos", "Abertos", "Preenchidos", "Concluídos", "Cancelados").forEach { label ->
                     val selected = selectedFilter == label
-                    Text(label, color = if (selected) Color.White else Color(0xFF5D7B99), fontSize = 10.sp, textAlign = TextAlign.Center, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(if (selected) Color(0xFF1475D1) else Color.Transparent).clickable { selectedFilter = label }.padding(vertical = 9.dp))
+                    Text(label, color = if (selected) Color.White else Color(0xFF5D7B99), fontSize = 10.sp, textAlign = TextAlign.Center, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(if (selected) Color(0xFF1475D1) else Color.Transparent).clickable { if (selectedFilter != label) { selectedFilter = label; rodadas++; loading = token != null; loadingMore = false; hasMore = false; errorMessage = ""; falhaPagina = null; shifts = emptyList() } }.padding(vertical = 9.dp))
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -1468,7 +1468,7 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
                             if (pagina != null) {
                                 // Repete só a página adicional que falhou.
                                 loadingMore = true
-                                carregarPagina(tokenAtual, pagina, reset = false, rodada = rodadas)
+                                carregarPagina(tokenAtual, pagina, reset = false, rodada = rodadas, filtro = selectedFilter)
                             } else {
                                 rodadas += 1
                             }
@@ -1487,7 +1487,7 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
                     onClick = {
                         if (!loadingMore && token != null) {
                             loadingMore = true
-                            carregarPagina(token, paginasCarregadas * PLANTOES_POR_PAGINA, reset = false, rodada = rodadas)
+                            carregarPagina(token, paginasCarregadas * PLANTOES_POR_PAGINA, reset = false, rodada = rodadas, filtro = selectedFilter)
                         }
                     },
                     enabled = !loadingMore,
@@ -1504,12 +1504,12 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
     }
 }
 
-private fun filtroVisivel(plantao: PlantaoGerenciado, filtro: String): Boolean = when (filtro) {
-    "Abertos" -> plantao.status == "ABERTO"
-    "Preenchidos" -> plantao.status == "PREENCHIDO"
-    // "Encerrados" cobre tanto o concluído quanto o cancelado.
-    "Encerrados" -> plantao.status == "CONCLUIDO" || plantao.status == "CANCELADO"
-    else -> true
+private fun statusDoFiltro(filtro: String): String? = when (filtro) {
+    "Abertos" -> "ABERTO"
+    "Preenchidos" -> "PREENCHIDO"
+    "Concluídos" -> "CONCLUIDO"
+    "Cancelados" -> "CANCELADO"
+    else -> null
 }
 
 @Composable
@@ -1570,7 +1570,7 @@ private fun PublishShiftScreen(
 
     LaunchedEffect(token, tentativasInstituicoes) {
         if (token == null) {
-            instituicoesErro = "Sessão expirada. Faça login novamente."
+            instituicoesErro = PlantoesApi.MSG_SESSAO_EXPIRADA
             instituicoesCarregando = false
             return@LaunchedEffect
         }
@@ -1601,7 +1601,7 @@ private fun PublishShiftScreen(
 
     fun publicar() {
         val tokenAtual = token ?: run {
-            validationMessage = "Sessão expirada. Faça login novamente."
+            validationMessage = PlantoesApi.MSG_SESSAO_EXPIRADA
             return
         }
         val faltando = instituicaoSelecionada == null ||

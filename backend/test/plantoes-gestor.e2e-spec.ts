@@ -16,6 +16,7 @@ function timestamp(dias: number): string {
 describe('UC10 — Publicação de plantões pelo gestor', () => {
   let app: INestApplication
   let database: PGlite
+  let gestorUsuarioId: string
   let medicoToken: string
   let gestorToken: string
   let gestorSemPerfilToken: string
@@ -57,7 +58,7 @@ describe('UC10 — Publicação de plantões pelo gestor', () => {
     }
 
     const medicoUsuarioId = await criarUsuario('medico@example.com', 'MEDICO')
-    const gestorUsuarioId = await criarUsuario('gestor@example.com', 'GESTOR')
+    gestorUsuarioId = await criarUsuario('gestor@example.com', 'GESTOR')
     // GESTOR sem linha na tabela `gestores` (perfil incompleto).
     const gestorSemPerfilId = await criarUsuario('gestor-vazio@example.com', 'GESTOR')
     // GESTOR com perfil marcado como inativo.
@@ -392,6 +393,43 @@ describe('UC10 — Publicação de plantões pelo gestor', () => {
         .set('Authorization', gestorToken)
         .expect(200)
         .then((resposta) => expect(resposta.body).toHaveLength(0))
+    })
+
+    it('pagina o status filtrado sem repetir ou omitir plantões', async () => {
+      for (const [dia, status] of [
+        [2, 'ABERTO'],
+        [3, 'CANCELADO'],
+        [4, 'ABERTO'],
+      ] as const) {
+        await database.query(
+          `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade,
+            especialidade, data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status)
+           VALUES ($1, $2, $3, 'UTI', 'Clínica Médica', $4, $5, '1000.00', 1, 1, $6)`,
+          [
+            instituicaoAtiva,
+            gestorUsuarioId,
+            `Página ${dia}`,
+            timestamp(dia),
+            timestamp(dia + 0.5),
+            status,
+          ],
+        )
+      }
+      const titulos: string[] = []
+      for (const offset of [0, 1, 2]) {
+        const response = await request(app.getHttpServer())
+          .get('/plantoes/gerenciados')
+          .query({ status: 'ABERTO', limit: 1, offset })
+          .set('Authorization', gestorToken)
+          .expect(200)
+        expect(response.body).toHaveLength(offset < 2 ? 1 : 0)
+        for (const plantao of response.body) {
+          expect(plantao.status).toBe('ABERTO')
+          expect(plantao.instituicao.id).toBe(instituicaoAtiva)
+          titulos.push(plantao.titulo)
+        }
+      }
+      expect(titulos.sort()).toEqual(['Página 2', 'Página 4'])
     })
 
     it('gestor sem perfil completo recebe 403', async () => {

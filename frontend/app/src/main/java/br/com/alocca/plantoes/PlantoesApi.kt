@@ -42,7 +42,7 @@ internal object PlantoesApi {
     private const val PUBLICAR_PATH = "plantoes"
     private const val INVALID_RESPONSE = "O servidor retornou uma resposta inválida. Tente novamente."
     private const val FALHA_GENERICA = "Não foi possível concluir. Tente novamente."
-    private const val MSG_SESSAO_EXPIRADA = "Sua sessão expirou. Faça login novamente."
+    const val MSG_SESSAO_EXPIRADA = "Sua sessão expirou. Faça login novamente."
 
     /** UC10 — Instituições disponíveis no formulário de publicação. */
     fun listarInstituicoesVinculadas(token: String): List<InstituicaoVinculada> {
@@ -75,9 +75,9 @@ internal object PlantoesApi {
      * `offset` + PLANTOES_POR_PAGINA para paginar; a lista completa volta por
      * páginas (a página final pode vir com menos itens que o limite).
      */
-    fun listarPlantoesGerenciados(token: String, offset: Int = 0): List<PlantaoGerenciado> {
+    fun listarPlantoesGerenciados(token: String, offset: Int = 0, status: String? = null): List<PlantaoGerenciado> {
         val resposta = ApiHttp.enviar(
-            "$GERENCIADOS_PATH?limit=$PLANTOES_POR_PAGINA&offset=$offset",
+            "$GERENCIADOS_PATH?limit=$PLANTOES_POR_PAGINA&offset=$offset" + (status?.let { "&status=$it" } ?: ""),
             "GET",
             token = token,
         )

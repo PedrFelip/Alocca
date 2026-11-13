@@ -23,6 +23,8 @@ Marque `[x]` e mova para o spec quando decidir.
 
 ## Regras e fluxos
 
+- [ ] **Publicação com início no passado (UC10):** decidir se o servidor deve rejeitar plantões cuja data de início já passou. A especificação atual não proíbe explicitamente; avaliar também o efeito no feed.
+
 - [ ] **D17 — Completude de perfil na candidatura (RN17):** porção "Sem Especialidade, não aplica para vagas específicas" implementada no UC05 (médico sem `especialidade` recebe 403). Pendente: limiar de `taxaCompletude` exigido e se a especialidade declarada precisa casar com a `especialidade` do plantão. Impacto: filtro de candidatos/publicação.
 - [ ] **D5 — Convites diretos (RN31):** regra de expiração existe, mas não há nenhum endpoint/UC de convite no spec. Vai ter convite direto no MVP ou a RN31 cai? Impacto: escopo do MVP.
 - [ ] **D6 — Numeração das RNs:** unifiquei pela base do AGENTS + RN31 por inferência (item 15). Validar se algum número conflita com doc externa (mobile/Kotlin).
