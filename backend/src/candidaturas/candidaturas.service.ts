@@ -18,6 +18,7 @@ import {
   sql,
 } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
+import { serializarLogCritico } from '../common/log-critico.ts'
 import { mensagensOficiais } from '../common/mensagens.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
@@ -149,7 +150,7 @@ export class CandidaturasService {
           })
         // Ação crítica: candidatura registrada.
         this.logger.log(
-          JSON.stringify({
+          serializarLogCritico({
             evento: 'CANDIDATURA_CRIADA',
             plantao_id: plantaoId,
             medico_id: medico.id,
@@ -470,13 +471,21 @@ export class CandidaturasService {
         .values(eventos)
         .returning({ id: notificacoesTable.id })
 
+      const statusPlantaoFinal = preenchido
+        ? ('PREENCHIDO' as const)
+        : atualizado.status
+
       // Ação crítica: aprovação de alocação (log estruturado, além do outbox).
       this.logger.log(
-        JSON.stringify({
+        serializarLogCritico({
           evento: 'ALOCACAO_APROVADA',
           plantao_id: plantaoId,
+          candidatura_id: candidaturaId,
           alocacao_id: alocacao.id,
+          medico_id: medico.id,
+          gestor_id: gestor.id,
           plantao_preenchido: preenchido,
+          plantao_status: statusPlantaoFinal,
           notificacoes: eventos.map((e) => ({
             usuario_destino_id: e.usuario_destino_id,
             tipo: e.tipo,
@@ -495,7 +504,7 @@ export class CandidaturasService {
         },
         plantao: {
           id: plantaoId,
-          status: preenchido ? 'PREENCHIDO' : atualizado.status,
+          status: statusPlantaoFinal,
           quantidade_vagas: atualizado.quantidade_vagas,
           vagas_disponiveis: atualizado.vagas_disponiveis,
         },
