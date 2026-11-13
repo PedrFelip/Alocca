@@ -1,0 +1,39 @@
+meta {
+  name: Instituicoes vinculadas
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/instituicoes/vinculadas
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{gestorToken}}
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    const instituicoes = res.getBody();
+    if (instituicoes.length === 0) {
+      bru.setVar("instituicaoId", "");
+    } else {
+      // A publica a partir do seed usa a primeira instituicao vinculada.
+      bru.setVar("instituicaoId", instituicoes[0].id);
+    }
+  }
+}
+
+tests {
+  test("HTTP 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("Ha instituicao para publicar", function () {
+    expect(res.getBody()).to.be.an("array");
+    expect(res.getBody().length).to.be.greaterThan(0);
+    expect(res.getBody()[0]).to.have.property("id");
+    expect(res.getBody()[0]).to.have.property("cnpj");
+  });
+}

@@ -1,0 +1,56 @@
+meta {
+  name: Publicar plantao
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/plantoes
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{gestorToken}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "instituicao_id": "{{instituicaoId}}",
+    "titulo": "Plantao UTI - Colecao Bruno",
+    "local_unidade": "UTI Adulto - 3o andar",
+    "especialidade": "Medicina Intensiva",
+    "data_inicio": "{{plantaoInicio}}",
+    "data_fim": "{{plantaoFim}}",
+    "valor": 1800.00,
+    "quantidade_vagas": 2
+  }
+}
+
+script:pre-request {
+  const amanha = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const meioDiaDepois = new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString();
+  bru.setVar("plantaoInicio", amanha);
+  bru.setVar("plantaoFim", meioDiaDepois);
+}
+
+script:post-response {
+  if (res.getStatus() === 201) {
+    bru.setVar("plantaoId", res.getBody().plantao.id);
+  }
+}
+
+tests {
+  test("HTTP 201 com MSG-14", function () {
+    expect(res.getStatus()).to.equal(201);
+    expect(res.getBody().message).to.contain("Plantão publicado com sucesso");
+  });
+  test("Nasce ABERTO com todas as vagas (RN26)", function () {
+    expect(res.getBody().plantao.status).to.equal("ABERTO");
+    expect(res.getBody().plantao.vagas_disponiveis).to.equal(res.getBody().plantao.quantidade_vagas);
+  });
+}

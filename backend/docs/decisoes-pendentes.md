@@ -35,3 +35,4 @@ Marque `[x]` e mova para o spec quando decidir.
 
 - [ ] **D11 — SeaweedFS:** bucket, URL pública vs assinada, quem serve o download do comprovante (back-end proxy ou URL direta)? Impacto: UC08/UC12.
 - [ ] **D12 — Cadastro de gestor e de instituição:** não há UC para criar conta de gestor nem vincular instituição (só `GET /instituicoes/vinculadas`). Endpoints novos ou seed manual? Impacto: UC10 trava sem isso.
+- [ ] **D22 — Paginação do `GET /plantoes/gerenciados` por offset:** o app pagina por `offset` (páginas de 50); inserção/remoção de plantões entre duas páginas pode omitir ou repetir itens. A janela é pequena (a tela recarrega da página 0 a cada entrada), mas o correto é paginação por cursor (`data_inicio` + `id`). Impacto: contrato do app + novo parâmetro.
