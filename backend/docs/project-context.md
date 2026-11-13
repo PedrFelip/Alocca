@@ -164,7 +164,7 @@ Usuario "1" *-- "0..*" Token2FA
 @enduml
 ```
 
-> **Restrições:** `UNIQUE(candidatura.plantaoId, candidatura.medicoId)` (sem candidatura duplicada); `UNIQUE(medico.crm, medico.ufCrm)`; PIN e token de recuperação armazenados só como hash, nunca em texto puro. **Pendente:** tipo das coordenadas (`Decimal(10,8)` vs `Float`) e nome do campo de distância (`distanciaMetros` vs `distanciaLocal`).
+> **Restrições:** `UNIQUE(candidatura.plantaoId, candidatura.medicoId)` (sem candidatura duplicada); `UNIQUE(medico.crm, medico.ufCrm)`; PIN e token de recuperação armazenados só como hash, nunca em texto puro. **Decidido (código, D1):** coordenadas em `Float` e campo de distância `distanciaLocal` (`registros_ponto`, ver `decisoes-pendentes.md`).
 
 ---
 
