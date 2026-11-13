@@ -1,8 +1,11 @@
 package br.com.alocca.plantoes
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -98,12 +101,13 @@ class MainActivity : ComponentActivity() {
 }
 
 private enum class Screen { Login, Register }
-private enum class QuickActionScreen { Security, Calendar, Profile, Workplaces }
+private enum class QuickActionScreen { Security, Calendar, Profile, Workplaces, Privacy }
 private enum class InstitutionScreen { Home, Shifts, Doctors, Payments, TimeRecord, Settings, PublishShift }
 
 @Composable
 private fun AuthApp() {
     var screen by remember { mutableStateOf(Screen.Login) }
+    var showPrivacy by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf("") }
     var feedbackSuccess by remember { mutableStateOf(false) }
@@ -223,6 +227,9 @@ private fun AuthApp() {
                         HomeScreen(currentPerfil, onLogout = ::logout, onPerfilAtualizado = { perfil = it })
                     }
                 }
+            } else if (showPrivacy) {
+                BackHandler { showPrivacy = false }
+                PrivacyScreen(onBack = { showPrivacy = false })
             } else {
                 Column(
                     modifier = Modifier
@@ -314,7 +321,7 @@ private fun AuthApp() {
                     }
 
                     Spacer(Modifier.height(18.dp))
-                    PrivacyCard()
+                    PrivacyCard(onClick = { showPrivacy = true })
                     Spacer(Modifier.height(28.dp))
                 }
             }
@@ -351,15 +358,16 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
         activeTab = selected
     }
     when (quickActionScreen) {
-        QuickActionScreen.Security -> { SecurityScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
+        QuickActionScreen.Security -> { SecurityScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected, onAbrirPrivacidade = { quickActionScreen = QuickActionScreen.Privacy }); return }
         QuickActionScreen.Calendar -> { CalendarScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
         QuickActionScreen.Profile -> { ProfileScreen(perfil = perfil, onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected, onPerfilAtualizado = onPerfilAtualizado); return }
         QuickActionScreen.Workplaces -> { WorkplacesScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
+        QuickActionScreen.Privacy -> { PrivacyScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
         null -> Unit
     }
 
     if (activeTab == "Configurações") {
-        SettingsScreen(perfil = perfil, onTabSelected = { activeTab = it }, onLogout = pedirSaida, onAbrirPerfil = { quickActionScreen = QuickActionScreen.Profile }, onAbrirSeguranca = { quickActionScreen = QuickActionScreen.Security })
+        SettingsScreen(perfil = perfil, onTabSelected = { activeTab = it }, onLogout = pedirSaida, onAbrirPerfil = { quickActionScreen = QuickActionScreen.Profile }, onAbrirSeguranca = { quickActionScreen = QuickActionScreen.Security }, onAbrirPrivacidade = { quickActionScreen = QuickActionScreen.Privacy })
         return
     }
 
@@ -441,7 +449,7 @@ internal fun CalendarLegend(color: Color, label: String) {
 }
 
 @Composable
-private fun SecurityScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit) {
+private fun SecurityScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit, onAbrirPrivacidade: () -> Unit = {}) {
     Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             QuickActionHeader("Segurança", onBack)
@@ -465,9 +473,202 @@ private fun SecurityScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit) 
                 SecurityInfoRow("Sessão atual", "Este dispositivo • token armazenado com criptografia", Icons.Default.PersonOutline)
                 Spacer(Modifier.height(8.dp))
                 SecurityInfoRow("Proteção de login", "Conta bloqueada por 15 min após tentativas inválidas", Icons.Default.Lock)
+                Spacer(Modifier.height(24.dp))
+                Text("Privacidade e LGPD", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(9.dp))
+                SettingsCard {
+                    SettingsNavigationRow(
+                        Icons.Default.Security,
+                        "Privacidade e LGPD",
+                        "Dados coletados, uso de localização e permissões.",
+                        Color(0xFFE0F4FF),
+                        DeepTeal,
+                        onClick = onAbrirPrivacidade,
+                    )
+                }
                 Spacer(Modifier.height(22.dp))
             }
             HomeBottomNavigation("Configurações", onSelected = onTabSelected)
+        }
+    }
+}
+
+@Composable
+private fun PrivacyScreen(onBack: () -> Unit, onTabSelected: ((String) -> Unit)? = null) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            QuickActionHeader("Privacidade e LGPD", onBack)
+            Column(
+                modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp),
+            ) {
+                Spacer(Modifier.height(22.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFFE9F8F3))
+                        .border(1.dp, Color(0xFFC4ECDD), RoundedCornerShape(14.dp))
+                        .padding(15.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier.size(42.dp).clip(androidx.compose.foundation.shape.CircleShape).background(DeepTeal),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.Security, null, tint = Color.White, modifier = Modifier.size(22.dp))
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text("Seus dados e sua privacidade", color = Color(0xFF087A4D), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("Transparência sobre os dados coletados e o uso da localização.", color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
+                    }
+                }
+
+                Spacer(Modifier.height(22.dp))
+                PrivacySectionTitle("Quais dados coletamos e por quê")
+                Spacer(Modifier.height(8.dp))
+                PrivacyInfoCard(
+                    icon = Icons.Default.PersonOutline,
+                    title = "Dados de cadastro",
+                    description = "Nome, CPF, CRM/UF, e-mail, telefone e especialidade. Usados para identificar sua conta, validar seu registro profissional e liberar candidaturas a plantões compatíveis.",
+                )
+                Spacer(Modifier.height(8.dp))
+                PrivacyInfoCard(
+                    icon = Icons.Default.AccessTime,
+                    title = "Registro de ponto (check-in e check-out)",
+                    description = "Horário oficial registrado pelo servidor no momento da confirmação e, se você permitir, sua localização no instante do toque. Usados para comprovar sua presença no plantão.",
+                )
+
+                Spacer(Modifier.height(22.dp))
+                PrivacySectionTitle("Uso da localização")
+                Spacer(Modifier.height(8.dp))
+                PrivacyInfoCard(
+                    icon = Icons.Default.LocationOn,
+                    title = "Somente por toque explícito",
+                    description = "A localização é solicitada apenas quando você toca para confirmar o check-in ou o check-out, em uma leitura única.",
+                )
+                Spacer(Modifier.height(8.dp))
+                PrivacyInfoCard(
+                    icon = Icons.Default.Lock,
+                    title = "Sem rastreamento em segundo plano",
+                    description = "O aplicativo não coleta sua localização continuamente nem em segundo plano. Se a permissão for negada ou o GPS estiver indisponível, o ponto é registrado sem localização.",
+                )
+
+                Spacer(Modifier.height(22.dp))
+                PrivacySectionTitle("Permissões do dispositivo")
+                Spacer(Modifier.height(8.dp))
+                SettingsCard {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            "Como revogar a permissão de localização",
+                            color = Navy,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Você pode conceder ou revogar o acesso à localização a qualquer momento nas configurações do Android (Permissões > Localização). Isso não impede o registro de ponto.",
+                            color = Muted,
+                            fontSize = 11.sp,
+                            lineHeight = 16.sp,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.fromParts("package", context.packageName, null)
+                                }
+                                context.startActivity(intent)
+                            },
+                            modifier = Modifier.fillMaxWidth().height(44.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = DeepTeal),
+                        ) {
+                            Icon(Icons.Default.Settings, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Abrir configurações do app", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(22.dp))
+                PrivacySectionTitle("Documentos e contato")
+                Spacer(Modifier.height(8.dp))
+                SettingsCard {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        PrivacyPendingRow(
+                            title = "Política de privacidade",
+                            detail = "Em breve — link oficial em definição.",
+                        )
+                        HorizontalDivider(color = Color(0xFFE9ECEF), modifier = Modifier.padding(vertical = 10.dp))
+                        PrivacyPendingRow(
+                            title = "Canal de contato (LGPD)",
+                            detail = "Em breve — canal oficial em definição.",
+                        )
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+            }
+            onTabSelected?.let { HomeBottomNavigation("Configurações", onSelected = it) }
+        }
+    }
+}
+
+@Composable
+private fun PrivacySectionTitle(title: String) {
+    Text(title, color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+}
+
+@Composable
+private fun PrivacyInfoCard(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    description: String,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0xFFE0E5E5), RoundedCornerShape(10.dp))
+            .background(Color.White)
+            .padding(12.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            modifier = Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFFE0F4FF)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, null, tint = DeepTeal, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(3.dp))
+            Text(description, color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+        }
+    }
+}
+
+@Composable
+private fun PrivacyPendingRow(title: String, detail: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(2.dp))
+            Text(detail, color = Muted, fontSize = 11.sp)
+        }
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0xFFFFF4E0))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            Text("Em breve", color = Color(0xFF9A5B00), fontSize = 10.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -1232,7 +1433,7 @@ internal fun ProfileEditorCard(title: String, fields: List<Pair<String, String>>
 }
 
 @Composable
-private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Unit, onLogout: () -> Unit, onAbrirPerfil: () -> Unit = {}, onAbrirSeguranca: () -> Unit = {}) {
+private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Unit, onLogout: () -> Unit, onAbrirPerfil: () -> Unit = {}, onAbrirSeguranca: () -> Unit = {}, onAbrirPrivacidade: () -> Unit = {}) {
     var notificationsOpen by remember { mutableStateOf(false) }
     val primeiroNome = perfil.nome.trim().substringBefore(" ").ifBlank { "" }
 
@@ -1277,6 +1478,8 @@ private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Uni
                         SettingsNavigationRow(Icons.Default.PersonOutline, "Dados pessoais", "Atualize suas informações.", Color(0xFFE0F4FF), Color(0xFF1683BF), onClick = onAbrirPerfil)
                         HorizontalDivider(color = Color(0xFFE7EAEB))
                         SettingsNavigationRow(Icons.Default.Lock, "Segurança e privacidade", "Senha, sessão e privacidade.", Color(0xFFE0F8EF), Color(0xFF0C9B72), onClick = onAbrirSeguranca)
+                        HorizontalDivider(color = Color(0xFFE7EAEB))
+                        SettingsNavigationRow(Icons.Default.Security, "Privacidade e LGPD", "Dados coletados, localização e permissões.", Color(0xFFE0F4FF), DeepTeal, onClick = onAbrirPrivacidade)
                     }
                     Spacer(Modifier.height(15.dp))
                     MainSettingsSectionTitle("Preferências do aplicativo")
@@ -2135,22 +2338,24 @@ private fun PrimaryButton(text: String, loading: Boolean = false, onClick: () ->
 }
 
 @Composable
-private fun PrivacyCard() {
+private fun PrivacyCard(onClick: () -> Unit = {}) {
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(Color(0xFFD3E9EA))
+            .clickable(onClick = onClick)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("⬡", color = Color(0xFF36BCE0), fontSize = 34.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.width(10.dp))
-        Column {
+        Column(Modifier.weight(1f)) {
             Text("Segurança e privacidade", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Text(
                 "Seus dados estão protegidos. Utilizamos criptografia e seguimos a LGPD.",
                 color = Muted, fontSize = 11.sp, lineHeight = 14.sp
             )
         }
+        Icon(Icons.Default.ChevronRight, contentDescription = "Abrir Privacidade e LGPD", tint = Navy, modifier = Modifier.size(18.dp))
     }
 }
