@@ -131,7 +131,8 @@ describe('UC04 recuperação de senha', () => {
     expect(salvo).toHaveLength(1)
     const token = enviados[0].texto
       .split('\n')
-      .find((linha) => linha === linha.trim() && /^[\w-]{40,}$/.test(linha))!
+      .find((linha) => /^[A-Z2-9]{8}$/.test(linha))!
+    expect(token).toBeDefined()
     expect(salvo[0].token).toBe(hashDoToken(token))
     expect(salvo[0].token).not.toBe(token)
     expect(Math.round(Number(salvo[0].minutos))).toBe(15)
@@ -152,6 +153,29 @@ describe('UC04 recuperação de senha', () => {
     await Promise.all([1, 2, 3].map(() => servico.solicitar({ email })))
     await vi.waitFor(() => expect(enviados).toHaveLength(3))
     expect(await codigosValendo()).toBe(1)
+  })
+
+  it('no máximo 3 e-mails por conta a cada 15 min, mesmo de ips diferentes', async () => {
+    const servico = app.get(RecuperacaoSenhaService)
+    const email = 'maria@example.com'
+    for (let i = 0; i < 5; i++) {
+      const res = await servico.solicitar({ email })
+      expect(res.message).toBe(MSG_05)
+      await vi.waitFor(() => expect(enviados.length).toBe(Math.min(i + 1, 3)))
+    }
+    // da um tempo pro 4o e 5o terminarem e confere que nao mandaram nada
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(enviados).toHaveLength(3)
+    expect(await codigosValendo()).toBe(1)
+  })
+
+  it('aceita o código digitado em minúsculo', async () => {
+    await criarToken('ABCD2345')
+    // direto no service: pela rota o limite de 5/min ja teria estourado
+    const res = await app
+      .get(RecuperacaoSenhaService)
+      .redefinir({ token: 'abcd2345', nova_senha: 'Senha-Nova-456' })
+    expect(res.message).toBe(MSG_08)
   })
 
   it('troca a senha com código válido e o código não serve de novo (RN11)', async () => {

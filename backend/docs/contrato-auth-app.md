@@ -61,15 +61,20 @@ status, …`, **sem `senha_hash`**) + `medico`:
 
 - `200` sempre (MSG-05), exista o e-mail ou não (RN12). Se existir e a conta
   estiver ATIVA, manda por e-mail um código de uso único que vale 15 min (RN11).
+  O código tem 8 caracteres (letras maiúsculas e números, sem 0/O/1/I).
   Pedir de novo invalida o código anterior. O banco guarda só o hash (sha256).
+- No máximo 3 e-mails por conta a cada 15 min (além do limite por IP). Passou
+  disso, a resposta é a mesma, só não envia.
 - O e-mail sai por SMTP (`SMTP_*` no `.env`, ver `.env.example`). Sem
   `SMTP_HOST` o back responde normal e só não envia.
 
 ## `POST /auth/redefinir-senha` — trocar a senha (UC04, não autenticado, 5 req/min)
 
 ```json
-{ "token": "código recebido no e-mail", "nova_senha": "NovaSenhaForte123" }
+{ "token": "K7MP2QXA", "nova_senha": "NovaSenhaForte123" }
 ```
+
+- O código pode vir em minúsculo e com espaço nas pontas, o back normaliza.
 
 - `200` (MSG-08) → senha trocada; zera o bloqueio de login (RN08).
 - `400` (MSG-06) → código inválido, vencido ou já usado.
