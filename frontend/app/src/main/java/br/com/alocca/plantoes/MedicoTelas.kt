@@ -49,6 +49,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import android.os.CancellationSignal
+import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1032,26 +1033,56 @@ private fun AttendanceScreen(presenca: PresencaProxima, tipoEvento: String, onBa
     }
 }
 
-/** Uma única leitura de posição, com limite de 10 s. Null quando indisponível. */
+/**
+ * Uma única leitura de posição, com limite de 10 s. Null quando indisponível.
+ *
+ * Pede a posição ao GPS e à rede ao mesmo tempo e fica com a primeira que chegar:
+ * dentro de hospital o GPS costuma não fixar a tempo, e a rede responde. Se nenhum
+ * responder, usa a última posição conhecida, desde que tenha no máximo 2 minutos.
+ */
 @SuppressLint("MissingPermission")
 private suspend fun localizacaoAtual(context: Context): Location? {
     val temPermissao = listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         .any { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
     if (!temPermissao) return null
     val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
-    val provedor = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        .firstOrNull { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) } ?: return null
-    return withTimeoutOrNull(10_000) {
-        suspendCancellableCoroutine { cont ->
-            val cancelar = CancellationSignal()
-            cont.invokeOnCancellation { cancelar.cancel() }
-            runCatching {
-                LocationManagerCompat.getCurrentLocation(lm, provedor, cancelar, ContextCompat.getMainExecutor(context)) { local ->
-                    if (cont.isActive) cont.resume(local)
+    val provedores = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        .filter { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
+    if (provedores.isEmpty()) return null
+    val atual = withTimeoutOrNull(10_000) {
+        suspendCancellableCoroutine<Location?> { cont ->
+            val sinais = provedores.map { CancellationSignal() }
+            cont.invokeOnCancellation { sinais.forEach { it.cancel() } }
+            var pendentes = provedores.size
+            provedores.forEachIndexed { i, provedor ->
+                runCatching {
+                    LocationManagerCompat.getCurrentLocation(lm, provedor, sinais[i], ContextCompat.getMainExecutor(context)) { local ->
+                        pendentes--
+                        if (!cont.isActive) return@getCurrentLocation
+                        if (local != null) {
+                            sinais.forEach { it.cancel() }
+                            cont.resume(local)
+                        } else if (pendentes == 0) {
+                            cont.resume(null)
+                        }
+                    }
+                }.onFailure {
+                    pendentes--
+                    if (pendentes == 0 && cont.isActive) cont.resume(null)
                 }
-            }.onFailure { if (cont.isActive) cont.resume(null) }
+            }
         }
     }
+    return atual ?: ultimaPosicaoRecente(lm, provedores)
+}
+
+@SuppressLint("MissingPermission")
+private fun ultimaPosicaoRecente(lm: LocationManager, provedores: List<String>): Location? {
+    val limite = SystemClock.elapsedRealtimeNanos() - 2 * 60 * 1_000_000_000L
+    return provedores
+        .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+        .filter { it.elapsedRealtimeNanos >= limite }
+        .maxByOrNull { it.elapsedRealtimeNanos }
 }
 
 // ===========================================================================
