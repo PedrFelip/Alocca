@@ -1,10 +1,11 @@
 import { PGlite } from '@electric-sql/pglite'
-import { type INestApplication } from '@nestjs/common'
+import { Logger, type INestApplication } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { JwtService } from '@nestjs/jwt'
 import { drizzle } from 'drizzle-orm/pglite'
 import { readFile } from 'node:fs/promises'
 import request from 'supertest'
+import { vi } from 'vitest'
 import { AppModule } from '../src/app.module.ts'
 import { DRIZZLE_DB } from '../src/db/db.provider.ts'
 import type { Database } from '../src/db/db.provider.ts'
@@ -155,15 +156,41 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
   })
 
   it('retorna erro genérico para credenciais erradas ou inexistentes', async () => {
-    const wrong = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: cadastro.email, senha: 'incorreta' })
-      .expect(401)
-    const missing = await request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: 'missing@example.com', senha: 'incorreta' })
-      .expect(401)
-    expect(wrong.body.message).toBe(missing.body.message)
+    const warnSpy = vi
+      .spyOn(Logger.prototype, 'warn')
+      .mockImplementation(() => {})
+    try {
+      const wrong = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: cadastro.email, senha: 'incorreta' })
+        .expect(401)
+      const missing = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'missing@example.com', senha: 'incorreta' })
+        .expect(401)
+      expect(wrong.body.message).toBe(missing.body.message)
+
+      const logs = warnSpy.mock.calls.map((call) => String(call[0]))
+      expect(logs).toHaveLength(2)
+      for (const linha of logs) {
+        expect(linha).not.toContain('incorreta')
+        expect(linha).not.toContain('maria@example.com')
+        expect(linha).not.toContain('missing@example.com')
+      }
+      expect(JSON.parse(logs[0])).toMatchObject({
+        evento: 'LOGIN_FALHO',
+        motivo: 'SENHA_INCORRETA',
+        email_mascarado: 'm***@example.com',
+      })
+      expect(JSON.parse(logs[1])).toEqual({
+        evento: 'LOGIN_FALHO',
+        motivo: 'EMAIL_INEXISTENTE',
+        usuario_id: null,
+        email_mascarado: 'm***@example.com',
+      })
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 
   it('aplica RN08 em cinco falhas, mantém bloqueio e permite login após expiração', async () => {

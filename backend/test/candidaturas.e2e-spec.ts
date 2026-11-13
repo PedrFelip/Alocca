@@ -1,10 +1,11 @@
 import { PGlite } from '@electric-sql/pglite'
-import type { INestApplication } from '@nestjs/common'
+import { Logger, type INestApplication } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/pglite'
 import { readFile, readdir } from 'node:fs/promises'
 import request from 'supertest'
+import { vi } from 'vitest'
 import { AppModule } from '../src/app.module.ts'
 import { DRIZZLE_DB } from '../src/db/db.provider.ts'
 
@@ -33,7 +34,10 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
   }) => Promise<string>
 
   /** Confirma alocação existente (candidatura APROVADA + alocação + pagamento). */
-  async function alocarConfirmado(plantaoId: string, crm: string): Promise<void> {
+  async function alocarConfirmado(
+    plantaoId: string,
+    crm: string,
+  ): Promise<void> {
     const medico = (
       await database.query<{ id: string }>(
         'SELECT id FROM medicos WHERE crm = $1',
@@ -73,11 +77,7 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
       .send(corpo)
   }
 
-  function aprovar(
-    plantaoId: string,
-    candidaturaId: string,
-    token: string,
-  ) {
+  function aprovar(plantaoId: string, candidaturaId: string, token: string) {
     return request(app.getHttpServer())
       .post(`/plantoes/${plantaoId}/candidaturas/${candidaturaId}/aprovar`)
       .set('Authorization', token)
@@ -300,7 +300,9 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
     })
 
     it('200: gestor lista candidatos do próprio plantão', async () => {
-      await candidatar(plantaoAberto, medico1Token, { mensagem: 'Posso cobrir' })
+      await candidatar(plantaoAberto, medico1Token, {
+        mensagem: 'Posso cobrir',
+      })
       await candidatar(plantaoAberto, medico2Token)
 
       const resposta = await request(app.getHttpServer())
@@ -378,7 +380,11 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
       expect(alocacao).toHaveLength(1)
       const candidaturaFinal = (
         await database.query<
-          { status: string; analisado_por_gestor_id: string; analisado_at: string }[]
+          {
+            status: string
+            analisado_por_gestor_id: string
+            analisado_at: string
+          }[]
         >(
           'SELECT status, analisado_por_gestor_id, analisado_at FROM candidaturas WHERE id = $1',
           [candidatura.id],
@@ -471,12 +477,38 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
       ).rows
       const aprovada = candidaturas[0]
       const rejeitadaEsperada = candidaturas[1]
+      const logSpy = vi
+        .spyOn(Logger.prototype, 'log')
+        .mockImplementation(() => {})
+      let aprovado: request.Response
+      let linhasLog: string[]
+      try {
+        aprovado = await aprovar(
+          plantaoUmaVaga,
+          aprovada.id,
+          gestorToken,
+        ).expect(200)
+      } finally {
+        // copia antes do restore: mockRestore limpa mock.calls
+        linhasLog = logSpy.mock.calls.map((call) => String(call[0]))
+        logSpy.mockRestore()
+      }
 
-      const aprovado = await aprovar(
-        plantaoUmaVaga,
-        aprovada.id,
-        gestorToken,
-      ).expect(200)
+      const logAprovacao = linhasLog.find((linha) =>
+        linha.includes('ALOCACAO_APROVADA'),
+      )
+      expect(logAprovacao).toBeDefined()
+      expect(logAprovacao).not.toContain('@')
+      expect(JSON.parse(logAprovacao!)).toMatchObject({
+        evento: 'ALOCACAO_APROVADA',
+        plantao_id: plantaoUmaVaga,
+        candidatura_id: aprovada.id,
+        alocacao_id: aprovado.body.alocacao.id,
+        medico_id: aprovada.medico_id,
+        gestor_id: expect.any(String),
+        plantao_preenchido: true,
+        plantao_status: 'PREENCHIDO',
+      })
       expect(aprovado.body.message).toBe(
         'Médico alocado com sucesso! Os demais candidatos foram notificados.',
       )
