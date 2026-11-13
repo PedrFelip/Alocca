@@ -72,24 +72,12 @@ import org.json.JSONObject
 import java.util.Calendar
 import java.util.Locale
 
-private val Navy = Color(0xFF063957)
-private val DeepTeal = Color(0xFF07566A)
-private val Cyan = Color(0xFF09A9CE)
-private val Muted = Color(0xFF657775)
+internal val Navy = Color(0xFF063957)
+internal val DeepTeal = Color(0xFF07566A)
+internal val Cyan = Color(0xFF09A9CE)
+internal val Muted = Color(0xFF657775)
 private val CanvasColor = Color(0xFFF3F9F8)
 private val Border = Color(0xFF48A8BC)
-
-private data class ShiftDetails(
-    val day: String,
-    val month: String,
-    val weekday: String,
-    val status: String,
-    val hospital: String,
-    val specialty: String,
-    val location: String,
-    val value: String,
-    val confirmed: Boolean,
-)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -201,6 +189,14 @@ private fun AuthApp() {
         feedbackSuccess = true
     }
 
+    fun expirarSessao() {
+        TokenStore.clear(context)
+        perfil = null
+        screen = Screen.Login
+        feedback = "Sua sessão expirou. Entre novamente."
+        feedbackSuccess = false
+    }
+
     if (restoring) {
         Surface(Modifier.fillMaxSize(), color = CanvasColor) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -223,7 +219,9 @@ private fun AuthApp() {
                 if (currentPerfil.tipo == "GESTOR") {
                     InstitutionApp(currentPerfil, onLogout = ::logout)
                 } else {
-                    HomeScreen(currentPerfil, onLogout = ::logout)
+                    CompositionLocalProvider(LocalSessaoExpirada provides ::expirarSessao) {
+                        HomeScreen(currentPerfil, onLogout = ::logout, onPerfilAtualizado = { perfil = it })
+                    }
                 }
             } else {
                 Column(
@@ -325,13 +323,24 @@ private fun AuthApp() {
 }
 
 @Composable
-private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit) {
+private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtualizado: (PerfilUsuario) -> Unit = {}) {
     var activeTab by remember { mutableStateOf("Início") }
-    var notice by remember { mutableStateOf("") }
-    var selectedShift by remember { mutableStateOf<ShiftDetails?>(null) }
     var notificationsOpen by remember { mutableStateOf(false) }
     var quickActionScreen by remember { mutableStateOf<QuickActionScreen?>(null) }
-    val primeiroNome = perfil.nome.trim().substringBefore(" ").ifBlank { "Doutor(a)" }
+    var confirmandoSaida by remember { mutableStateOf(false) }
+    val primeiroNome = perfil.nome.trim().split(" ").firstOrNull { it.isNotBlank() && !it.endsWith(".") } ?: "Doutor(a)"
+    val pedirSaida = { confirmandoSaida = true }
+
+    // Diálogo antes de qualquer retorno antecipado: vale para todas as abas.
+    if (confirmandoSaida) {
+        AlertDialog(
+            onDismissRequest = { confirmandoSaida = false },
+            title = { Text("Sair da conta?") },
+            text = { Text("Você precisará entrar novamente para acessar seus plantões.") },
+            confirmButton = { TextButton(onClick = { confirmandoSaida = false; onLogout() }) { Text("Sair", color = Color(0xFFE53935)) } },
+            dismissButton = { TextButton(onClick = { confirmandoSaida = false }) { Text("Cancelar") } },
+        )
+    }
 
     BackHandler(enabled = quickActionScreen != null || activeTab != "Início") {
         if (quickActionScreen != null) quickActionScreen = null else activeTab = "Início"
@@ -344,18 +353,13 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit) {
     when (quickActionScreen) {
         QuickActionScreen.Security -> { SecurityScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
         QuickActionScreen.Calendar -> { CalendarScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
-        QuickActionScreen.Profile -> { ProfileScreen(perfil = perfil, onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
+        QuickActionScreen.Profile -> { ProfileScreen(perfil = perfil, onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected, onPerfilAtualizado = onPerfilAtualizado); return }
         QuickActionScreen.Workplaces -> { WorkplacesScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
         null -> Unit
     }
 
-    if (activeTab == "Financeiro") {
-        FinanceScreen(onTabSelected = { activeTab = it }, onLogout = onLogout)
-        return
-    }
-
     if (activeTab == "Configurações") {
-        SettingsScreen(perfil = perfil, onTabSelected = { activeTab = it }, onLogout = onLogout)
+        SettingsScreen(perfil = perfil, onTabSelected = { activeTab = it }, onLogout = pedirSaida, onAbrirPerfil = { quickActionScreen = QuickActionScreen.Profile }, onAbrirSeguranca = { quickActionScreen = QuickActionScreen.Security })
         return
     }
 
@@ -369,80 +373,50 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit) {
             ) {
                 HomeHeader(
                     onNotification = { notificationsOpen = !notificationsOpen },
-                    onLogout = onLogout,
+                    onLogout = pedirSaida,
                 )
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-            ) {
-                Spacer(Modifier.height(19.dp))
-                Text("Olá, $primeiroNome", color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    "Encontre plantões, acompanhe suas\natividades e gerencie seus plantões.",
-                    color = Navy,
-                    fontSize = 13.sp,
-                    lineHeight = 16.sp,
-                )
-                Spacer(Modifier.height(16.dp))
-                if (activeTab == "Plantões") {
-                    Text("Plantões", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(12.dp))
-                    Text("A lista de plantões e candidaturas estará disponível quando integrada ao serviço.", color = Muted, fontSize = 13.sp)
-                } else {
-                    Text("Dados de plantões e financeiro ainda não disponíveis.", color = Muted, fontSize = 13.sp)
-                    Spacer(Modifier.height(18.dp))
+                // Cada aba tem seu próprio scroll (key), para não herdar a posição da anterior.
+                key(activeTab) {
                     Column(
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                            .background(Color.White).border(1.dp, Color(0xFFD7E2E1), RoundedCornerShape(8.dp))
-                            .padding(16.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = 20.dp),
                     ) {
-                        Text("Sua conta", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(10.dp))
-                        InfoRow("Nome", perfil.nome)
-                        InfoRow("E-mail", perfil.email)
-                        InfoRow("Perfil", perfil.tipoDescricao)
-                        InfoRow("Conta", perfil.statusDescricao)
-                        if (perfil.crm != null) InfoRow("CRM", listOfNotNull(perfil.crm, perfil.ufCrm).joinToString(" / "))
-                        if (perfil.statusValidacao != null) InfoRow("Validação", perfil.validacaoDescricao)
-                        if (perfil.statusValidacao == "REJEITADO" && !perfil.motivoRejeicao.isNullOrBlank()) {
-                            InfoRow("Motivo", perfil.motivoRejeicao)
-                        }
-                    }
-                    Spacer(Modifier.height(18.dp))
-                    Text("Ações rápidas", color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(10.dp))
-                    QuickActions { action ->
-                        quickActionScreen = when (action) {
-                            "Segurança" -> QuickActionScreen.Security
-                            "Calendário" -> QuickActionScreen.Calendar
-                            "Locais de trabalho" -> QuickActionScreen.Workplaces
-                            "Seu perfil" -> QuickActionScreen.Profile
-                            else -> null
-                        }
-                    }
-                    if (notice.isNotBlank()) {
                         Spacer(Modifier.height(16.dp))
-                        Text(
-                            notice,
-                            color = DeepTeal,
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFE1F3F4))
-                                .padding(11.dp),
-                        )
+                        when (activeTab) {
+                            "Buscar" -> BuscarConteudo(perfil)
+                            "Plantões" -> MeusPlantoesConteudo(onBuscar = { activeTab = "Buscar" })
+                            "Financeiro" -> FinanceiroConteudo()
+                            else -> {
+                                Text("Olá, $primeiroNome", color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(3.dp))
+                                Text(
+                                    "Encontre plantões, acompanhe suas\natividades e gerencie seus plantões.",
+                                    color = Navy,
+                                    fontSize = 13.sp,
+                                    lineHeight = 16.sp,
+                                )
+                                Spacer(Modifier.height(16.dp))
+                                InicioConteudo(perfil, onVerPlantoes = { activeTab = "Plantões" }, onBuscar = { activeTab = "Buscar" })
+                                Spacer(Modifier.height(18.dp))
+                                Text("Ações rápidas", color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Spacer(Modifier.height(10.dp))
+                                QuickActions { action ->
+                                    quickActionScreen = when (action) {
+                                        "Segurança" -> QuickActionScreen.Security
+                                        "Calendário" -> QuickActionScreen.Calendar
+                                        "Locais de trabalho" -> QuickActionScreen.Workplaces
+                                        "Seu perfil" -> QuickActionScreen.Profile
+                                        else -> null
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(22.dp))
                     }
-                    Spacer(Modifier.height(22.dp))
                 }
-            }
-                HomeBottomNavigation(activeTab, onSelected = { selected ->
-                    activeTab = selected
-                    notice = "$selected estará disponível em breve."
-                })
+                HomeBottomNavigation(activeTab, onSelected = { selected -> activeTab = selected })
             }
 
             AnimatedVisibility(
@@ -453,125 +427,12 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit) {
             ) {
                 NotificationsPanel(onClose = { notificationsOpen = false })
             }
-
-            selectedShift?.let { shift ->
-                ShiftDetailsDialog(shift = shift, onDismiss = { selectedShift = null })
-            }
         }
     }
 }
 
 @Composable
-private fun CalendarScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit) {
-    var selectedShift by remember { mutableStateOf<ShiftDetails?>(null) }
-    var notificationsOpen by remember { mutableStateOf(false) }
-
-    Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().height(54.dp).border(1.dp, Color(0xFFE0E5E5)).padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("‹", color = Navy, fontSize = 31.sp, modifier = Modifier.clickable(onClick = onBack).padding(end = 8.dp))
-                    Text("Meu calendário", color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.weight(1f))
-                    Box(modifier = Modifier.size(38.dp).clickable { notificationsOpen = !notificationsOpen }, contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.NotificationsNone, "Notificações", tint = Navy, modifier = Modifier.size(23.dp))
-                        Box(modifier = Modifier.align(Alignment.TopEnd).offset(y = 2.dp).size(17.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Cyan), contentAlignment = Alignment.Center) {
-                            Text("3", color = Color.White, fontSize = 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-                Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                    Spacer(Modifier.height(17.dp))
-                    Text("Seu calendário", color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(3.dp))
-                    Text("Personalize o seu calendário conforme seus compromissos.", color = Muted, fontSize = 12.sp)
-                    Spacer(Modifier.height(12.dp))
-                    var monthOffset by remember { mutableStateOf(0) }
-                    CalendarMonthCard(monthOffset, onMonthChange = { monthOffset += it })
-                    if (monthOffset == 0) {
-                    Spacer(Modifier.height(12.dp))
-                    Text("Sexta-feira, 20 de junho", color = Muted, fontSize = 12.sp)
-                    Spacer(Modifier.height(7.dp))
-                    ShiftCard("20", "JUN", "Sex. 19h", "CONFIRMADO", "Hospital Santa Clara", "Clínica Médica", "Gama - DF", "R$ 800,00", true) { selectedShift = it }
-                    Spacer(Modifier.height(7.dp))
-                    ShiftCard("20", "JUN", "Sex. 19h", "PENDENTE", "Hospital Santa Lúcia", "Clínica Médica", "Taguatinga - DF", "R$ 950,00", false) { selectedShift = it }
-                    Spacer(Modifier.height(7.dp))
-                    ShiftCard("24", "JUN", "Ter. 19h", "CONFIRMADO", "Hospital Brasília", "Pediatria", "Brasília - DF", "R$ 700,00", true) { selectedShift = it }
-                    Spacer(Modifier.height(7.dp))
-                    ShiftCard("24", "JUN", "Ter. 19h", "CONFIRMADO", "Hospital Brasília", "Pediatria", "Brasília - DF", "R$ 700,00", true) { selectedShift = it }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Color(0xFFD9F3FC)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Encontrou um novo plantão?", color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            Text("Adicione a sua agenda", color = Navy, fontSize = 10.sp)
-                        }
-                        Text("Adicionar Plantão", color = Color(0xFF006EC6), fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable { })
-                    }
-                    Spacer(Modifier.height(20.dp))
-                }
-                HomeBottomNavigation("Plantões", onSelected = onTabSelected)
-            }
-            AnimatedVisibility(
-                visible = notificationsOpen,
-                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 48.dp, end = 15.dp),
-                enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
-                exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
-            ) { NotificationsPanel(onClose = { notificationsOpen = false }) }
-            selectedShift?.let { ShiftDetailsDialog(it, onDismiss = { selectedShift = null }) }
-        }
-    }
-}
-
-@Composable
-private fun CalendarMonthCard(monthOffset: Int, onMonthChange: (Int) -> Unit) {
-    val month = Calendar.getInstance().apply { set(2025, Calendar.JUNE, 1); add(Calendar.MONTH, monthOffset) }
-    val firstDay = month.get(Calendar.DAY_OF_WEEK) - Calendar.SUNDAY
-    val daysInMonth = month.getActualMaximum(Calendar.DAY_OF_MONTH)
-    val cells = List(((firstDay + daysInMonth + 6) / 7) * 7) { index ->
-        (index - firstDay + 1).takeIf { it in 1..daysInMonth }?.toString() ?: ""
-    }
-    Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp)).border(1.dp, Color(0xFFE0E5E5), RoundedCornerShape(11.dp)).padding(15.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("‹", color = Muted, fontSize = 28.sp, modifier = Modifier.clickable { onMonthChange(-1) })
-            Spacer(Modifier.weight(1f))
-            Text(month.getDisplayName(Calendar.MONTH, Calendar.LONG, Locale("pt", "BR"))!!.replaceFirstChar { it.titlecase(Locale("pt", "BR")) } + " ${month.get(Calendar.YEAR)}", color = Color(0xFF2D3137), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
-            Text("›", color = Muted, fontSize = 28.sp, modifier = Modifier.clickable { onMonthChange(1) })
-        }
-        Spacer(Modifier.height(13.dp))
-        CalendarWeekRow(listOf("D", "S", "T", "Q", "Q", "S", "S"), isHeader = true)
-        cells.chunked(7).forEach { week ->
-            CalendarWeekRow(week, selectedAt = if (monthOffset == 0) week.indexOf("20") else -1)
-        }
-        Spacer(Modifier.height(13.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            CalendarLegend(Color(0xFF006EC6), "Confirmado")
-            CalendarLegend(Color(0xFFF49A19), "Pendente")
-            CalendarLegend(Color(0xFF18B66D), "Disponível")
-        }
-    }
-}
-
-@Composable
-private fun CalendarWeekRow(days: List<String>, isHeader: Boolean = false, selectedAt: Int = -1, dotAt: Int = -1, dotColor: Color = Color(0xFF18B66D)) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        days.forEachIndexed { index, day ->
-            Column(modifier = Modifier.width(30.dp).height(34.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Text(day, color = if (isHeader) Muted else Color(0xFF2D3137), fontSize = if (isHeader) 9.sp else 12.sp, fontWeight = if (index == selectedAt) FontWeight.Bold else FontWeight.Normal, modifier = if (index == selectedAt) Modifier.clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFE2F0FF)).padding(horizontal = 6.dp, vertical = 3.dp) else Modifier)
-                if (index == dotAt) Box(modifier = Modifier.size(4.dp).clip(androidx.compose.foundation.shape.CircleShape).background(dotColor)) else Spacer(Modifier.height(4.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun CalendarLegend(color: Color, label: String) {
+internal fun CalendarLegend(color: Color, label: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(modifier = Modifier.size(7.dp).clip(androidx.compose.foundation.shape.CircleShape).background(color))
         Spacer(Modifier.width(3.dp))
@@ -581,12 +442,6 @@ private fun CalendarLegend(color: Color, label: String) {
 
 @Composable
 private fun SecurityScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit) {
-    var currentPassword by remember { mutableStateOf("") }
-    var newPassword by remember { mutableStateOf("") }
-    var confirmPassword by remember { mutableStateOf("") }
-    var showPasswords by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf("") }
-
     Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             QuickActionHeader("Segurança", onBack)
@@ -601,27 +456,15 @@ private fun SecurityScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit) 
                 SecurityStatusCard()
                 Spacer(Modifier.height(22.dp))
                 Text("Alterar senha", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text("Use uma senha forte, diferente das suas outras contas.", color = Muted, fontSize = 11.sp)
-                Spacer(Modifier.height(14.dp))
-                AuthField("Senha atual", currentPassword, { currentPassword = it }, "Digite sua senha atual", Icons.Default.Lock, KeyboardType.Password, true, showPasswords, onToggle = { showPasswords = !showPasswords })
-                Spacer(Modifier.height(12.dp))
-                AuthField("Nova senha", newPassword, { newPassword = it }, "Mínimo de 8 caracteres", Icons.Default.Lock, KeyboardType.Password, true, showPasswords, onToggle = { showPasswords = !showPasswords })
-                Spacer(Modifier.height(12.dp))
-                AuthField("Confirmar nova senha", confirmPassword, { confirmPassword = it }, "Repita a nova senha", Icons.Default.Lock, KeyboardType.Password, true, showPasswords, onToggle = { showPasswords = !showPasswords })
-                Spacer(Modifier.height(14.dp))
-                PrimaryButton("Atualizar senha") {
-                    message = if (newPassword.length >= 8 && newPassword == confirmPassword && currentPassword.isNotBlank()) {
-                        "Senha atualizada com sucesso."
-                    } else "Preencha os campos e confirme uma senha com ao menos 8 caracteres."
-                }
-                if (message.isNotBlank()) FeedbackText(message, message.startsWith("Senha atualizada"))
+                Spacer(Modifier.height(6.dp))
+                // Sem rota de troca de senha no backend ainda (chega junto com a UC04).
+                EstadoVazio("A troca de senha pelo aplicativo ainda não está disponível. Ela será liberada junto com a recuperação de senha.")
                 Spacer(Modifier.height(24.dp))
-                Text("Atividade recente", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                Text("Sessão", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(9.dp))
-                SecurityInfoRow("Sessão atual", "São Paulo, SP • agora", Icons.Default.PersonOutline)
+                SecurityInfoRow("Sessão atual", "Este dispositivo • token armazenado com criptografia", Icons.Default.PersonOutline)
                 Spacer(Modifier.height(8.dp))
-                SecurityInfoRow("Última alteração de senha", "Há 3 meses", Icons.Default.Lock)
+                SecurityInfoRow("Proteção de login", "Conta bloqueada por 15 min após tentativas inválidas", Icons.Default.Lock)
                 Spacer(Modifier.height(22.dp))
             }
             HomeBottomNavigation("Configurações", onSelected = onTabSelected)
@@ -630,7 +473,7 @@ private fun SecurityScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit) 
 }
 
 @Composable
-private fun QuickActionHeader(title: String, onBack: () -> Unit) {
+internal fun QuickActionHeader(title: String, onBack: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().height(56.dp).border(1.dp, Color(0xFFE0E5E5)).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -673,153 +516,7 @@ private fun SecurityInfoRow(title: String, detail: String, icon: androidx.compos
 }
 
 @Composable
-private fun WorkplacesScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit) {
-    var attendanceType by remember { mutableStateOf<String?>(null) }
-    var attendanceHospital by remember { mutableStateOf("") }
-    val hospital = "Hospital São Lucas"
-    var expandedShift by remember { mutableStateOf("checkin") }
-    if (attendanceType != null) {
-        AttendanceScreen(type = attendanceType!!, hospital = attendanceHospital, onBack = { attendanceType = null })
-        return
-    }
-
-    Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            QuickActionHeader("Locais de trabalho", onBack)
-            Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
-                Spacer(Modifier.height(20.dp))
-                Text("Plantões atribuídos", color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text("Consulte seus locais de trabalho e registre sua presença.", color = Muted, fontSize = 12.sp, lineHeight = 16.sp)
-                Spacer(Modifier.height(18.dp))
-                AttendanceShiftCard(
-                    expanded = expandedShift == "checkin",
-                    onExpand = { expandedShift = if (expandedShift == "checkin") "" else "checkin" },
-                    title = "Check-in disponível",
-                    hospital = hospital,
-                    specialty = "Clínica Médica",
-                    date = "Hoje, 12 de junho • 07:00 às 19:00",
-                    action = "Realizar check-in",
-                    actionColor = Color(0xFF10A76A),
-                    onClick = { attendanceHospital = hospital; attendanceType = "Check-in" },
-                )
-                Spacer(Modifier.height(14.dp))
-                AttendanceShiftCard(
-                    expanded = expandedShift == "checkout",
-                    onExpand = { expandedShift = if (expandedShift == "checkout") "" else "checkout" },
-                    title = "Check-out disponível",
-                    hospital = hospital,
-                    specialty = "Clínica Médica",
-                    date = "Hoje, 12 de junho • 07:00 às 19:00",
-                    action = "Realizar check-out",
-                    actionColor = Color(0xFFE42C45),
-                    onClick = { attendanceHospital = hospital; attendanceType = "Check-out" },
-                )
-                Spacer(Modifier.height(22.dp))
-                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFFE1F3FA)).padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.LocationOn, null, tint = Cyan, modifier = Modifier.size(22.dp))
-                    Spacer(Modifier.width(9.dp))
-                    Text("O registro de presença fica disponível no horário do plantão.", color = Navy, fontSize = 11.sp, lineHeight = 14.sp)
-                }
-            }
-            HomeBottomNavigation("Plantões", onSelected = onTabSelected)
-        }
-    }
-}
-
-@Composable
-private fun AttendanceShiftCard(expanded: Boolean, onExpand: () -> Unit, title: String, hospital: String, specialty: String, date: String, action: String, actionColor: Color, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).border(1.dp, Color(0xFFDCE5E8), RoundedCornerShape(14.dp)),
-    ) {
-        Row(modifier = Modifier.fillMaxWidth().clickable(onClick = onExpand).padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(if (actionColor == Color(0xFF10A76A)) Color(0xFFE3F7EF) else Color(0xFFFFE9ED)), contentAlignment = Alignment.Center) {
-                Icon(if (actionColor == Color(0xFF10A76A)) Icons.Default.EventNote else Icons.Default.AccessTime, null, tint = actionColor, modifier = Modifier.size(22.dp))
-            }
-            Spacer(Modifier.width(11.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(hospital, color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("$specialty • ${if (expanded) "detalhes abertos" else "toque para ver"}", color = Muted, fontSize = 10.sp)
-            }
-            Text(if (expanded) "⌃" else "›", color = Navy, fontSize = 22.sp)
-        }
-        AnimatedVisibility(visible = expanded) {
-            Column(modifier = Modifier.padding(start = 15.dp, end = 15.dp, bottom = 15.dp)) {
-                HorizontalDivider(color = Color(0xFFE6ECEE))
-                Spacer(Modifier.height(12.dp))
-                Text(title.uppercase(), color = actionColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text(date, color = Muted, fontSize = 11.sp)
-                Spacer(Modifier.height(13.dp))
-                Button(onClick = onClick, modifier = Modifier.fillMaxWidth().height(43.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = actionColor)) {
-                    Text(action, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AttendanceScreen(type: String, hospital: String, onBack: () -> Unit) {
-    val isCheckIn = type == "Check-in"
-    val accent = if (isCheckIn) Color(0xFF10A76A) else Color(0xFFE42C45)
-    val title = if (isCheckIn) "Chegada do plantão" else "Saída do plantão"
-    val help = if (isCheckIn) "Marque seu check-in para iniciar o plantão." else "Marque seu check-out para finalizar o plantão."
-    val button = if (isCheckIn) "Confirmar check-in" else "Confirmar check-out"
-    var confirmed by remember { mutableStateOf(false) }
-
-    Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
-        Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            AttendanceTopBar()
-            Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
-                Spacer(Modifier.height(17.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("‹", color = Navy, fontSize = 30.sp, modifier = Modifier.clickable(onClick = onBack).padding(end = 9.dp))
-                    Column {
-                        Text(type, color = Navy, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                        Text(if (isCheckIn) "Registre sua entrada no plantão" else "Registre sua saída do plantão", color = Color(0xFF6281AC), fontSize = 12.sp)
-                    }
-                }
-                Spacer(Modifier.height(18.dp))
-                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(if (isCheckIn) Color(0xFFEAF9F3) else Color(0xFFFFEFF1)).border(1.dp, if (isCheckIn) Color(0xFFC5ECD9) else Color(0xFFFFC8D0), RoundedCornerShape(9.dp)).padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape).background(accent), contentAlignment = Alignment.Center) { Icon(Icons.Default.EventNote, null, tint = Color.White, modifier = Modifier.size(27.dp)) }
-                    Spacer(Modifier.width(13.dp))
-                    Column {
-                        Text(title, color = accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        Text(help, color = Muted, fontSize = 11.sp, lineHeight = 14.sp)
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).border(1.dp, Color(0xFFE0E8EB), RoundedCornerShape(10.dp)).background(Color.White).padding(15.dp)) {
-                    Text("Informações do plantão", color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(15.dp))
-                    AttendanceDetail("Hospital", hospital, Icons.Default.LocationOn)
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 11.dp), color = Color(0xFFE8EDF0))
-                    AttendanceDetail("Data", "12/06/2025 (Hoje)", Icons.Default.CalendarMonth)
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 11.dp), color = Color(0xFFE8EDF0))
-                    AttendanceDetail("Horário do plantão", "07:00 às 19:00", Icons.Default.AccessTime)
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 11.dp), color = Color(0xFFE8EDF0))
-                    AttendanceDetail("Especialidade", "Clínica Médica", Icons.Default.Security)
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 11.dp), color = Color(0xFFE8EDF0))
-                    AttendanceDetail("Coordenadora", "Dra. Mariana Silva", Icons.Default.PersonOutline)
-                }
-                Spacer(Modifier.height(14.dp))
-                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFFE5F2FF)).padding(12.dp)) {
-                    Text("i", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.size(20.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFF1475D1)).padding(top = 2.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text(if (isCheckIn) "Ao confirmar o check-in, sua entrada será registrada e sua presença ficará disponível para a equipe do hospital." else "O check-out registra o encerramento do seu plantão e atualiza sua presença no sistema.", color = Color(0xFF1B66B4), fontSize = 10.sp, lineHeight = 13.sp, modifier = Modifier.weight(1f))
-                }
-                Spacer(Modifier.height(15.dp))
-                Button(onClick = { confirmed = true }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = accent)) { Text(if (confirmed) "Registro confirmado" else button, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
-                Spacer(Modifier.height(16.dp))
-            }
-            AttendanceBottomNavigation()
-        }
-    }
-}
-
-@Composable
-private fun AttendanceTopBar() {
+internal fun AttendanceTopBar() {
     Row(modifier = Modifier.fillMaxWidth().height(82.dp).background(Brush.horizontalGradient(listOf(Color(0xFF0B2E63), Color(0xFF134987)))).padding(horizontal = 19.dp), verticalAlignment = Alignment.CenterVertically) {
         Image(painter = painterResource(id = R.drawable.alocca_hotbar_mark), contentDescription = null, modifier = Modifier.size(36.dp))
         Spacer(Modifier.width(8.dp))
@@ -833,21 +530,7 @@ private fun AttendanceTopBar() {
 }
 
 @Composable
-private fun AttendanceBottomNavigation() {
-    Row(modifier = Modifier.fillMaxWidth().height(63.dp).border(1.dp, Color(0xFFE2E5E6)).background(Color.White), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-        listOf("Início" to Icons.Default.Home, "Meus plantões" to Icons.Default.CalendarMonth, "Check-in/out" to Icons.Default.AccessTime, "Perfil" to Icons.Default.PersonOutline).forEach { (label, icon) ->
-            val selected = label == "Check-in/out"
-            Column(modifier = Modifier.width(76.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(icon, null, tint = if (selected) Color(0xFF1475D1) else Color(0xFF6B7E99), modifier = Modifier.size(if (selected) 23.dp else 20.dp))
-                Spacer(Modifier.height(3.dp))
-                Text(label, color = if (selected) Color(0xFF1475D1) else Color(0xFF6B7E99), fontSize = 8.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-            }
-        }
-    }
-}
-
-@Composable
-private fun AttendanceDetail(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+internal fun AttendanceDetail(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = Color(0xFF6281AC), modifier = Modifier.size(23.dp))
         Spacer(Modifier.width(12.dp))
@@ -1302,37 +985,6 @@ private fun SettingsDetailsDialog(title: String, name: String, email: String, on
 }
 
 @Composable
-private fun DoctorSettingsScreen(perfil: PerfilUsuario, onBack: () -> Unit, onLogout: () -> Unit, onTabSelected: (String) -> Unit) {
-    var selectedOption by remember { mutableStateOf<String?>(null) }
-    var notifications by remember { mutableStateOf(true) }
-    var calendar by remember { mutableStateOf(false) }
-    var email by remember { mutableStateOf(true) }
-    val displayName = perfil.nome.ifBlank { "Dr. Bean" }
-    Surface(Modifier.fillMaxSize(), color = Color.White) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-                Spacer(Modifier.height(18.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) { Text("Configurações", color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); Icon(Icons.Default.NotificationsNone, null, tint = Navy, modifier = Modifier.size(25.dp)) }
-                Spacer(Modifier.height(16.dp))
-                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).border(1.dp, Color(0xFFE1E4E8), RoundedCornerShape(18.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(62.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFDCEFFC)), contentAlignment = Alignment.Center) { Icon(Icons.Default.PersonOutline, null, tint = Navy, modifier = Modifier.size(38.dp)) }
-                    Spacer(Modifier.width(13.dp)); Column { Text(displayName, color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold); Text("CRM 123456-DF", color = Color(0xFF5B718A), fontSize = 12.sp); Text("Clínico Geral", color = Color(0xFF5B718A), fontSize = 12.sp) }
-                }
-                Spacer(Modifier.height(22.dp)); SettingsSectionTitle("Conta e segurança")
-                SettingsGroup { SettingsRow(Icons.Default.PersonOutline, Color(0xFFE5F4FF), Color(0xFF1475D1), "Dados pessoais", "Atualize suas informações.") { selectedOption = "Dados pessoais" }; SettingsDivider(); SettingsRow(Icons.Default.Lock, Color(0xFFE8F8F0), Color(0xFF14A66B), "Segurança", "Senha, autenticação e privacidade.") { selectedOption = "Segurança" } }
-                Spacer(Modifier.height(18.dp)); SettingsSectionTitle("Preferências do aplicativo")
-                SettingsGroup { SettingsToggleRow(Icons.Default.NotificationsNone, Color(0xFFE1F3FA), Color(0xFF176FAD), "Notificações", "Gerencie caso queira receber alertas.", notifications) { notifications = it }; SettingsDivider(); SettingsToggleRow(Icons.Default.CalendarMonth, Color(0xFFE8F7EF), Color(0xFF15A268), "Calendário", "Alertas sobre os seus plantões.", calendar) { calendar = it }; SettingsDivider(); SettingsToggleRow(Icons.Default.Email, Color(0xFFF2EBFC), Color(0xFF7741C4), "Notificações por e-mail", "Receba alertas também por e-mail.", email) { email = it } }
-                Spacer(Modifier.height(18.dp)); SettingsSectionTitle("Informações do sistema")
-                SettingsGroup { SettingsRow(Icons.Default.Security, Color(0xFFF2EBFC), Color(0xFF7741C4), "Sobre o aplicativo", "Versão, termos e privacidade.") { selectedOption = "Sobre o aplicativo" } }
-                Spacer(Modifier.height(22.dp)); Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp)).border(1.dp, Color(0xFFE1E4E8), RoundedCornerShape(11.dp)).clickable(onClick = onLogout).padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Logout, null, tint = Color(0xFFE53935)); Spacer(Modifier.width(12.dp)); Text("Sair da conta", color = Color(0xFFE53935), fontSize = 13.sp, fontWeight = FontWeight.Bold) }; Spacer(Modifier.height(20.dp))
-            }
-            HomeBottomNavigation("Configurações", onSelected = onTabSelected)
-        }
-        selectedOption?.let { SettingsDetailsDialog(it, displayName, perfil.email) { selectedOption = null } }
-    }
-}
-
-@Composable
 private fun InstitutionShiftsPreview(onNavigate: (InstitutionScreen) -> Unit) {
     var selectedShift by remember { mutableStateOf<InstitutionShift?>(null) }
     SectionTitle("Plantões recentes", "Ver todos") { onNavigate(InstitutionScreen.Shifts) }
@@ -1532,106 +1184,7 @@ private fun TimeSummary(title: String, main: String, subtitle: String, color: Co
 private fun TimeHistoryCard(hospital: String, status: String) { Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp)).background(Color.White).border(1.dp, Color(0xFFE1E9EF), RoundedCornerShape(11.dp)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Box(modifier = Modifier.size(34.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (status == "Concluído") Color(0xFFE1F9ED) else Color(0xFFE7F2FF)), contentAlignment = Alignment.Center) { Text(if (status == "Concluído") "✓" else "◷", color = if (status == "Concluído") Color(0xFF10A36C) else Color(0xFF2085CF), fontSize = 17.sp, fontWeight = FontWeight.Bold) }; Spacer(Modifier.width(10.dp)); Column(modifier = Modifier.weight(1f)) { Text(hospital, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold); Text("UTI Adulto", color = Color(0xFF6A8199), fontSize = 9.sp); Text("24/10 • Entrada: 18:52 | Saída: —", color = Color(0xFF8EA1B5), fontSize = 8.sp); Text(if (status == "Concluído") "Entrada: 06:55 • Saída: 19:08 (12h 13m)" else "✓ Check-in via GPS validado", color = Color(0xFF0C9D68), fontSize = 8.sp) }; Text(status, color = if (status == "Concluído") Color(0xFF0C9D68) else Color(0xFF2386CF), fontSize = 8.sp, fontWeight = FontWeight.Bold); Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF7C92A8), modifier = Modifier.size(17.dp)) } }
 
 @Composable
-private fun ProfileScreen(perfil: PerfilUsuario, onBack: () -> Unit, onTabSelected: (String) -> Unit) {
-    var notificationsOpen by remember { mutableStateOf(false) }
-    val displayName = perfil.nome.ifBlank { "Dr. Bean" }
-    var editingSection by remember { mutableStateOf<String?>(null) }
-    var phone by remember { mutableStateOf("(11)98765-4321") }
-    var email by remember { mutableStateOf(perfil.email) }
-    var birthDate by remember { mutableStateOf("15/04/1990") }
-    var city by remember { mutableStateOf("São Paulo-SP") }
-    var specialty by remember { mutableStateOf("Clínico geral") }
-    var education by remember { mutableStateOf("Medicina-USP") }
-    var institution by remember { mutableStateOf("Hospital das clínicas") }
-    var experience by remember { mutableStateOf("6 anos") }
-
-    Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                Row(modifier = Modifier.fillMaxWidth().height(55.dp).border(1.dp, Color(0xFFE0E5E5)).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("‹", color = Navy, fontSize = 29.sp, modifier = Modifier.clickable(onClick = onBack).padding(end = 8.dp))
-                    Image(painter = painterResource(id = R.drawable.alocca_logo), contentDescription = "Alocca Plantões", modifier = Modifier.width(104.dp).height(42.dp))
-                    Spacer(Modifier.weight(1f))
-                    Box(modifier = Modifier.size(38.dp).clickable { notificationsOpen = !notificationsOpen }, contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.NotificationsNone, "Notificações", tint = Navy, modifier = Modifier.size(23.dp))
-                        Box(modifier = Modifier.align(Alignment.TopEnd).offset(y = 2.dp).size(17.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Cyan), contentAlignment = Alignment.Center) { Text("3", color = Color.White, fontSize = 9.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold) }
-                    }
-                }
-                Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 7.dp)) {
-                    Spacer(Modifier.height(12.dp))
-                    Text("Meu Perfil", color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    Text("Gerencie suas informações pessoais\ne profissionais.", color = Navy, fontSize = 11.sp, lineHeight = 14.sp)
-                    Spacer(Modifier.height(12.dp))
-                    ProfileCompletionCard()
-                    Spacer(Modifier.height(12.dp))
-                    ProfileIdentityCard(displayName, email, perfil.crm.orEmpty(), perfil.ufCrm.orEmpty())
-                    Spacer(Modifier.height(18.dp))
-                    ProfileSection("Dados pessoais", listOf("Telefone" to phone, "E-mail" to email, "Data de nascimento" to birthDate, "Cidade" to city), onEdit = { editingSection = if (editingSection == "personal") null else "personal" })
-                    AnimatedVisibility(editingSection == "personal") {
-                        ProfileEditorCard(
-                            title = "Editar dados pessoais",
-                            fields = listOf("Telefone" to phone, "E-mail" to email, "Data de nascimento" to birthDate, "Cidade" to city),
-                            onCancel = { editingSection = null },
-                            onSave = { values ->
-                                phone = values[0]; email = values[1]; birthDate = values[2]; city = values[3]
-                                editingSection = null
-                            },
-                        )
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    ProfileSection("Dados profissionais", listOf("Especialidades" to specialty, "Formação" to education, "Instituição de vínculo" to institution, "Tempo de atuação" to experience), onEdit = { editingSection = if (editingSection == "professional") null else "professional" })
-                    AnimatedVisibility(editingSection == "professional") {
-                        ProfileEditorCard(
-                            title = "Editar dados profissionais",
-                            fields = listOf("Especialidades" to specialty, "Formação" to education, "Instituição de vínculo" to institution, "Tempo de atuação" to experience),
-                            onCancel = { editingSection = null },
-                            onSave = { values ->
-                                specialty = values[0]; education = values[1]; institution = values[2]; experience = values[3]
-                                editingSection = null
-                            },
-                        )
-                    }
-                    Spacer(Modifier.height(22.dp))
-                }
-                HomeBottomNavigation("Início", onSelected = onTabSelected)
-            }
-            AnimatedVisibility(visible = notificationsOpen, modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 48.dp, end = 15.dp), enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(), exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut()) { NotificationsPanel(onClose = { notificationsOpen = false }) }
-        }
-    }
-}
-
-@Composable
-private fun ProfileCompletionCard() {
-    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(15.dp)).background(Color(0xFFEAF7FA)).padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("65%", color = DeepTeal, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.width(15.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text("Complete seu perfil", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            Text("Preencha seus dados profissionais para\naumentar suas chances de ser selecionado", color = Muted, fontSize = 9.sp, lineHeight = 11.sp)
-            Spacer(Modifier.height(9.dp))
-            Text("Completar perfil     ›", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(7.dp)).background(DeepTeal).clickable { }.padding(vertical = 6.dp))
-        }
-    }
-}
-
-@Composable
-private fun ProfileIdentityCard(name: String, email: String, crm: String, uf: String) {
-    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp)).background(Color(0xFF083C7A)).padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(69.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFD9F3FC)), contentAlignment = Alignment.Center) { Text(name.take(2).uppercase(), color = DeepTeal, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-        Spacer(Modifier.width(15.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(name, color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(7.dp))
-            Text("✉ $email", color = Color.White, fontSize = 10.sp)
-            Text("▣ CRM $crm-$uf", color = Color.White, fontSize = 10.sp)
-            Text("♙ CPF 123.456.789-00", color = Color.White, fontSize = 10.sp)
-        }
-        Icon(Icons.Default.ChevronRight, null, tint = Color.White, modifier = Modifier.size(20.dp))
-    }
-}
-
-@Composable
-private fun ProfileSection(title: String, entries: List<Pair<String, String>>, onEdit: () -> Unit) {
+internal fun ProfileSection(title: String, entries: List<Pair<String, String>>, onEdit: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = DeepTeal, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.weight(1f))
@@ -1651,7 +1204,7 @@ private fun ProfileSection(title: String, entries: List<Pair<String, String>>, o
 }
 
 @Composable
-private fun ProfileEditorCard(title: String, fields: List<Pair<String, String>>, onCancel: () -> Unit, onSave: (List<String>) -> Unit) {
+internal fun ProfileEditorCard(title: String, fields: List<Pair<String, String>>, onCancel: () -> Unit, saving: Boolean = false, onSave: (List<String>) -> Unit) {
     val values = remember(fields) { mutableStateListOf(*fields.map { it.second }.toTypedArray()) }
     Column(
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFFEAF7FA)).border(1.dp, Color(0xFFCBE7EB), RoundedCornerShape(10.dp)).padding(12.dp),
@@ -1671,15 +1224,15 @@ private fun ProfileEditorCard(title: String, fields: List<Pair<String, String>>,
             Spacer(Modifier.height(7.dp))
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Text("Cancelar", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable(onClick = onCancel).padding(10.dp))
+            Text("Cancelar", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clickable(enabled = !saving, onClick = onCancel).padding(10.dp))
             Spacer(Modifier.width(7.dp))
-            Text("Salvar alterações", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(DeepTeal).clickable { onSave(values.toList()) }.padding(horizontal = 13.dp, vertical = 10.dp))
+            Text(if (saving) "Salvando…" else "Salvar alterações", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.clip(RoundedCornerShape(7.dp)).background(if (saving) Muted else DeepTeal).clickable(enabled = !saving) { onSave(values.toList()) }.padding(horizontal = 13.dp, vertical = 10.dp))
         }
     }
 }
 
 @Composable
-private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Unit, onLogout: () -> Unit) {
+private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Unit, onLogout: () -> Unit, onAbrirPerfil: () -> Unit = {}, onAbrirSeguranca: () -> Unit = {}) {
     var notificationsOpen by remember { mutableStateOf(false) }
     val primeiroNome = perfil.nome.trim().substringBefore(" ").ifBlank { "" }
 
@@ -1721,9 +1274,9 @@ private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Uni
                     MainSettingsSectionTitle("Conta e segurança")
                     Spacer(Modifier.height(7.dp))
                     SettingsCard {
-                        SettingsNavigationRow(Icons.Default.PersonOutline, "Dados pessoais", "Atualize suas informações.", Color(0xFFE0F4FF), Color(0xFF1683BF))
+                        SettingsNavigationRow(Icons.Default.PersonOutline, "Dados pessoais", "Atualize suas informações.", Color(0xFFE0F4FF), Color(0xFF1683BF), onClick = onAbrirPerfil)
                         HorizontalDivider(color = Color(0xFFE7EAEB))
-                        SettingsNavigationRow(Icons.Default.Lock, "Segurança e privacidade", "Senha, autenticação e privacidade.", Color(0xFFE0F8EF), Color(0xFF0C9B72))
+                        SettingsNavigationRow(Icons.Default.Lock, "Segurança e privacidade", "Senha, sessão e privacidade.", Color(0xFFE0F8EF), Color(0xFF0C9B72), onClick = onAbrirSeguranca)
                     }
                     Spacer(Modifier.height(15.dp))
                     MainSettingsSectionTitle("Preferências do aplicativo")
@@ -1800,35 +1353,6 @@ private fun SettingsIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, 
 
 
 
-@Composable
-private fun FinanceScreen(onTabSelected: (String) -> Unit, onLogout: () -> Unit) {
-    var notificationsOpen by remember { mutableStateOf(false) }
-
-    Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-                HomeHeader(
-                    onNotification = { notificationsOpen = !notificationsOpen },
-                    onLogout = onLogout,
-                )
-                Text("Financeiro", color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp))
-                Column(modifier = Modifier.weight(1f).padding(horizontal = 20.dp)) {
-                    Text("Dados financeiros indisponíveis no momento.", color = Muted, fontSize = 13.sp)
-                }
-                HomeBottomNavigation("Financeiro", onSelected = onTabSelected)
-            }
-            AnimatedVisibility(
-                visible = notificationsOpen,
-                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 68.dp, end = 16.dp),
-                enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
-                exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
-            ) {
-                NotificationsPanel(onClose = { notificationsOpen = false })
-            }
-        }
-    }
-}
-
 
 /** Tela isolada para inspeção no Android Studio, sem login ou backend. */
 @Preview(showBackground = true, backgroundColor = 0xFFFFFFFF, widthDp = 393, heightDp = 852)
@@ -1874,7 +1398,7 @@ private fun InstitutionHomeScreenPreview() {
 }
 
 @Composable
-private fun HomeHeader(onNotification: () -> Unit, onLogout: () -> Unit) {
+internal fun HomeHeader(onNotification: () -> Unit, onLogout: () -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
@@ -1925,7 +1449,7 @@ private fun HomeHeader(onNotification: () -> Unit, onLogout: () -> Unit) {
 }
 
 @Composable
-private fun NotificationsPanel(onClose: () -> Unit) {
+internal fun NotificationsPanel(onClose: () -> Unit) {
     Surface(
         modifier = Modifier.width(300.dp),
         shape = RoundedCornerShape(16.dp),
@@ -1968,24 +1492,7 @@ private fun NotificationItem(icon: androidx.compose.ui.graphics.vector.ImageVect
 }
 
 @Composable
-private fun QuickSummary() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(9.dp))
-            .background(Color(0xFF004180))
-            .padding(vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-    ) {
-        SummaryItem(Icons.Default.CalendarMonth, Color(0xFF316B9E), "3", "Plantões\nconfirmados")
-        SummaryItem(Icons.Default.AccessTime, Color(0xFF009A7B), "1", "Pendências de\nconfirmação")
-        SummaryItem(Icons.Default.AccountBalanceWallet, Color(0xFF7564A9), "R$2.459,00", "Recebidos")
-        SummaryItem(Icons.Default.Star, Color(0xFFF5A600), "4,8", "Avaliação\nmédia")
-    }
-}
-
-@Composable
-private fun SummaryItem(icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, value: String, label: String) {
+internal fun SummaryItem(icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, value: String, label: String) {
     Column(
         modifier = Modifier.width(78.dp).height(79.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -2020,7 +1527,7 @@ private fun SummaryItem(icon: androidx.compose.ui.graphics.vector.ImageVector, c
 }
 
 @Composable
-private fun SectionTitle(title: String, action: String, onAction: () -> Unit) {
+internal fun SectionTitle(title: String, action: String, onAction: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.weight(1f))
@@ -2029,124 +1536,7 @@ private fun SectionTitle(title: String, action: String, onAction: () -> Unit) {
 }
 
 @Composable
-private fun ShiftCard(
-    day: String, month: String, weekday: String, status: String, hospital: String, specialty: String,
-    location: String, value: String, confirmed: Boolean, onClick: (ShiftDetails) -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(103.dp)
-            .clip(RoundedCornerShape(13.dp))
-            .background(Color.White)
-            .border(1.dp, Color(0xFF9DA5A6), RoundedCornerShape(13.dp))
-            .clickable {
-                onClick(ShiftDetails(day, month, weekday, status, hospital, specialty, location, value, confirmed))
-            }
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(
-            modifier = Modifier
-                .width(66.dp)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (confirmed) Color(0xFFD9F3FC) else Color(0xFFFFF1DF)),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(day, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-            Text(month, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(7.dp))
-            Text(weekday, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    status,
-                    color = if (confirmed) Color(0xFF1381C8) else Color(0xFFF49A19),
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.background(if (confirmed) Color(0xFFD7EFFF) else Color(0xFFFFECD3)).padding(horizontal = 6.dp, vertical = 2.dp),
-                )
-                Spacer(Modifier.weight(1f))
-                Text(value, color = if (confirmed) Color(0xFF008872) else Color(0xFFF49A19), fontSize = 9.sp, fontWeight = FontWeight.Bold,
-                    modifier = Modifier.background(if (confirmed) Color(0xFFD7EFEA) else Color(0xFFFFF1DF)).padding(horizontal = 6.dp, vertical = 2.dp))
-            }
-            Spacer(Modifier.height(4.dp))
-            Text(hospital, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(specialty, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.LocationOn, null, tint = Muted, modifier = Modifier.size(11.dp))
-                Text(location, color = Muted, fontSize = 9.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.AccessTime, null, tint = Muted, modifier = Modifier.size(11.dp))
-                Text("19:00 - 7:00 (12h)", color = Muted, fontSize = 9.sp)
-            }
-        }
-        Icon(Icons.Default.ChevronRight, contentDescription = "Abrir plantão", tint = Muted, modifier = Modifier.size(20.dp))
-    }
-}
-
-@Composable
-private fun ShiftDetailsDialog(shift: ShiftDetails, onDismiss: () -> Unit) {
-    val accent = if (shift.confirmed) Color(0xFF008872) else Color(0xFFF49A19)
-    val statusBackground = if (shift.confirmed) Color(0xFFD7EFEA) else Color(0xFFFFECD3)
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth().padding(20.dp),
-            shape = RoundedCornerShape(20.dp),
-            color = Color.White,
-            shadowElevation = 12.dp,
-        ) {
-            Column(modifier = Modifier.padding(24.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Detalhes do plantão", color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(4.dp))
-                        Text("${shift.day} ${shift.month} • ${shift.weekday}", color = Muted, fontSize = 13.sp)
-                    }
-                    Text(
-                        shift.status,
-                        color = accent,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(statusBackground).padding(horizontal = 9.dp, vertical = 6.dp),
-                    )
-                }
-                Spacer(Modifier.height(22.dp))
-                Text(shift.hospital, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text(shift.specialty, color = Muted, fontSize = 14.sp)
-                Spacer(Modifier.height(20.dp))
-                DetailLine(Icons.Default.LocationOn, "Local", shift.location)
-                Spacer(Modifier.height(14.dp))
-                DetailLine(Icons.Default.AccessTime, "Horário", "19:00 às 07:00 • duração de 12h")
-                Spacer(Modifier.height(14.dp))
-                DetailLine(Icons.Default.AccountBalanceWallet, "Valor do plantão", shift.value, accent)
-                Spacer(Modifier.height(24.dp))
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Navy),
-                    shape = RoundedCornerShape(10.dp),
-                ) {
-                    Text("Fechar", fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DetailLine(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, valueColor: Color = Navy) {
+internal fun DetailLine(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, valueColor: Color = Navy) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = Cyan, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(12.dp))
@@ -2194,7 +1584,7 @@ private fun ActionItem(icon: androidx.compose.ui.graphics.vector.ImageVector, la
 }
 
 @Composable
-private fun HomeBottomNavigation(active: String, onSelected: (String) -> Unit) {
+internal fun HomeBottomNavigation(active: String, onSelected: (String) -> Unit) {
     val items = listOf(
         Triple("Início", Icons.Default.Home, "Início"),
         Triple("Buscar", Icons.Default.Search, "Buscar"),
@@ -2248,7 +1638,7 @@ private fun HomeBottomNavigation(active: String, onSelected: (String) -> Unit) {
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
+internal fun InfoRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
         verticalAlignment = Alignment.Top,
