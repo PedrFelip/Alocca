@@ -6,7 +6,10 @@ import { readFile, readdir } from 'node:fs/promises'
 import request from 'supertest'
 import { AppModule } from '../src/app.module.ts'
 import { PasswordService } from '../src/auth/password.service.ts'
-import { hashDoToken } from '../src/auth/recuperacao-senha.service.ts'
+import {
+  hashDoToken,
+  RecuperacaoSenhaService,
+} from '../src/auth/recuperacao-senha.service.ts'
 import { DRIZZLE_DB } from '../src/db/db.provider.ts'
 import { EmailService, type Email } from '../src/email/email.service.ts'
 
@@ -21,6 +24,20 @@ describe('UC04 recuperação de senha', () => {
   let usuarioId: string
   // no lugar do smtp: guarda o que seria enviado
   const enviados: Email[] = []
+  let segurarEnvio: Promise<void> | undefined
+
+  function pedir(email = 'maria@example.com') {
+    return request(app.getHttpServer())
+      .post('/auth/recuperar-senha')
+      .send({ email })
+  }
+
+  async function codigosValendo() {
+    const res = await database.query(
+      'SELECT id FROM tokens_recuperacao_senha WHERE used_at IS NULL',
+    )
+    return res.rows.length
+  }
 
   async function criarToken(
     token: string,
@@ -49,7 +66,12 @@ describe('UC04 recuperação de senha', () => {
       .overrideProvider(DRIZZLE_DB)
       .useValue(drizzle({ client: database }))
       .overrideProvider(EmailService)
-      .useValue({ enviar: async (email: Email) => void enviados.push(email) })
+      .useValue({
+        enviar: async (email: Email) => {
+          await segurarEnvio
+          enviados.push(email)
+        },
+      })
       .compile()
     app = module.createNestApplication()
     await app.init()
@@ -75,21 +97,30 @@ describe('UC04 recuperação de senha', () => {
   })
 
   it('e-mail que não existe recebe a mesma resposta e nada é enviado (RN12)', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/auth/recuperar-senha')
-      .send({ email: 'ninguem@example.com' })
+    const res = await pedir('ninguem@example.com')
     expect(res.status).toBe(200)
     expect(res.body.message).toBe(MSG_05)
     expect(enviados).toHaveLength(0)
   })
 
-  it('e-mail cadastrado recebe o código e o banco guarda só o hash', async () => {
-    const res = await request(app.getHttpServer())
-      .post('/auth/recuperar-senha')
-      .send({ email: 'Maria@Example.com' })
+  it('conta ativa responde sem esperar o código ser gerado e enviado (RN12)', async () => {
+    let soltar!: () => void
+    segurarEnvio = new Promise((resolve) => (soltar = resolve))
+    const res = await pedir()
     expect(res.status).toBe(200)
     expect(res.body.message).toBe(MSG_05)
-    expect(enviados).toHaveLength(1)
+    expect(enviados).toHaveLength(0)
+
+    soltar()
+    segurarEnvio = undefined
+    await vi.waitFor(() => expect(enviados).toHaveLength(1))
+  })
+
+  it('e-mail cadastrado recebe o código e o banco guarda só o hash', async () => {
+    const res = await pedir('Maria@Example.com')
+    expect(res.status).toBe(200)
+    expect(res.body.message).toBe(MSG_05)
+    await vi.waitFor(() => expect(enviados).toHaveLength(1))
     expect(enviados[0].para).toBe('maria@example.com')
 
     const salvo = (
@@ -107,15 +138,20 @@ describe('UC04 recuperação de senha', () => {
   })
 
   it('pedir de novo invalida o código anterior', async () => {
-    for (let i = 0; i < 2; i++) {
-      await request(app.getHttpServer())
-        .post('/auth/recuperar-senha')
-        .send({ email: 'maria@example.com' })
-    }
-    const validos = await database.query(
-      'SELECT id FROM tokens_recuperacao_senha WHERE used_at IS NULL',
-    )
-    expect(validos.rows).toHaveLength(1)
+    await pedir()
+    await vi.waitFor(() => expect(enviados).toHaveLength(1))
+    await pedir()
+    await vi.waitFor(() => expect(enviados).toHaveLength(2))
+    expect(await codigosValendo()).toBe(1)
+  })
+
+  it('pedidos ao mesmo tempo deixam só um código valendo', async () => {
+    // direto no service: pela rota o limite de 5/min ja teria estourado
+    const servico = app.get(RecuperacaoSenhaService)
+    const email = 'maria@example.com'
+    await Promise.all([1, 2, 3].map(() => servico.solicitar({ email })))
+    await vi.waitFor(() => expect(enviados).toHaveLength(3))
+    expect(await codigosValendo()).toBe(1)
   })
 
   it('troca a senha com código válido e o código não serve de novo (RN11)', async () => {
