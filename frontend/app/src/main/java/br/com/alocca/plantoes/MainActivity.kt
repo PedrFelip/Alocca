@@ -345,7 +345,7 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit) {
         QuickActionScreen.Security -> { SecurityScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
         QuickActionScreen.Calendar -> { CalendarScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
         QuickActionScreen.Profile -> { ProfileScreen(perfil = perfil, onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
-        QuickActionScreen.Workplaces -> { WorkplacesScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
+        QuickActionScreen.Workplaces -> { WorkplacesScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected, onSessaoExpirada = onLogout); return }
         null -> Unit
     }
 
@@ -673,13 +673,41 @@ private fun SecurityInfoRow(title: String, detail: String, icon: androidx.compos
 }
 
 @Composable
-private fun WorkplacesScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit) {
-    var attendanceType by remember { mutableStateOf<String?>(null) }
-    var attendanceHospital by remember { mutableStateOf("") }
-    val hospital = "Hospital São Lucas"
-    var expandedShift by remember { mutableStateOf("checkin") }
-    if (attendanceType != null) {
-        AttendanceScreen(type = attendanceType!!, hospital = attendanceHospital, onBack = { attendanceType = null })
+private fun WorkplacesScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit, onSessaoExpirada: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var selecionado by remember { mutableStateOf<PlantaoProximo?>(null) }
+    var plantoes by remember { mutableStateOf<List<PlantaoProximo>>(emptyList()) }
+    var carregando by remember { mutableStateOf(true) }
+    var erro by remember { mutableStateOf("") }
+    var recarregar by remember { mutableIntStateOf(0) }
+    var expandedShift by remember { mutableStateOf("") }
+
+    // busca de novo sempre que volta da tela de registro
+    LaunchedEffect(recarregar) {
+        carregando = true
+        erro = ""
+        Thread {
+            val token = TokenStore.read(context)
+            val resposta = if (token == null) RespostaPresenca(false, "", sessaoExpirada = true) else PresencaApi.buscarProximos(token)
+            // 401/403: apaga o token so se ainda for o mesmo (igual o restaurarSessao)
+            val saiu = resposta.sessaoExpirada && (token == null || TokenStore.clearIfMatches(context, token))
+            Handler(Looper.getMainLooper()).post {
+                carregando = false
+                when {
+                    saiu -> onSessaoExpirada()
+                    resposta.sessaoExpirada -> erro = "Não foi possível encerrar a sessão. Tente novamente."
+                    resposta.ok -> {
+                        plantoes = resposta.plantoes
+                        expandedShift = plantoes.firstOrNull()?.alocacaoId.orEmpty()
+                    }
+                    else -> erro = resposta.mensagem
+                }
+            }
+        }.start()
+    }
+
+    selecionado?.let { plantao ->
+        AttendanceScreen(plantao = plantao, onBack = { selecionado = null; recarregar++ }, onSessaoExpirada = onSessaoExpirada)
         return
     }
 
@@ -692,30 +720,39 @@ private fun WorkplacesScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit
                 Spacer(Modifier.height(4.dp))
                 Text("Consulte seus locais de trabalho e registre sua presença.", color = Muted, fontSize = 12.sp, lineHeight = 16.sp)
                 Spacer(Modifier.height(18.dp))
-                AttendanceShiftCard(
-                    expanded = expandedShift == "checkin",
-                    onExpand = { expandedShift = if (expandedShift == "checkin") "" else "checkin" },
-                    title = "Check-in disponível",
-                    hospital = hospital,
-                    specialty = "Clínica Médica",
-                    date = "Hoje, 12 de junho • 07:00 às 19:00",
-                    action = "Realizar check-in",
-                    actionColor = Color(0xFF10A76A),
-                    onClick = { attendanceHospital = hospital; attendanceType = "Check-in" },
-                )
-                Spacer(Modifier.height(14.dp))
-                AttendanceShiftCard(
-                    expanded = expandedShift == "checkout",
-                    onExpand = { expandedShift = if (expandedShift == "checkout") "" else "checkout" },
-                    title = "Check-out disponível",
-                    hospital = hospital,
-                    specialty = "Clínica Médica",
-                    date = "Hoje, 12 de junho • 07:00 às 19:00",
-                    action = "Realizar check-out",
-                    actionColor = Color(0xFFE42C45),
-                    onClick = { attendanceHospital = hospital; attendanceType = "Check-out" },
-                )
-                Spacer(Modifier.height(22.dp))
+                when {
+                    carregando -> Box(Modifier.fillMaxWidth().padding(vertical = 30.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = DeepTeal)
+                    }
+                    erro.isNotBlank() -> {
+                        FeedbackText(erro, success = false)
+                        Text("Tentar novamente", color = Border, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.clickable { recarregar++ }.padding(vertical = 10.dp))
+                    }
+                    plantoes.isEmpty() -> Text("Você não tem plantão para registrar presença agora.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 20.dp))
+                    else -> plantoes.forEach { p ->
+                        // checkin feito = proximo passo e o checkout
+                        val checkout = p.checkinFeito
+                        val liberado = if (checkout) p.podeFazerCheckout else p.podeFazerCheckin
+                        AttendanceShiftCard(
+                            expanded = expandedShift == p.alocacaoId,
+                            onExpand = { expandedShift = if (expandedShift == p.alocacaoId) "" else p.alocacaoId },
+                            title = when {
+                                checkout && liberado -> "Check-out disponível"
+                                checkout -> "Prazo do check-out encerrado"
+                                liberado -> "Check-in disponível"
+                                else -> "Check-in libera 10 min antes"
+                            },
+                            hospital = p.instituicao,
+                            specialty = p.especialidade,
+                            date = resumoDoPlantao(p),
+                            action = if (checkout) "Realizar check-out" else "Realizar check-in",
+                            actionColor = if (checkout) Color(0xFFE42C45) else Color(0xFF10A76A),
+                            onClick = { selecionado = p },
+                        )
+                        Spacer(Modifier.height(14.dp))
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFFE1F3FA)).padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.LocationOn, null, tint = Cyan, modifier = Modifier.size(22.dp))
                     Spacer(Modifier.width(9.dp))
@@ -760,13 +797,59 @@ private fun AttendanceShiftCard(expanded: Boolean, onExpand: () -> Unit, title: 
 }
 
 @Composable
-private fun AttendanceScreen(type: String, hospital: String, onBack: () -> Unit) {
-    val isCheckIn = type == "Check-in"
+private fun AttendanceScreen(plantao: PlantaoProximo, onBack: () -> Unit, onSessaoExpirada: () -> Unit) {
+    val isCheckIn = !plantao.checkinFeito
+    val type = if (isCheckIn) "Check-in" else "Check-out"
     val accent = if (isCheckIn) Color(0xFF10A76A) else Color(0xFFE42C45)
     val title = if (isCheckIn) "Chegada do plantão" else "Saída do plantão"
     val help = if (isCheckIn) "Marque seu check-in para iniciar o plantão." else "Marque seu check-out para finalizar o plantão."
     val button = if (isCheckIn) "Confirmar check-in" else "Confirmar check-out"
+    val context = androidx.compose.ui.platform.LocalContext.current
     var confirmed by remember { mutableStateOf(false) }
+    var enviando by remember { mutableStateOf(false) }
+    var mensagem by remember { mutableStateOf("") }
+
+    BackHandler(onBack = onBack)
+
+    fun enviar(local: android.location.Location?) {
+        Thread {
+            val token = TokenStore.read(context)
+            val resposta = if (token == null) {
+                RespostaPresenca(false, "", sessaoExpirada = true)
+            } else {
+                val precisao = local?.takeIf { it.hasAccuracy() }?.accuracy
+                PresencaApi.registrar(token, plantao.alocacaoId, if (isCheckIn) "ENTRADA" else "SAIDA", local?.latitude, local?.longitude, precisao)
+            }
+            val saiu = resposta.sessaoExpirada && (token == null || TokenStore.clearIfMatches(context, token))
+            Handler(Looper.getMainLooper()).post {
+                enviando = false
+                when {
+                    saiu -> onSessaoExpirada()
+                    resposta.sessaoExpirada -> mensagem = "Não foi possível encerrar a sessão. Tente novamente."
+                    else -> {
+                        confirmed = resposta.ok
+                        mensagem = resposta.mensagem
+                    }
+                }
+            }
+        }.start()
+    }
+
+    // o android mostra a pergunta de permissao; negou = vai sem localizacao (MSG-12)
+    val pedirPermissao = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
+    ) { pegarLocalizacao(context) { enviar(it) } }
+
+    fun registrar(comLocalizacao: Boolean) {
+        if (enviando || confirmed) return
+        enviando = true
+        mensagem = ""
+        if (comLocalizacao) {
+            pedirPermissao.launch(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION))
+        } else {
+            enviar(null)
+        }
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -793,24 +876,41 @@ private fun AttendanceScreen(type: String, hospital: String, onBack: () -> Unit)
                 Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).border(1.dp, Color(0xFFE0E8EB), RoundedCornerShape(10.dp)).background(Color.White).padding(15.dp)) {
                     Text("Informações do plantão", color = Navy, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(15.dp))
-                    AttendanceDetail("Hospital", hospital, Icons.Default.LocationOn)
+                    AttendanceDetail("Hospital", plantao.instituicao, Icons.Default.LocationOn)
                     HorizontalDivider(modifier = Modifier.padding(vertical = 11.dp), color = Color(0xFFE8EDF0))
-                    AttendanceDetail("Data", "12/06/2025 (Hoje)", Icons.Default.CalendarMonth)
+                    AttendanceDetail("Data", dataDoPlantao(plantao), Icons.Default.CalendarMonth)
                     HorizontalDivider(modifier = Modifier.padding(vertical = 11.dp), color = Color(0xFFE8EDF0))
-                    AttendanceDetail("Horário do plantão", "07:00 às 19:00", Icons.Default.AccessTime)
+                    AttendanceDetail("Horário do plantão", horarioDoPlantao(plantao), Icons.Default.AccessTime)
                     HorizontalDivider(modifier = Modifier.padding(vertical = 11.dp), color = Color(0xFFE8EDF0))
-                    AttendanceDetail("Especialidade", "Clínica Médica", Icons.Default.Security)
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 11.dp), color = Color(0xFFE8EDF0))
-                    AttendanceDetail("Coordenadora", "Dra. Mariana Silva", Icons.Default.PersonOutline)
+                    AttendanceDetail("Especialidade", plantao.especialidade, Icons.Default.Security)
+                    val local = listOf(plantao.localUnidade, plantao.cidadeUf).filter { it.isNotBlank() }.joinToString(" • ")
+                    if (local.isNotBlank()) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 11.dp), color = Color(0xFFE8EDF0))
+                        AttendanceDetail("Local", local, Icons.Default.Home)
+                    }
                 }
                 Spacer(Modifier.height(14.dp))
                 Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(Color(0xFFE5F2FF)).padding(12.dp)) {
                     Text("i", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.size(20.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFF1475D1)).padding(top = 2.dp))
                     Spacer(Modifier.width(10.dp))
-                    Text(if (isCheckIn) "Ao confirmar o check-in, sua entrada será registrada e sua presença ficará disponível para a equipe do hospital." else "O check-out registra o encerramento do seu plantão e atualiza sua presença no sistema.", color = Color(0xFF1B66B4), fontSize = 10.sp, lineHeight = 13.sp, modifier = Modifier.weight(1f))
+                    Text((if (isCheckIn) "Ao confirmar o check-in, sua entrada será registrada e sua presença ficará disponível para a equipe do hospital." else "O check-out registra o encerramento do seu plantão e atualiza sua presença no sistema.") +
+                        " Se você permitir, sua localização é enviada só neste toque, nunca em segundo plano. Sem localização o registro vale do mesmo jeito.", color = Color(0xFF1B66B4), fontSize = 10.sp, lineHeight = 13.sp, modifier = Modifier.weight(1f))
                 }
+                if (mensagem.isNotBlank()) FeedbackText(mensagem, success = confirmed)
                 Spacer(Modifier.height(15.dp))
-                Button(onClick = { confirmed = true }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = accent)) { Text(if (confirmed) "Registro confirmado" else button, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                Button(onClick = { registrar(comLocalizacao = true) }, modifier = Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = accent)) {
+                    Text(
+                        when {
+                            confirmed -> "Registro confirmado"
+                            enviando -> "Enviando..."
+                            else -> button
+                        },
+                        color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                    )
+                }
+                if (!confirmed) {
+                    Text("Registrar sem localização", color = Navy, fontSize = 12.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().clickable(enabled = !enviando) { registrar(comLocalizacao = false) }.padding(vertical = 12.dp))
+                }
                 Spacer(Modifier.height(16.dp))
             }
             AttendanceBottomNavigation()
