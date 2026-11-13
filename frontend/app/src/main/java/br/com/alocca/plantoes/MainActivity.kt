@@ -63,12 +63,14 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.drawscope.Fill
 import org.json.JSONObject
+import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
@@ -865,6 +867,10 @@ private data class InstitutionShift(
     val date: String,
     val vacancies: String,
     val value: String,
+    // Blocos do quadro de data do card; os padrões mantêm os mocks existentes.
+    val day: String = "20",
+    val month: String = "JUN",
+    val weekdayTime: String = "Sex. 19h",
 )
 
 @Composable
@@ -872,15 +878,18 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
     var screen by remember { mutableStateOf(InstitutionScreen.Home) }
     var notificationsOpen by remember { mutableStateOf(false) }
     val open: (InstitutionScreen) -> Unit = { screen = it }
+    val context = LocalContext.current
+    val token = remember { TokenStore.read(context) }
     Box(Modifier.fillMaxSize()) {
         when (screen) {
             InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, open) { notificationsOpen = !notificationsOpen }
-            InstitutionScreen.Shifts -> InstitutionShiftsScreen(open)
+            InstitutionScreen.Shifts -> InstitutionShiftsScreen(token, open)
             InstitutionScreen.Doctors -> InstitutionDoctorsScreen(open)
             InstitutionScreen.Payments -> InstitutionPaymentsScreen(open)
             InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(open)
             InstitutionScreen.Settings -> InstitutionSettingsScreen(perfil, open, onLogout) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.PublishShift -> PublishShiftScreen(
+                token,
                 onBack = { screen = InstitutionScreen.Shifts },
                 onPublished = { screen = InstitutionScreen.Shifts },
                 onNavigate = open,
@@ -989,7 +998,7 @@ private fun ManagerSummaryItem(
 @Composable
 private fun InstitutionShiftCard(shift: InstitutionShift, onClick: (InstitutionShift) -> Unit = {}) {
     Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color.White).border(1.dp, Color(0xFFD4DCE2), RoundedCornerShape(12.dp)).clickable { onClick(shift) }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = Modifier.width(62.dp).height(76.dp).clip(RoundedCornerShape(11.dp)).background(Color(0xFFD9F4FF)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { Text("20", color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold); Text("JUN", color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.height(5.dp)); Text("Sex. 19h", color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+        Column(modifier = Modifier.width(62.dp).height(76.dp).clip(RoundedCornerShape(11.dp)).background(Color(0xFFD9F4FF)), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { Text(shift.day, color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold); Text(shift.month, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.height(5.dp)); Text(shift.weekdayTime, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) { Text(shift.status, color = Color(0xFF1287AF), fontSize = 8.sp, fontWeight = FontWeight.Bold); Text(shift.hospital, color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold); Text(shift.specialty, color = Color(0xFF4D6681), fontSize = 10.sp); Text("♧ ${shift.vacancies}", color = Color(0xFF4D6681), fontSize = 9.sp); Text("◷ ${shift.date}", color = Color(0xFF4D6681), fontSize = 9.sp) }
         Icon(Icons.Default.ChevronRight, null, tint = Color(0xFF7390A8), modifier = Modifier.size(19.dp))
@@ -1348,37 +1357,159 @@ private fun InstitutionShiftsPreview(onNavigate: (InstitutionScreen) -> Unit) {
 }
 
 @Composable
-private fun InstitutionShiftsScreen(onNavigate: (InstitutionScreen) -> Unit) {
+private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScreen) -> Unit) {
     var selectedShift by remember { mutableStateOf<InstitutionShift?>(null) }
+    val tokenVigente by rememberUpdatedState(token)
     var selectedFilter by remember { mutableStateOf("Todos") }
-    val shifts = listOf(
-        InstitutionShift("CONFIRMADO", "Hospital Regional do Gama", "Clínica Médica", "Gama - DF • 19:00 - 07:00", "8/10 vagas preenchidas", "R$ 800,00"),
-        InstitutionShift("AGUARDANDO PAGAMENTO", "Hospital Santa Marta", "Clínica Médica", "Taguatinga - DF • 19:00 - 07:00", "10/10 vagas preenchidas", "R$ 950,00"),
-        InstitutionShift("CONFIRMADO", "Hospital DF Star", "Pediatria", "Brasília - DF • 19:00 - 07:00", "6/8 vagas preenchidas", "R$ 700,00"),
-        InstitutionShift("FINALIZADO", "Hospital Santa Lúcia", "Clínica Médica", "Taguatinga - DF • 19:00 - 07:00", "10/10 vagas preenchidas", "R$ 650,00"),
-    )
-    val visibleShifts = when (selectedFilter) {
-        "Ativos" -> shifts.filter { it.status == "CONFIRMADO" }
-        "Aguardando" -> shifts.filter { it.status == "AGUARDANDO PAGAMENTO" }
-        "Finalizados" -> shifts.filter { it.status == "FINALIZADO" }
-        else -> shifts
+    var shifts by remember { mutableStateOf<List<PlantaoGerenciado>>(emptyList()) }
+    var loading by remember { mutableStateOf(token != null) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var hasMore by remember { mutableStateOf(false) }
+    var paginasCarregadas by remember { mutableStateOf(0) }
+    var errorMessage by remember { mutableStateOf("") }
+    // Offset da página adicional que falhou, para repetir só ela no retry.
+    var falhaPagina by remember { mutableStateOf<Int?>(null) }
+    // Incrementado a cada entrada na tela / "tentar novamente": invalida
+    // respostas de threads obsoletas que chegarem depois.
+    var rodadas by remember { mutableStateOf(0) }
+    // Após a tela sair de composição, nenhuma resposta deve tocar o estado.
+    var desmontada = remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        desmontada.value = false
+        onDispose { desmontada.value = true }
     }
+
+    // Rodada da última requisição iniciada; respostas de rodadas anteriores ou
+    // da tela já desmontada são descartadas.
+    fun carregarPagina(tokenAtual: String, offset: Int, reset: Boolean, rodada: Int, filtro: String) {
+        Thread {
+            val resultado = runCatching { PlantoesApi.listarPlantoesGerenciados(tokenAtual, offset, statusDoFiltro(filtro)) }
+            Handler(Looper.getMainLooper()).post {
+                if (desmontada.value || rodadas != rodada || tokenVigente != tokenAtual) return@post
+                resultado.fold(
+                    onSuccess = { pagina ->
+                        shifts = if (reset) pagina else shifts + pagina
+                        paginasCarregadas = paginasCarregadas + 1
+                        hasMore = pagina.size == PLANTOES_POR_PAGINA
+                        errorMessage = ""
+                        falhaPagina = null
+                    },
+                    onFailure = { falha ->
+                        errorMessage = (falha as? ApiException)?.userMessage
+                            ?: "Não foi possível carregar os plantões. Tente novamente."
+                        if (reset) {
+                            falhaPagina = null
+                            shifts = emptyList()
+                        } else {
+                            // Guarda o offset para o retry repetir a mesma página.
+                            falhaPagina = offset
+                        }
+                    },
+                )
+                if (reset) loading = false else loadingMore = false
+            }
+        }.start()
+    }
+
+    // Recarrega a cada entrada na tela (ex.: ao voltar da publicação) e em cada
+    // "tentar novamente".
+    LaunchedEffect(token, rodadas) {
+        shifts = emptyList()
+        loadingMore = false
+        hasMore = false
+        paginasCarregadas = 0
+        falhaPagina = null
+        errorMessage = ""
+        loading = token != null
+        if (token == null) {
+            errorMessage = PlantoesApi.MSG_SESSAO_EXPIRADA
+            return@LaunchedEffect
+        }
+        carregarPagina(token, 0, reset = true, rodada = rodadas, filtro = selectedFilter)
+    }
+
+    val visibleShifts = shifts.map { plantao ->
+            val (dia, mes, diaSemanaHora) = PlantoesApi.dataDoCard(plantao.dataInicio)
+            InstitutionShift(
+                status = when (plantao.status) {
+                    "ABERTO" -> "Aberto"
+                    "PREENCHIDO" -> "Preenchido"
+                    "CONCLUIDO" -> "Concluído"
+                    "CANCELADO" -> "Cancelado"
+                    else -> plantao.status
+                },
+                hospital = plantao.instituicaoNome,
+                specialty = plantao.especialidade.ifBlank { plantao.titulo },
+                date = "${PlantoesApi.formatarDataHora(plantao.dataInicio)} — ${PlantoesApi.formatarHora(plantao.dataFim)}",
+                vacancies = "${plantao.vagasPreenchidas}/${plantao.quantidadeVagas} vagas preenchidas",
+                value = PlantoesApi.formatarValor(plantao.valor),
+                day = dia, month = mes, weekdayTime = diaSemanaHora,
+            )
+        }
     InstitutionPage(InstitutionScreen.Shifts, onNavigate) {
         SimpleManagerTitle("Plantões", "")
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Color(0xFFE9F3FC))) {
-                listOf("Todos", "Ativos", "Aguardando", "Finalizados").forEach { label ->
+                listOf("Todos", "Abertos", "Preenchidos", "Concluídos", "Cancelados").forEach { label ->
                     val selected = selectedFilter == label
-                    Text(label, color = if (selected) Color.White else Color(0xFF5D7B99), fontSize = 10.sp, textAlign = TextAlign.Center, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(if (selected) Color(0xFF1475D1) else Color.Transparent).clickable { selectedFilter = label }.padding(vertical = 9.dp))
+                    Text(label, color = if (selected) Color.White else Color(0xFF5D7B99), fontSize = 10.sp, textAlign = TextAlign.Center, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f).clip(RoundedCornerShape(9.dp)).background(if (selected) Color(0xFF1475D1) else Color.Transparent).clickable { if (selectedFilter != label) { selectedFilter = label; rodadas++; loading = token != null; loadingMore = false; hasMore = false; errorMessage = ""; falhaPagina = null; shifts = emptyList() } }.padding(vertical = 9.dp))
                 }
             }
             Spacer(Modifier.height(14.dp))
+            if (loading) {
+                Text("Carregando plantões...", color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp), textAlign = TextAlign.Center)
+            } else if (errorMessage.isNotBlank()) {
+                Text(errorMessage, color = Color(0xFFB42318), fontSize = 11.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                Button(
+                    onClick = {
+                        val tokenAtual = token ?: return@Button
+                        if (!loadingMore) {
+                            val pagina = falhaPagina
+                            if (pagina != null) {
+                                // Repete só a página adicional que falhou.
+                                loadingMore = true
+                                carregarPagina(tokenAtual, pagina, reset = false, rodada = rodadas, filtro = selectedFilter)
+                            } else {
+                                rodadas += 1
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3278B5)),
+                ) { Text(if (falhaPagina != null) "Tentar novamente (continuar)" else "Tentar novamente", fontWeight = FontWeight.Bold) }
+            } else if (visibleShifts.isEmpty()) {
+                Text(if (selectedFilter == "Todos") "Nenhum plantão publicado ainda.\nPublique o primeiro plantão da sua instituição." else "Nenhum plantão neste filtro.", color = Muted, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp))
+            }
             visibleShifts.forEach { shift -> InstitutionShiftCard(shift) { selectedShift = it }; Spacer(Modifier.height(9.dp)) }
+            if (!loading && errorMessage.isBlank() && hasMore) {
+                Button(
+                    onClick = {
+                        if (!loadingMore && token != null) {
+                            loadingMore = true
+                            carregarPagina(token, paginasCarregadas * PLANTOES_POR_PAGINA, reset = false, rodada = rodadas, filtro = selectedFilter)
+                        }
+                    },
+                    enabled = !loadingMore,
+                    modifier = Modifier.fillMaxWidth().height(40.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE9F3FC)),
+                ) { Text(if (loadingMore) "Carregando..." else "Carregar mais", color = Navy, fontWeight = FontWeight.Bold) }
+                Spacer(Modifier.height(9.dp))
+            }
             Spacer(Modifier.height(8.dp)); Button(onClick = { onNavigate(InstitutionScreen.PublishShift) }, modifier = Modifier.fillMaxWidth().height(47.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3278B5))) { Text("Publicar plantão", fontWeight = FontWeight.Bold) }; Spacer(Modifier.height(14.dp))
         }
         ManagerBottomNavigation(InstitutionScreen.Shifts, onNavigate)
         selectedShift?.let { InstitutionShiftDetailsDialog(it) { selectedShift = null } }
     }
+}
+
+private fun statusDoFiltro(filtro: String): String? = when (filtro) {
+    "Abertos" -> "ABERTO"
+    "Preenchidos" -> "PREENCHIDO"
+    "Concluídos" -> "CONCLUIDO"
+    "Cancelados" -> "CANCELADO"
+    else -> null
 }
 
 @Composable
@@ -1404,16 +1535,179 @@ private fun InstitutionShiftDetailsDialog(shift: InstitutionShift, onDismiss: ()
 }
 
 @Composable
-private fun PublishShiftScreen(onBack: () -> Unit, onPublished: () -> Unit, onNavigate: (InstitutionScreen) -> Unit) {
+private fun PublishShiftScreen(
+    token: String?,
+    onBack: () -> Unit,
+    onPublished: () -> Unit,
+    onNavigate: (InstitutionScreen) -> Unit,
+) {
+    val context = LocalContext.current
     var specialty by remember { mutableStateOf("") }
     var date by remember { mutableStateOf("") }
     var hours by remember { mutableStateOf("") }
+    var endTime by remember { mutableStateOf("") }
     var location by remember { mutableStateOf("") }
     var value by remember { mutableStateOf("") }
     var vacancies by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var published by remember { mutableStateOf(false) }
+    var successMessage by remember { mutableStateOf("") }
     var validationMessage by remember { mutableStateOf("") }
+    var publishing by remember { mutableStateOf(false) }
+
+    // Instituições vinculadas (UC10): base do campo de autoria institucional.
+    var instituicoes by remember { mutableStateOf<List<InstituicaoVinculada>>(emptyList()) }
+    var instituicaoSelecionada by remember { mutableStateOf<InstituicaoVinculada?>(null) }
+    var instituicoesErro by remember { mutableStateOf("") }
+    var instituicoesCarregando by remember { mutableStateOf(token != null) }
+    var menuInstituicaoAberto by remember { mutableStateOf(false) }
+    var tentativasInstituicoes by remember { mutableStateOf(0) }
+    var desmontada = remember { mutableStateOf(false) }
+    DisposableEffect(Unit) {
+        desmontada.value = false
+        onDispose { desmontada.value = true }
+    }
+
+    LaunchedEffect(token, tentativasInstituicoes) {
+        if (token == null) {
+            instituicoesErro = PlantoesApi.MSG_SESSAO_EXPIRADA
+            instituicoesCarregando = false
+            return@LaunchedEffect
+        }
+        val rodada = tentativasInstituicoes
+        instituicoesCarregando = true
+        Thread {
+            val resultado = runCatching { PlantoesApi.listarInstituicoesVinculadas(token) }
+            Handler(Looper.getMainLooper()).post {
+                if (desmontada.value || tentativasInstituicoes != rodada) return@post
+                resultado.fold(
+                    onSuccess = { lista ->
+                        instituicoes = lista
+                        instituicoesErro = ""
+                        // Gestor com uma única instituição já sai selecionado.
+                        if (instituicaoSelecionada == null && lista.size == 1) {
+                            instituicaoSelecionada = lista.first()
+                        }
+                    },
+                    onFailure = { falha ->
+                        instituicoesErro = (falha as? ApiException)?.userMessage
+                            ?: "Não foi possível carregar suas instituições."
+                    },
+                )
+                instituicoesCarregando = false
+            }
+        }.start()
+    }
+
+    fun publicar() {
+        val tokenAtual = token ?: run {
+            validationMessage = PlantoesApi.MSG_SESSAO_EXPIRADA
+            return
+        }
+        val faltando = instituicaoSelecionada == null ||
+            listOf(specialty, date, hours, endTime, location, value, vacancies).any { it.isBlank() }
+        if (faltando) {
+            validationMessage = "Preencha todos os campos obrigatórios para publicar a vaga."
+            return
+        }
+        val inicioIso = PlantoesApi.paraIso(date, hours)
+        if (inicioIso == null) {
+            validationMessage = "Data ou horário de início inválido (use dd/mm/aaaa e hh:mm)."
+            return
+        }
+        // Plantão que vira o dia (ex.: 19:00 → 07:00) termina no dia seguinte.
+        val calendarioFim = Calendar.getInstance().apply {
+            time = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).run {
+                isLenient = false
+                parse(date.trim()) ?: run {
+                    validationMessage = "Data inválida (use dd/mm/aaaa)."
+                    return
+                }
+            }
+        }
+        if (endTime.trim() <= hours.trim()) {
+            calendarioFim.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        val fimIso = PlantoesApi.paraIso(
+            SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(calendarioFim.time),
+            endTime,
+        )
+        if (fimIso == null) {
+            validationMessage = "Horário de término inválido (use hh:mm)."
+            return
+        }
+        // Aceita "1800", "1800,50" e "1.800,50" (formato brasileiro).
+        val textoValor = value.trim().removePrefix("R$").trim()
+        val valorNormalizado = if (textoValor.contains(',')) {
+            textoValor.replace(".", "").replace(',', '.')
+        } else {
+            textoValor
+        }
+        val valorNumerico = valorNormalizado.toDoubleOrNull()
+        // Mesmos limites do backend (numeric(10,2), mínimo 0.01). NaN/Infinity
+        // passariam em comparações simples e o JSONObject.put lançaria na
+        // thread principal — validar antes de montar o payload.
+        when {
+            valorNumerico == null || !valorNumerico.isFinite() || valorNumerico < 0.01 ->
+                run {
+                    validationMessage = "Informe um valor válido maior que zero (ex.: 1800 ou 1800,50)."
+                    return
+                }
+            valorNumerico > 99_999_999.99 -> run {
+                validationMessage = "O valor excede o máximo permitido (R$ 99.999.999,99)."
+                return
+            }
+            Math.abs(valorNumerico * 100 - Math.round(valorNumerico * 100)) > 1e-6 -> run {
+                validationMessage = "O valor pode ter no máximo 2 casas decimais."
+                return
+            }
+        }
+        val quantidade = vacancies.trim().toIntOrNull()
+        if (quantidade == null || quantidade < 1 || quantidade > 10_000) {
+            validationMessage = "A quantidade de vagas deve ser um número inteiro entre 1 e 10.000."
+            return
+        }
+        if (specialty.trim().length > 100) {
+            validationMessage = "A especialidade deve ter no máximo 100 caracteres."
+            return
+        }
+        if (location.trim().length > 150) {
+            validationMessage = "O local de atuação deve ter no máximo 150 caracteres."
+            return
+        }
+        if (note.trim().length > 2000) {
+            validationMessage = "As observações devem ter no máximo 2000 caracteres."
+            return
+        }
+        val payload = JSONObject().apply {
+            put("instituicao_id", instituicaoSelecionada!!.id)
+            put("local_unidade", location.trim())
+            put("especialidade", specialty.trim())
+            put("data_inicio", inicioIso)
+            put("data_fim", fimIso)
+            put("valor", valorNumerico)
+            put("quantidade_vagas", quantidade)
+            if (note.isNotBlank()) put("descricao", note.trim())
+        }
+        validationMessage = ""
+        publishing = true
+        Thread {
+            val resultado = runCatching { PlantoesApi.publicarPlantao(tokenAtual, payload) }
+            Handler(Looper.getMainLooper()).post {
+                publishing = false
+                resultado.fold(
+                    onSuccess = { mensagem ->
+                        successMessage = mensagem.ifBlank { "Plantão publicado com sucesso!" }
+                        published = true
+                    },
+                    onFailure = { falha ->
+                        validationMessage = (falha as? ApiException)?.userMessage
+                            ?: "Não foi possível publicar o plantão. Tente novamente."
+                    },
+                )
+            }
+        }.start()
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -1426,13 +1720,35 @@ private fun PublishShiftScreen(onBack: () -> Unit, onPublished: () -> Unit, onNa
                 Text("Preencha as informações abaixo para\npublicar um plantão na sua instituição", color = Navy, fontSize = 11.sp, lineHeight = 14.sp)
                 Spacer(Modifier.height(18.dp))
                 Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).border(1.dp, Color(0xFFD5D0DA), RoundedCornerShape(8.dp)).padding(10.dp)) {
+                    PublishFormField(Icons.Default.Groups, Color(0xFFE1F4FB), "Instituição") {
+                        Box {
+                            PublishTextInput(
+                                value = instituicaoSelecionada?.nomeFantasia ?: instituicaoSelecionada?.nome.orEmpty(),
+                                onChange = {},
+                                placeholder = if (instituicoesCarregando) "Carregando instituições..." else "Selecione a instituição",
+                                readOnly = true,
+                            )
+                            Box(modifier = Modifier.matchParentSize().clickable { menuInstituicaoAberto = !menuInstituicaoAberto })
+                            DropdownMenu(expanded = menuInstituicaoAberto, onDismissRequest = { menuInstituicaoAberto = false }) {
+                                if (instituicoes.isEmpty()) {
+                                    DropdownMenuItem(text = { Text(if (instituicoesCarregando) "Carregando..." else "Nenhuma instituição vinculada") }, onClick = { menuInstituicaoAberto = false })
+                                }
+                                instituicoes.forEach { instituicao ->
+                                    DropdownMenuItem(text = { Text(instituicao.nomeFantasia ?: instituicao.nome) }, onClick = {
+                                        instituicaoSelecionada = instituicao
+                                        menuInstituicaoAberto = false
+                                    })
+                                }
+                            }
+                        }
+                    }
                     PublishFormField(Icons.Default.PersonOutline, Color(0xFFE1F4FB), "Especialidade médica") { PublishTextInput(specialty, { specialty = it }, "Selecione a especialidade") }
-                    PublishFormField(Icons.Default.CalendarMonth, Color(0xFFE5F4FA), "Data do plantão") { PublishTextInput(date, { date = it }, "Selecione a data") }
+                    PublishFormField(Icons.Default.CalendarMonth, Color(0xFFE5F4FA), "Data do plantão") { PublishTextInput(date, { date = it }, "dd/mm/aaaa") }
                     PublishFormField(Icons.Default.AccessTime, Color(0xFFE5F4FA), "Horário") {
                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                            Box(Modifier.weight(1f)) { PublishTextInput(hours, { hours = it }, "Início") }
+                            Box(Modifier.weight(1f)) { PublishTextInput(hours, { hours = it }, "Início (hh:mm)") }
                             Text("até", color = Navy, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterVertically))
-                            Box(Modifier.weight(1f)) { PublishTextInput("", { }, "Fim") }
+                            Box(Modifier.weight(1f)) { PublishTextInput(endTime, { endTime = it }, "Fim (hh:mm)") }
                         }
                     }
                     PublishFormField(Icons.Default.LocationOn, Color(0xFFE5F4FA), "Local de atuação") { PublishTextInput(location, { location = it }, "Digite o nome ou endereço da unidade") }
@@ -1444,31 +1760,46 @@ private fun PublishShiftScreen(onBack: () -> Unit, onPublished: () -> Unit, onNa
                         OutlinedTextField(value = note, onValueChange = { note = it }, placeholder = { Text("Informações adicionais sobre o plantão, como\nrequisitos, tipo de atendimento, etc.", fontSize = 9.sp, lineHeight = 11.sp) }, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Navy), modifier = Modifier.fillMaxWidth().height(84.dp), shape = RoundedCornerShape(7.dp), maxLines = 4)
                     }
                 }
+                if (instituicoesErro.isNotBlank()) {
+                    Text(instituicoesErro, color = Color(0xFFB42318), fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center)
+                    Button(
+                        onClick = { tentativasInstituicoes += 1 },
+                        modifier = Modifier.fillMaxWidth().height(40.dp).padding(top = 4.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3278B5)),
+                    ) { Text("Tentar novamente", fontWeight = FontWeight.Bold) }
+                }
                 Spacer(Modifier.height(16.dp))
                 Button(
                     onClick = {
                         if (published) {
                             onPublished()
-                        } else if (listOf(specialty, date, hours, location, value, vacancies).any { it.isBlank() }) {
-                            validationMessage = "Preencha os campos obrigatórios para publicar o plantão."
-                        } else {
-                            validationMessage = ""
-                            published = true
+                        } else if (!publishing) {
+                            publicar()
                         }
                     },
+                    enabled = !publishing,
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(7.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3779B5)),
                 ) {
                     Icon(Icons.Default.EventNote, null, tint = Color.White, modifier = Modifier.size(19.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text(if (published) "Ver plantões publicados" else "Publicar plantão", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        when {
+                            published -> "Ver plantões publicados"
+                            publishing -> "Publicando..."
+                            else -> "Publicar plantão"
+                        },
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
                 if (validationMessage.isNotBlank()) {
                     Text(validationMessage, color = Color(0xFFB42318), fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center)
                 }
                 if (published) {
-                    Text("Plantão publicado com sucesso.", color = Color(0xFF0B8A5D), fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center)
+                    Text(successMessage, color = Color(0xFF0B8A5D), fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), textAlign = TextAlign.Center)
                 }
                 Spacer(Modifier.height(22.dp))
                 Column(modifier = Modifier.fillMaxWidth().clickable { onNavigate(InstitutionScreen.Doctors) }, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1497,8 +1828,8 @@ private fun PublishFormField(icon: androidx.compose.ui.graphics.vector.ImageVect
 }
 
 @Composable
-private fun PublishTextInput(value: String, onChange: (String) -> Unit, placeholder: String) {
-    OutlinedTextField(value = value, onValueChange = onChange, placeholder = { Text(placeholder, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }, singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Navy), modifier = Modifier.fillMaxWidth().height(38.dp), shape = RoundedCornerShape(7.dp))
+private fun PublishTextInput(value: String, onChange: (String) -> Unit, placeholder: String, readOnly: Boolean = false) {
+    OutlinedTextField(value = value, onValueChange = onChange, readOnly = readOnly, placeholder = { Text(placeholder, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }, singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Navy), modifier = Modifier.fillMaxWidth().height(38.dp), shape = RoundedCornerShape(7.dp))
 }
 
 @Composable

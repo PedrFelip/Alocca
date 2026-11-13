@@ -19,6 +19,7 @@ import {
 } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import { mensagensOficiais } from '../common/mensagens.ts'
+import { GestoresService } from '../gestores/gestores.service.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
   alocacoesTable,
@@ -47,7 +48,10 @@ const MSG_DOUBLE_BOOKING = mensagensOficiais['MSG-10']
 export class CandidaturasService {
   private readonly logger = new Logger(CandidaturasService.name)
 
-  constructor(@Inject(DRIZZLE_DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DRIZZLE_DB) private readonly db: Database,
+    @Inject(GestoresService) private readonly gestores: GestoresService,
+  ) {}
 
   /**
    * UC05 — O médico se candidata a um plantão do feed. Regras: RN13, RN16
@@ -533,22 +537,9 @@ export class CandidaturasService {
     return medico.id
   }
 
+  /** Perfil de gestor ativo (regra centralizada em GestoresService). */
   private async perfilGestor(usuarioId: string) {
-    const [gestor] = await this.db
-      .select({ id: gestoresTable.id })
-      .from(gestoresTable)
-      .where(
-        and(
-          eq(gestoresTable.usuario_id, usuarioId),
-          eq(gestoresTable.ativa, true),
-          isNull(gestoresTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!gestor) {
-      throw new ForbiddenException('Perfil de gestor não encontrado')
-    }
-    return gestor
+    return this.gestores.perfilAtivo(usuarioId)
   }
 
   /** Garante que o plantão existe e o gestor o administra. Regra: RN23. */

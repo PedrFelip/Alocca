@@ -2,8 +2,6 @@ package br.com.alocca.plantoes
 
 import android.util.Base64
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
 
 internal data class ApiResult(
     val successful: Boolean,
@@ -17,8 +15,6 @@ internal object AuthApi {
     private const val REGISTER_PATH = "auth/register/medico"
     private const val PROFILE_PATH = "usuarios/me"
     private const val INVALID_RESPONSE = "O servidor retornou uma resposta inválida. Tente novamente."
-    private const val CONNECTION_ERROR =
-        "Não foi possível conectar ao servidor. Verifique sua conexão e a URL do backend."
 
     // Mensagens oficiais por código HTTP, seguindo o contrato (MSG-01, MSG-02, MSG-03).
     // O aplicativo usa a mensagem exata do servidor quando ela já é humana; estas
@@ -54,40 +50,18 @@ internal object AuthApi {
         payload: JSONObject? = null,
         token: String? = null,
     ): ApiResult {
-        var connection: HttpURLConnection? = null
-        return try {
-            connection = (URL(BuildConfig.API_BASE_URL + path).openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 10_000
-                readTimeout = 15_000
-                if (payload != null) {
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                }
-                if (token != null) setRequestProperty("Authorization", "Bearer $token")
-            }
-            if (payload != null) {
-                connection.outputStream.use { it.write(payload.toString().toByteArray(Charsets.UTF_8)) }
-            }
-            val status = connection.responseCode
-            val text = (if (status in 200..299) connection.inputStream else connection.errorStream)
-                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            val body = runCatching { JSONObject(text) }.getOrNull()
-            if (status in 200..299) {
-                ApiResult(true, body, "", status)
-            } else {
-                ApiResult(false, body, mensagemDeErro(status, body), status)
-            }
-        } catch (_: Exception) {
-            ApiResult(false, null, CONNECTION_ERROR)
-        } finally {
-            connection?.disconnect()
+        val resposta = ApiHttp.enviar(path, method, payload, token)
+        if (resposta.status == 0) return ApiResult(false, null, ApiHttp.CONNECTION_ERROR)
+        val body = runCatching { JSONObject(resposta.texto) }.getOrNull()
+        return if (resposta.status in 200..299) {
+            ApiResult(true, body, "", resposta.status)
+        } else {
+            ApiResult(false, body, mensagemDeErro(resposta.status, body), resposta.status)
         }
     }
 
     /** Erros de rede (status 0) têm mensagem própria; 401/409/429 usam as MSG oficiais. */
     private fun mensagemDeErro(status: Int, body: JSONObject?): String = when (status) {
-        0 -> CONNECTION_ERROR
         401 -> MSG_01
         409 -> MSG_02
         429 -> MSG_03
