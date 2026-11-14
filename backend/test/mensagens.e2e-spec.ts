@@ -61,7 +61,7 @@ describe("Formato de erros MSG-XX (filtro global)", () => {
     gestorId = usuario("Gestor Um").id;
 
     await database.query(
-      "INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade) SELECT id, '123456', 'DF', 'Clínica Médica' FROM usuarios WHERE nome = 'Médico Um'",
+      "INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade, status_validacao) SELECT id, '123456', 'DF', 'Clínica Médica', 'APROVADO' FROM usuarios WHERE nome = 'Médico Um'",
     );
     instituicaoId = (
       await database.query<{ id: string }>(
