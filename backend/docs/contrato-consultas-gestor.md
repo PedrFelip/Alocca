@@ -35,6 +35,8 @@ As colunas atuais são `timestamp` sem fuso e seguem a convenção UTC existente
 
 ## Contestação/ajuste: proposta, não implementada
 
+Decisão de produto nesta thread (14/11/2026): **manter somente consulta por enquanto**. A proposta abaixo fica como referência futura, sem autorização para implementar escrita.
+
 UC06/RN19 autorizam ação explícita do médico com timestamp do servidor; D20 define janelas. Não há UC, autoridade ou regra que permita ao gestor reescrever presença ou registrar-se como médico. Nenhuma rota de escrita foi adicionada nesta frente.
 
 Proposta para decisão de produto: recurso separado de contestação, ligado ao registro original e à alocação, com ID próprio, autor autenticado, motivo, instante de criação do servidor, valor solicitado, estado e versão. Decisões devem ser eventos anexados, com responsável autenticado, justificativa, instante do servidor e referência à solicitação. Aprovação geraria uma retificação separada, preservando integralmente o registro original e suas coordenadas; nunca UPDATE/DELETE de histórico nem POST /presenca em nome de terceiro. A leitura distinguiria dado capturado e eventual dado efetivo retificado.

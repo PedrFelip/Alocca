@@ -27,7 +27,7 @@ Marque `[x]` e mova para o spec quando decidir.
 
 ## Regras e fluxos
 
-- [ ] **Contestação/ajuste de ponto (UC06):** o spec não define solicitante, autoridade decisória, campos corrigíveis, prazo nem impacto financeiro. Nesta frente só há consulta; gestor não registra ponto pelo médico e o histórico não é sobrescrito. Proposta de recurso separado com decisões e retificações anexadas em `contrato-consultas-gestor.md`, aguardando decisão de produto antes de criar rotas de escrita.
+- [ ] **Contestação/ajuste de ponto (UC06):** produto decidiu nesta thread em 14/11/2026 **manter somente consulta por enquanto**. O spec não define solicitante, autoridade decisória, campos corrigíveis, prazo nem impacto financeiro. Gestor não registra ponto pelo médico e o histórico não é sobrescrito. Proposta futura de recurso separado com decisões e retificações anexadas em `contrato-consultas-gestor.md`; qualquer escrita exige reabertura da decisão de produto e definição dessas regras.
 - [ ] **Leitura histórica após pagamento (RN14):** a visão geral descreve extinção do vínculo após pagamento, mas não define autorização ou retenção do histórico de médicos/ponto. As consultas existentes continuam derivadas de alocações não excluídas, inclusive pagas, limitadas às instituições atualmente vinculadas ao gestor. Definir duração e minimização dessa leitura antes de ampliar o fluxo.
 
 - [ ] **Publicação com início no passado (UC10):** decidir se o servidor deve rejeitar plantões cuja data de início já passou. A especificação atual não proíbe explicitamente; avaliar também o efeito no feed.
