@@ -27,6 +27,7 @@ export const usuariosTable = pgTable('usuarios', {
   tentativas_falhas: integer('tentativas_falhas').notNull().default(0),
   bloqueado_ate: timestamp('bloqueado_ate'),
   ultimo_login_at: timestamp('ultimo_login_at'),
+  tokens_revogados_at: timestamp('tokens_revogados_at', { withTimezone: true }),
   created_at: timestamp('created_at').notNull().defaultNow(),
   updated_at: timestamp('updated_at')
     .notNull()

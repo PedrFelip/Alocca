@@ -3,7 +3,7 @@ import { Logger, type INestApplication } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { JwtService } from '@nestjs/jwt'
 import { drizzle } from 'drizzle-orm/pglite'
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import request from 'supertest'
 import { vi } from 'vitest'
 import { AppModule } from '../src/app.module.ts'
@@ -40,30 +40,12 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
     await database.exec(
       "INSERT INTO usuarios (nome, email, senha_hash, tipo) VALUES ('Legado', 'Legado@Example.com', 'hash', 'admin')",
     )
-    await database.exec(
-      await readFile(
-        'drizzle/20261009191003_classy_paper_doll/migration.sql',
-        'utf8',
-      ),
-    )
-    await database.exec(
-      await readFile(
-        'drizzle/20261009213113_amused_nextwave/migration.sql',
-        'utf8',
-      ),
-    )
-    await database.exec(
-      await readFile(
-        'drizzle/20261019230000_login_lockout/migration.sql',
-        'utf8',
-      ),
-    )
-    await database.exec(
-      await readFile(
-        'drizzle/20261026133738_rainy_liz_osborn/migration.sql',
-        'utf8',
-      ),
-    )
+    for (const dir of (await readdir('drizzle')).sort()) {
+      if (dir === '20260917114458_peaceful_frog_thor') continue
+      await database.exec(
+        await readFile(`drizzle/${dir}/migration.sql`, 'utf8'),
+      )
+    }
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(DRIZZLE_DB)
       .useValue(drizzle({ client: database }))

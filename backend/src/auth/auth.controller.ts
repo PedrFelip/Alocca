@@ -1,4 +1,12 @@
-import { Body, Controller, HttpCode, Inject, Post } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Inject,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { ZodValidationPipe } from '../common/zod-validation.pipe.ts'
 import {
@@ -8,12 +16,15 @@ import {
 import { UsuariosService } from '../usuarios/usuarios.service.ts'
 import {
   loginSchema,
+  refreshSchema,
+  type Refresh,
   recuperarSenhaSchema,
   redefinirSenhaSchema,
   type Login,
   type RecuperarSenha,
   type RedefinirSenha,
 } from './auth.schemas.ts'
+import { AuthGuard, type AuthenticatedRequest } from './auth.guard.ts'
 import { AuthService } from './auth.service.ts'
 import { RecuperacaoSenhaService } from './recuperacao-senha.service.ts'
 
@@ -38,6 +49,25 @@ export class AuthController {
   @HttpCode(200)
   login(@Body(new ZodValidationPipe(loginSchema)) data: Login) {
     return this.auth.login(data)
+  }
+
+  @Post('refresh')
+  @HttpCode(200)
+  refresh(@Body(new ZodValidationPipe(refreshSchema)) data: Refresh) {
+    return this.auth.refresh(data.refresh_token)
+  }
+
+  @Post('logout')
+  @HttpCode(200)
+  @UseGuards(AuthGuard)
+  async logout(@Req() req: AuthenticatedRequest) {
+    await this.auth.logout(
+      req.usuarioId,
+      req.sessaoId,
+      req.sessaoHash,
+      req.sessaoExpiraEm,
+    )
+    return { success: true }
   }
 
   // UC04: limite menor pra ninguem ficar disparando e-mail

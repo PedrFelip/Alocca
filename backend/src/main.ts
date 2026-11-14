@@ -9,7 +9,7 @@ async function bootstrap() {
   const config = app.get(ConfigService<Env, true>)
   app.enableCors({
     origin: config.get('ADMIN_WEB_ORIGIN', { infer: true }),
-    methods: ['GET', 'POST', 'PATCH', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Authorization', 'Content-Type'],
   })
   await app.listen(

@@ -14,6 +14,8 @@ internal object AuthApi {
     private const val LOGIN_PATH = "auth/login"
     private const val REGISTER_PATH = "auth/register/medico"
     private const val PROFILE_PATH = "usuarios/me"
+    private const val REFRESH_PATH = "auth/refresh"
+    private const val LOGOUT_PATH = "auth/logout"
     private const val INVALID_RESPONSE = "O servidor retornou uma resposta inválida. Tente novamente."
 
     // Mensagens oficiais por código HTTP, seguindo o contrato (MSG-01, MSG-02, MSG-03).
@@ -61,6 +63,23 @@ internal object AuthApi {
         return if (result.body.hasValidProfileResponse()) result
         else ApiResult(false, null, INVALID_RESPONSE, result.status)
     }
+
+    /**
+     * Renovação do JWT (rotativa): resposta no mesmo formato do login
+     * {access_token, refresh_token, usuario}. O refresh token novo substitui
+     * o antigo a cada uso — quem chama deve persistir os dois.
+     */
+    fun refresh(refreshToken: String): ApiResult {
+        val result = request(REFRESH_PATH, "POST", payload = JSONObject().put("refresh_token", refreshToken))
+        if (!result.successful) return result
+        val valido = result.body.hasValidLoginResponse() &&
+            !result.body?.optString("refresh_token").isNullOrBlank()
+        return if (valido) result else ApiResult(false, null, INVALID_RESPONSE, result.status)
+    }
+
+    /** Encerra a sessão no servidor (revoga o JWT e o refresh). Best-effort. */
+    fun logout(token: String): ApiResult =
+        request(LOGOUT_PATH, "POST", payload = JSONObject(), token = token)
 
     private fun request(
         path: String,
