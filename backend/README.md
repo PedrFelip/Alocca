@@ -213,3 +213,10 @@ Retorno: `{ message, plantao }`. Exige gestor ativo vinculado à instituição. 
 Datas aceitam ISO 8601 com `Z` ou offset; formato legado sem sufixo é interpretado em UTC. As sessões PostgreSQL permanecem em UTC mesmo quando o banco usa outro fuso.
 
 `bun run test:e2e` inclui testes reais de ciclo e fuso. Requer PostgreSQL com `CREATEDB` em `E2E_PG_ADMIN` (padrão `postgresql://postgres:postgres@127.0.0.1:5432/postgres`); cria e remove bancos temporários, sem reutilizar dados da aplicação.
+
+### Consultas institucionais do gestor no Android
+
+- `GET /gestor/medicos?limit=20&offset=0`: médicos com alocação não excluída nas instituições ativas administradas pelo gestor (RN14). Retorna `id`, `nome`, `crm`, `uf_crm`, `especialidade`, `status` da conta e `status_validacao`. Um profissional aparece uma única vez, mesmo com várias alocações. Candidaturas sem alocação não criam vínculo institucional.
+- `GET /gestor/ponto?limit=20&offset=0`: eventos de entrada/saída dessas instituições, ordenados pelo timestamp do servidor e ID, com médico, plantão, instituição e indicador `com_localizacao`. Não retorna coordenadas nem afirma validação geográfica.
+
+Ambas exigem JWT de `GESTOR` e perfil ativo; não são rotas administrativas globais. `limit` aceita 1–50 e `offset` não negativo. Sem vínculos ou registros, retornam `[]`. Instituições, plantões, alocações, médicos e usuários excluídos não aparecem. A tela é de consulta: o gestor não registra ponto em nome de médicos.
