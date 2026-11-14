@@ -1,4 +1,5 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common'
+import { PerfilMedicoService } from '../medicos/perfil-medico.service.ts'
+import { Inject, Injectable } from '@nestjs/common'
 import { alias } from 'drizzle-orm/pg-core'
 import { and, desc, eq, isNull, lte, ne, sql } from 'drizzle-orm'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
@@ -50,7 +51,10 @@ function visaoDoMedico(medicoId: string) {
 
 @Injectable()
 export class FinanceiroRepository {
-  constructor(@Inject(DRIZZLE_DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DRIZZLE_DB) private readonly db: Database,
+    @Inject(PerfilMedicoService) private readonly perfis: PerfilMedicoService,
+  ) {}
   private consultaGestor(db: FinanceiroExecutor, gestorId: string) {
     return db
       .select({
@@ -188,7 +192,7 @@ export class FinanceiroRepository {
   }
 
   async comprovante(usuarioId: string, id: string) {
-    const medicoId = await this.perfilMedicoId(usuarioId)
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
     const [pagamento] = await this.db
       .select({
         chave: pagamentosTable.comprovante_chave,
@@ -214,7 +218,7 @@ export class FinanceiroRepository {
     return pagamento
   }
   async doMedico(usuarioId: string): Promise<DashboardFinanceiro> {
-    const medicoId = await this.perfilMedicoId(usuarioId)
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
     const visao = visaoDoMedico(medicoId)
 
     // REPEATABLE READ compartilha um único snapshot entre resumo e lista; em
@@ -263,22 +267,5 @@ export class FinanceiroRepository {
       },
       { isolationLevel: 'repeatable read', accessMode: 'read only' },
     )
-  }
-
-  private async perfilMedicoId(usuarioId: string) {
-    const [medico] = await this.db
-      .select({ id: medicosTable.id })
-      .from(medicosTable)
-      .where(
-        and(
-          eq(medicosTable.usuario_id, usuarioId),
-          isNull(medicosTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!medico) {
-      throw new NotFoundException('Perfil médico não encontrado')
-    }
-    return medico.id
   }
 }

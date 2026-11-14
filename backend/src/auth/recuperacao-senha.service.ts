@@ -1,11 +1,12 @@
-import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
+import { BadRequestException, Inject, Injectable } from '@nestjs/common'
 import { and, count, eq, gt, isNull, sql } from 'drizzle-orm'
 import { createHash, randomInt } from 'node:crypto'
 import { mensagensOficiais } from '../common/mensagens.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import { tokensRecuperacaoSenhaTable } from '../db/schemas/tokens-recuperacao-senha.ts'
 import { usuariosTable } from '../db/schemas/usuarios.ts'
-import { EmailService } from '../email/email.service.ts'
+import { EmailPayloadService } from '../email/email-payload.service.ts'
+import { emailsPendentesTable } from '../db/schemas/emails-pendentes.ts'
 import { UsuariosService, type Usuario } from '../usuarios/usuarios.service.ts'
 import type { RecuperarSenha, RedefinirSenha } from './auth.schemas.ts'
 import { PasswordService } from './password.service.ts'
@@ -28,33 +29,39 @@ export function hashDoToken(token: string): string {
 
 @Injectable()
 export class RecuperacaoSenhaService {
-  private readonly logger = new Logger(RecuperacaoSenhaService.name)
-
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: Database,
     @Inject(UsuariosService) private readonly usuarios: UsuariosService,
     @Inject(PasswordService) private readonly passwords: PasswordService,
-    @Inject(EmailService) private readonly email: EmailService,
+    @Inject(EmailPayloadService) private readonly payloads: EmailPayloadService,
   ) {}
 
   // RN12: resposta sempre igual
   async solicitar(data: RecuperarSenha) {
     const usuario = await this.usuarios.buscarCredenciais(data.email)
     if (usuario?.status === 'ATIVO') {
-      // roda fora da resposta: conta ativa e inexistente demoram igual
-      // loga so a mensagem do erro, nunca o codigo
-      this.emitir(usuario).catch((erro: unknown) =>
-        this.logger.error(
-          `Falha ao enviar e-mail de recuperação: ${erro instanceof Error ? erro.message : String(erro)}`,
-        ),
-      )
+      await this.emitir(usuario)
     }
     return { message: mensagensOficiais['MSG-05'] }
   }
 
   private async emitir(usuario: Usuario) {
     const token = gerarCodigo()
-    const emitiu = await this.db.transaction(async (tx) => {
+    const payload = this.payloads.cifrar({
+      para: usuario.email,
+      assunto: 'Alocca Plantões - redefinição de senha',
+      texto: [
+        `Olá, ${usuario.nome}.`,
+        '',
+        'Recebemos um pedido para redefinir a senha da sua conta no Alocca Plantões.',
+        'Use o código abaixo para criar uma senha nova. Ele vale por 15 minutos e só pode ser usado uma vez:',
+        '',
+        token,
+        '',
+        'Se não foi você, pode ignorar este e-mail. Sua senha continua a mesma.',
+      ].join('\n'),
+    })
+    await this.db.transaction(async (tx) => {
       // trava o usuario: dois pedidos juntos ficam em fila
       await tx
         .select({ id: usuariosTable.id })
@@ -74,7 +81,7 @@ export class RecuperacaoSenhaService {
             ),
           ),
         )
-      if (recentes.total >= LIMITE_POR_CONTA) return false
+      if (recentes.total >= LIMITE_POR_CONTA) return
       // pediu de novo: o codigo antigo para de valer
       await tx
         .update(tokensRecuperacaoSenhaTable)
@@ -86,27 +93,17 @@ export class RecuperacaoSenhaService {
           ),
         )
       // RN11: vale 15 min
-      await tx.insert(tokensRecuperacaoSenhaTable).values({
-        usuario_id: usuario.id,
-        token: hashDoToken(token),
-        expires_at: sql`now() + interval '15 minutes'`,
-      })
-      return true
-    })
-    if (!emitiu) return
-    await this.email.enviar({
-      para: usuario.email,
-      assunto: 'Alocca Plantões - redefinição de senha',
-      texto: [
-        `Olá, ${usuario.nome}.`,
-        '',
-        'Recebemos um pedido para redefinir a senha da sua conta no Alocca Plantões.',
-        'Use o código abaixo para criar uma senha nova. Ele vale por 15 minutos e só pode ser usado uma vez:',
-        '',
-        token,
-        '',
-        'Se não foi você, pode ignorar este e-mail. Sua senha continua a mesma.',
-      ].join('\n'),
+      const [criado] = await tx
+        .insert(tokensRecuperacaoSenhaTable)
+        .values({
+          usuario_id: usuario.id,
+          token: hashDoToken(token),
+          expires_at: sql`now() + interval '15 minutes'`,
+        })
+        .returning({ id: tokensRecuperacaoSenhaTable.id })
+      await tx
+        .insert(emailsPendentesTable)
+        .values({ token_id: criado.id, payload })
     })
   }
 

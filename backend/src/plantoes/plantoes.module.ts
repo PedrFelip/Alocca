@@ -1,3 +1,4 @@
+import { PerfilMedicoModule } from '../medicos/perfil-medico.module.ts'
 import { Module } from '@nestjs/common'
 import { SecurityModule } from '../auth/security.module.ts'
 import { DatabaseModule } from '../db/db.module.ts'
@@ -6,7 +7,7 @@ import { PlantoesController } from './plantoes.controller.ts'
 import { PlantoesService } from './plantoes.service.ts'
 
 @Module({
-  imports: [DatabaseModule, SecurityModule, GestoresModule],
+  imports: [PerfilMedicoModule, DatabaseModule, SecurityModule, GestoresModule],
   controllers: [PlantoesController],
   providers: [PlantoesService],
 })

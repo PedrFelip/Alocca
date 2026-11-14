@@ -1,14 +1,17 @@
+import { PerfilMedicoService } from '../medicos/perfil-medico.service.ts'
 import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
   alocacoesTable,
   instituicoesTable,
-  medicosTable,
   plantoesTable,
   registrosPontoTable,
 } from '../db/schemas/index.ts'
-import type { ConsultarPresenca, HistoricoPresenca } from './presenca.schemas.ts'
+import type {
+  ConsultarPresenca,
+  HistoricoPresenca,
+} from './presenca.schemas.ts'
 import type { HistoricoItem, PresencaDaAlocacao } from './presenca.tipos.ts'
 
 const CAMPOS_REGISTRO = {
@@ -20,13 +23,16 @@ const CAMPOS_REGISTRO = {
 
 @Injectable()
 export class PresencaService {
-  constructor(@Inject(DRIZZLE_DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DRIZZLE_DB) private readonly db: Database,
+    @Inject(PerfilMedicoService) private readonly perfis: PerfilMedicoService,
+  ) {}
 
   async daAlocacao(
     usuarioId: string,
     consulta: ConsultarPresenca,
   ): Promise<PresencaDaAlocacao> {
-    const medicoId = await this.perfilMedicoId(usuarioId)
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
 
     const [alocacao] = await this.db
       .select({
@@ -83,7 +89,7 @@ export class PresencaService {
     usuarioId: string,
     paginacao: HistoricoPresenca,
   ): Promise<HistoricoItem[]> {
-    const medicoId = await this.perfilMedicoId(usuarioId)
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
 
     return this.db
       .select({
@@ -125,22 +131,5 @@ export class PresencaService {
       )
       .limit(paginacao.limit)
       .offset(paginacao.offset)
-  }
-
-  private async perfilMedicoId(usuarioId: string) {
-    const [medico] = await this.db
-      .select({ id: medicosTable.id })
-      .from(medicosTable)
-      .where(
-        and(
-          eq(medicosTable.usuario_id, usuarioId),
-          isNull(medicosTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!medico) {
-      throw new NotFoundException('Perfil médico não encontrado')
-    }
-    return medico.id
   }
 }

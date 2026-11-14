@@ -1,3 +1,7 @@
+import { PerfilMedicoService } from '../src/medicos/perfil-medico.service.ts'
+import { AcessoInstitucionalService } from '../src/gestores/acesso-institucional.service.ts'
+import { AprovarCandidaturaUseCase } from '../src/candidaturas/aprovar-candidatura.use-case.ts'
+import { AlocacaoRepository } from '../src/candidaturas/alocacao.repository.ts'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
@@ -55,10 +59,22 @@ describeConcorrencia(
       const conexao = postgres(urlBanco(), { max: 2 })
       conexoes.push(conexao)
       const db = drizzle({ client: conexao as never })
-      return new CandidaturasService(db, new GestoresService(db))
+      const acesso = new AcessoInstitucionalService(db, new GestoresService(db))
+      const alocacoes = new AlocacaoRepository()
+      return new CandidaturasService(
+        db,
+        new PerfilMedicoService(db),
+        acesso,
+        new AprovarCandidaturaUseCase(db, acesso, alocacoes),
+        alocacoes,
+      )
     }
 
-    function aprovar(service: CandidaturasService, plantaoId: string, candidaturaId: string) {
+    function aprovar(
+      service: CandidaturasService,
+      plantaoId: string,
+      candidaturaId: string,
+    ) {
       return service.aprovar(plantaoId, candidaturaId, gestorUsuarioId)
     }
 
@@ -149,8 +165,12 @@ describeConcorrencia(
       const candidaturas = await base.unsafe<
         { id: string; plantao_id: string }[]
       >('SELECT id, plantao_id FROM candidaturas')
-      const candidatura1 = candidaturas.find((c) => c.plantao_id === plantao1)!.id
-      const candidatura2 = candidaturas.find((c) => c.plantao_id === plantao2)!.id
+      const candidatura1 = candidaturas.find(
+        (c) => c.plantao_id === plantao1,
+      )!.id
+      const candidatura2 = candidaturas.find(
+        (c) => c.plantao_id === plantao2,
+      )!.id
 
       const resultados = await Promise.allSettled([
         aprovar(servicoEm(), plantao1, candidatura1),
@@ -211,9 +231,7 @@ describeConcorrencia(
         [plantao],
       )
       expect(alocacoes).toHaveLength(1)
-      const [estado] = await base.unsafe<
-        { status: string; vagas: number }[]
-      >(
+      const [estado] = await base.unsafe<{ status: string; vagas: number }[]>(
         'SELECT status, vagas_disponiveis as vagas FROM plantoes WHERE id = $1',
         [plantao],
       )
@@ -256,9 +274,10 @@ describeConcorrencia(
       await expect(aprovar(servicoEm(), plantao, candidatura)).rejects.toThrow()
 
       expect(
-        await base.unsafe('SELECT id FROM alocacoes WHERE candidatura_id = $1', [
-          candidatura,
-        ]),
+        await base.unsafe(
+          'SELECT id FROM alocacoes WHERE candidatura_id = $1',
+          [candidatura],
+        ),
       ).toEqual([])
       const [estadoCandidatura] = await base.unsafe<{ status: string }[]>(
         'SELECT status FROM candidaturas WHERE id = $1',
@@ -270,9 +289,7 @@ describeConcorrencia(
         [plantao],
       )
       expect(Number(plantaoDepois.vagas)).toBe(2)
-      expect(
-        await base.unsafe('SELECT id FROM notificacoes'),
-      ).toEqual([])
+      expect(await base.unsafe('SELECT id FROM notificacoes')).toEqual([])
 
       await base.unsafe('DROP TRIGGER pagamentos_falha ON pagamentos')
       await base.unsafe('DROP FUNCTION falha_pagamento()')

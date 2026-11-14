@@ -138,6 +138,11 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
       )
     ).rows[0]
 
+    await database.query(
+      'INSERT INTO gestores_instituicoes (gestor_id, instituicao_id) SELECT id, $1 FROM gestores WHERE usuario_id = $2',
+      [instituicao.id, gestor1.id],
+    )
+
     novoPlantao = async (params) => {
       const result = await database.query<{ id: string }>(
         `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade,
@@ -243,7 +248,9 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
            WHERE usuarios.id = medicos.usuario_id AND usuarios.nome = 'Médico Um'`,
           [status],
         )
-        const resposta = await candidatar(plantaoAberto, medico1Token).expect(403)
+        const resposta = await candidatar(plantaoAberto, medico1Token).expect(
+          403,
+        )
         expect(resposta.body.message).toBe(
           'Seu CRM ainda não foi validado. Aguarde a análise para se candidatar.',
         )
@@ -344,7 +351,11 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
         )
       ).rows[0]
 
-      const resposta = await aprovar(encerrado, candidatura.id, gestorToken).expect(409)
+      const resposta = await aprovar(
+        encerrado,
+        candidatura.id,
+        gestorToken,
+      ).expect(409)
       expect(resposta.body.message).toBe(
         'Este plantão já terminou e não pode receber alocação.',
       )
@@ -355,8 +366,14 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
       const candidatura = await candidaturaPendente(plantaoUmaVaga)
       await database.query('UPDATE instituicoes SET ativa = false')
 
-      const resposta = await aprovar(plantaoUmaVaga, candidatura.id, gestorToken).expect(409)
-      expect(resposta.body.message).toBe('A instituição deste plantão está inativa.')
+      const resposta = await aprovar(
+        plantaoUmaVaga,
+        candidatura.id,
+        gestorToken,
+      ).expect(409)
+      expect(resposta.body.message).toBe(
+        'A instituição deste plantão está inativa.',
+      )
       await semAlocacao(candidatura.id)
     })
 
@@ -366,7 +383,11 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
         "UPDATE usuarios SET status = 'INATIVO' WHERE nome = 'Médico Um'",
       )
 
-      const resposta = await aprovar(plantaoUmaVaga, candidatura.id, gestorToken).expect(409)
+      const resposta = await aprovar(
+        plantaoUmaVaga,
+        candidatura.id,
+        gestorToken,
+      ).expect(409)
       expect(resposta.body.message).toBe('A conta deste médico não está ativa.')
       await semAlocacao(candidatura.id)
     })
@@ -412,6 +433,22 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
         [candidatura.id],
       )
       expect(status.rows[0].status).toBe('PENDENTE')
+    })
+
+    it('403: remover vínculo revoga acesso mesmo para o criador e dono da instituição', async () => {
+      const candidatura = (
+        await database.query<{ id: string }>(
+          "INSERT INTO candidaturas (plantao_id, medico_id) SELECT $1, id FROM medicos WHERE crm = '123456' RETURNING id",
+          [plantaoUmaVaga],
+        )
+      ).rows[0]
+      await database.exec('DELETE FROM gestores_instituicoes')
+      await request(app.getHttpServer())
+        .get(`/plantoes/${plantaoUmaVaga}/candidaturas`)
+        .set('Authorization', gestorToken)
+        .expect(403)
+      await aprovar(plantaoUmaVaga, candidatura.id, gestorToken).expect(403)
+      await semAlocacao(candidatura.id)
     })
 
     it('200: gestor lista candidatos do próprio plantão', async () => {

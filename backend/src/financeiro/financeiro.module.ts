@@ -1,3 +1,4 @@
+import { PerfilMedicoModule } from '../medicos/perfil-medico.module.ts'
 import { GestoresModule } from '../gestores/gestores.module.ts'
 import { ComprovantesStorage } from './comprovantes.storage.ts'
 import { FinanceiroRepository } from './financeiro.repository.ts'
@@ -8,7 +9,7 @@ import { FinanceiroController } from './financeiro.controller.ts'
 import { FinanceiroService } from './financeiro.service.ts'
 
 @Module({
-  imports: [DatabaseModule, SecurityModule, GestoresModule],
+  imports: [PerfilMedicoModule, DatabaseModule, SecurityModule, GestoresModule],
   controllers: [FinanceiroController],
   providers: [FinanceiroService, ComprovantesStorage, FinanceiroRepository],
 })

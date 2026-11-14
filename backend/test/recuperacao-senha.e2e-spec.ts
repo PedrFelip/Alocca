@@ -1,3 +1,6 @@
+import { ConfigService } from '@nestjs/config'
+import { EmailPayloadService } from '../src/email/email-payload.service.ts'
+import { EmailOutboxService } from '../src/email/email-outbox.service.ts'
 import { PGlite } from '@electric-sql/pglite'
 import { type INestApplication } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
@@ -24,6 +27,7 @@ describe('UC04 recuperação de senha', () => {
   let usuarioId: string
   // no lugar do smtp: guarda o que seria enviado
   const enviados: Email[] = []
+  let falharEnvio = false
   let segurarEnvio: Promise<void> | undefined
 
   function pedir(email = 'maria@example.com') {
@@ -68,6 +72,7 @@ describe('UC04 recuperação de senha', () => {
       .overrideProvider(EmailService)
       .useValue({
         enviar: async (email: Email) => {
+          if (falharEnvio) throw new Error('SMTP temporariamente indisponível')
           await segurarEnvio
           enviados.push(email)
         },
@@ -83,6 +88,7 @@ describe('UC04 recuperação de senha', () => {
   })
 
   beforeEach(async () => {
+    falharEnvio = false
     enviados.length = 0
     await database.exec(
       'TRUNCATE tokens_recuperacao_senha, medicos, usuarios CASCADE',
@@ -103,7 +109,7 @@ describe('UC04 recuperação de senha', () => {
     expect(enviados).toHaveLength(0)
   })
 
-  it('conta ativa responde sem esperar o código ser gerado e enviado (RN12)', async () => {
+  it('conta ativa persiste o pedido antes de responder sem esperar o SMTP (RN12)', async () => {
     let soltar!: () => void
     segurarEnvio = new Promise((resolve) => (soltar = resolve))
     const res = await pedir()
@@ -111,16 +117,20 @@ describe('UC04 recuperação de senha', () => {
     expect(res.body.message).toBe(MSG_05)
     expect(enviados).toHaveLength(0)
 
+    const entrega = app.get(EmailOutboxService).processar()
     soltar()
     segurarEnvio = undefined
-    await vi.waitFor(() => expect(enviados).toHaveLength(1))
+    await entrega
+    await app.get(EmailOutboxService).processar()
+    expect(enviados).toHaveLength(1)
   })
 
   it('e-mail cadastrado recebe o código e o banco guarda só o hash', async () => {
     const res = await pedir('Maria@Example.com')
     expect(res.status).toBe(200)
     expect(res.body.message).toBe(MSG_05)
-    await vi.waitFor(() => expect(enviados).toHaveLength(1))
+    await app.get(EmailOutboxService).processar()
+    expect(enviados).toHaveLength(1)
     expect(enviados[0].para).toBe('maria@example.com')
 
     const salvo = (
@@ -140,9 +150,11 @@ describe('UC04 recuperação de senha', () => {
 
   it('pedir de novo invalida o código anterior', async () => {
     await pedir()
-    await vi.waitFor(() => expect(enviados).toHaveLength(1))
+    await app.get(EmailOutboxService).processar()
+    expect(enviados).toHaveLength(1)
     await pedir()
-    await vi.waitFor(() => expect(enviados).toHaveLength(2))
+    await app.get(EmailOutboxService).processar()
+    expect(enviados).toHaveLength(2)
     expect(await codigosValendo()).toBe(1)
   })
 
@@ -151,7 +163,8 @@ describe('UC04 recuperação de senha', () => {
     const servico = app.get(RecuperacaoSenhaService)
     const email = 'maria@example.com'
     await Promise.all([1, 2, 3].map(() => servico.solicitar({ email })))
-    await vi.waitFor(() => expect(enviados).toHaveLength(3))
+    await app.get(EmailOutboxService).processar()
+    expect(enviados).toHaveLength(1)
     expect(await codigosValendo()).toBe(1)
   })
 
@@ -161,12 +174,66 @@ describe('UC04 recuperação de senha', () => {
     for (let i = 0; i < 5; i++) {
       const res = await servico.solicitar({ email })
       expect(res.message).toBe(MSG_05)
-      await vi.waitFor(() => expect(enviados.length).toBe(Math.min(i + 1, 3)))
+      await app.get(EmailOutboxService).processar()
+      expect(enviados.length).toBe(Math.min(i + 1, 3))
     }
-    // da um tempo pro 4o e 5o terminarem e confere que nao mandaram nada
-    await new Promise((resolve) => setTimeout(resolve, 200))
     expect(enviados).toHaveLength(3)
     expect(await codigosValendo()).toBe(1)
+  })
+
+  it('persiste payload cifrado e permite retomar a entrega com outro worker', async () => {
+    await app
+      .get(RecuperacaoSenhaService)
+      .solicitar({ email: 'maria@example.com' })
+    const jobs = await database.query<{ payload: string }>(
+      'SELECT payload FROM emails_pendentes',
+    )
+    expect(jobs.rows).toHaveLength(1)
+    expect(jobs.rows[0].payload).not.toContain('maria@example.com')
+    expect(enviados).toHaveLength(0)
+    const outroWorker = new EmailOutboxService(
+      app.get(DRIZZLE_DB),
+      app.get(EmailService),
+      app.get(EmailPayloadService),
+      app.get(ConfigService),
+    )
+    await outroWorker.processar()
+    expect(enviados).toHaveLength(1)
+    expect(
+      (await database.query('SELECT id FROM emails_pendentes')).rows,
+    ).toHaveLength(0)
+  })
+
+  it('SMTP falho mantém o mesmo código na fila até uma nova tentativa', async () => {
+    await app
+      .get(RecuperacaoSenhaService)
+      .solicitar({ email: 'maria@example.com' })
+    falharEnvio = true
+    await app.get(EmailOutboxService).processar()
+    const jobs = await database.query<{ tentativas: number }>(
+      'SELECT tentativas FROM emails_pendentes',
+    )
+    expect(jobs.rows[0].tentativas).toBe(1)
+    expect(enviados).toHaveLength(0)
+    falharEnvio = false
+    await database.exec('UPDATE emails_pendentes SET disponivel_em = now()')
+    await app.get(EmailOutboxService).processar()
+    expect(enviados).toHaveLength(1)
+    expect(await codigosValendo()).toBe(1)
+  })
+
+  it('descarta e-mails cujo código já expirou', async () => {
+    await app
+      .get(RecuperacaoSenhaService)
+      .solicitar({ email: 'maria@example.com' })
+    await database.exec(
+      "UPDATE tokens_recuperacao_senha SET expires_at = now() - interval '1 second'",
+    )
+    await app.get(EmailOutboxService).processar()
+    expect(enviados).toHaveLength(0)
+    expect(
+      (await database.query('SELECT id FROM emails_pendentes')).rows,
+    ).toHaveLength(0)
   })
 
   it('aceita o código digitado em minúsculo', async () => {
