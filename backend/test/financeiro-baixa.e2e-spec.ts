@@ -1,0 +1,534 @@
+import { PGlite } from '@electric-sql/pglite'
+import {
+  NotFoundException,
+  ServiceUnavailableException,
+  type INestApplication,
+} from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { JwtService } from '@nestjs/jwt'
+import { Test } from '@nestjs/testing'
+import { drizzle } from 'drizzle-orm/pglite'
+import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
+import postgres from 'postgres'
+import { readFile, readdir } from 'node:fs/promises'
+import request from 'supertest'
+import { vi } from 'vitest'
+import { AppModule } from '../src/app.module.ts'
+import { DRIZZLE_DB } from '../src/db/db.provider.ts'
+import { ComprovantesStorage } from '../src/financeiro/comprovantes.storage.ts'
+
+const pdf = Buffer.from('%PDF-1.4\nconteudo\n%%EOF')
+const jpeg = Buffer.from([255, 216, 255, 0, 255, 217])
+const png = Buffer.from([
+  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+])
+const limite = 5 * 1024 * 1024
+
+describe('Baixa financeira e comprovantes (#85 e #86)', () => {
+  let app: INestApplication
+  let db: PGlite
+  let pg: postgres.Sql | undefined
+  let admin: postgres.Sql | undefined
+  const banco = `alocca_financeiro_qa_${Date.now().toString(36)}`
+  let gestor: string,
+    outroGestor: string,
+    inativo: string,
+    medico: string,
+    outroMedico: string
+  let instituicao: string,
+    outraInstituicao: string,
+    gestorId: string,
+    gestorUsuarioId: string,
+    medicoId: string
+  const objetos = new Map<string, { buffer: Buffer; mime: string }>()
+  const storage = {
+    salvar: vi.fn(async (chave: string, buffer: Buffer, mime: string) => {
+      objetos.set(chave, { buffer, mime })
+    }),
+    remover: vi.fn(async (chave: string) => {
+      objetos.delete(chave)
+    }),
+    baixar: vi.fn(async (chave: string) => {
+      const objeto = objetos.get(chave)
+      if (!objeto) throw new NotFoundException('Comprovante não encontrado')
+      return objeto.buffer
+    }),
+  }
+  beforeAll(async () => {
+    const url = process.env.E2E_FINANCEIRO_PG_ADMIN
+    if (url) {
+      admin = postgres(url, { max: 1 })
+      await admin.unsafe(`CREATE DATABASE ${banco}`)
+      const destino = new URL(url)
+      destino.pathname = `/${banco}`
+      pg = postgres(destino.toString(), { max: 5 })
+      // Adaptador só do fixture: cada chamada preserva parâmetros SQL.
+      db = {
+        query: async (texto: string, parametros: unknown[] = []) => ({
+          rows: await pg!.unsafe(texto, parametros as never),
+        }),
+        exec: (texto: string) => pg!.unsafe(texto),
+        close: () => pg!.end(),
+      } as unknown as PGlite
+    } else db = new PGlite()
+    for (const directory of (await readdir('drizzle')).sort())
+      await db.exec(
+        await readFile(`drizzle/${directory}/migration.sql`, 'utf8'),
+      )
+    const module = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(DRIZZLE_DB)
+      .useValue(pg ? drizzlePostgres({ client: pg }) : drizzle({ client: db }))
+      .overrideProvider(ComprovantesStorage)
+      .useValue(storage)
+      .compile()
+    app = module.createNestApplication()
+    await app.init()
+  }, 30000)
+  beforeEach(async () => {
+    objetos.clear()
+    storage.salvar
+      .mockReset()
+      .mockImplementation(async (chave, buffer, mime) => {
+        objetos.set(chave, { buffer, mime })
+      })
+    storage.remover.mockReset().mockImplementation(async (chave) => {
+      objetos.delete(chave)
+    })
+    storage.baixar.mockReset().mockImplementation(async (chave) => {
+      const objeto = objetos.get(chave)
+      if (!objeto) throw new NotFoundException('Comprovante não encontrado')
+      return objeto.buffer
+    })
+    await db.exec(
+      `TRUNCATE notificacoes, pagamentos, registros_ponto, alocacoes, candidaturas, plantoes, gestores_instituicoes, gestores, instituicoes, medicos, tokens_recuperacao_senha, usuarios CASCADE`,
+    )
+    const usuarios = (
+      await db.query<{ id: string; nome: string }>(
+        `INSERT INTO usuarios (nome, email, senha_hash, tipo) VALUES ('Gestor', 'g@example.com', 'hash', 'GESTOR'), ('Outro Gestor', 'g2@example.com', 'hash', 'GESTOR'), ('Inativo', 'gi@example.com', 'hash', 'GESTOR'), ('Medico', 'm@example.com', 'hash', 'MEDICO'), ('Outro Medico', 'm2@example.com', 'hash', 'MEDICO') RETURNING id, nome`,
+      )
+    ).rows
+    const id = (nome: string) => usuarios.find((u) => u.nome === nome)!.id
+    gestorUsuarioId = id('Gestor')
+    const gestores = (
+      await db.query<{ id: string; usuario_id: string }>(
+        `INSERT INTO gestores (usuario_id, ativa) VALUES ($1, true), ($2, true), ($3, false) RETURNING id, usuario_id`,
+        [gestorUsuarioId, id('Outro Gestor'), id('Inativo')],
+      )
+    ).rows
+    gestorId = gestores.find((g) => g.usuario_id === gestorUsuarioId)!.id
+    const medicos = (
+      await db.query<{ id: string; usuario_id: string }>(
+        `INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade) VALUES ($1, '123456', 'DF', 'Clínica'), ($2, '654321', 'SP', 'Clínica') RETURNING id, usuario_id`,
+        [id('Medico'), id('Outro Medico')],
+      )
+    ).rows
+    medicoId = medicos.find((m) => m.usuario_id === id('Medico'))!.id
+    const instituicoes = (
+      await db.query<{ id: string; nome: string }>(
+        `INSERT INTO instituicoes (usuario_id, nome, cnpj, cidade, uf) VALUES ($1, 'Hospital A', '33333333000133', 'Brasília', 'DF'), ($2, 'Hospital B', '44444444000144', 'Brasília', 'DF') RETURNING id, nome`,
+        [gestorUsuarioId, id('Outro Gestor')],
+      )
+    ).rows
+    instituicao = instituicoes.find((i) => i.nome === 'Hospital A')!.id
+    outraInstituicao = instituicoes.find((i) => i.nome === 'Hospital B')!.id
+    await db.query(
+      'INSERT INTO gestores_instituicoes (gestor_id, instituicao_id) VALUES ($1, $2), ($3, $4)',
+      [
+        gestorId,
+        instituicao,
+        gestores.find((g) => g.usuario_id === id('Outro Gestor'))!.id,
+        outraInstituicao,
+      ],
+    )
+    const jwt = app.get(JwtService)
+    const token = async (nome: string) =>
+      `Bearer ${await jwt.signAsync({ sub: id(nome) })}`
+    gestor = await token('Gestor')
+    outroGestor = await token('Outro Gestor')
+    inativo = await token('Inativo')
+    medico = await token('Medico')
+    outroMedico = await token('Outro Medico')
+  })
+  afterAll(async () => {
+    await app?.close()
+    await db?.close()
+    if (admin) {
+      await admin.unsafe(`DROP DATABASE ${banco}`)
+      await admin.end()
+    }
+  })
+  async function pagamento(
+    op: {
+      instituicao?: string
+      futuro?: boolean
+      status?: string
+      vencimento?: string
+      valor?: string
+    } = {},
+  ) {
+    const inicio = op.futuro
+      ? "now() + interval '1 day'"
+      : "now() - interval '2 days'"
+    const fim = op.futuro
+      ? "now() + interval '2 days'"
+      : "now() - interval '1 day'"
+    const [plantao] = (
+      await db.query<{ id: string }>(
+        `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade, especialidade, data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status) VALUES ($1, $2, 'Plantão', 'Unidade', 'Clínica', ${inicio}, ${fim}, '100.00', 1, 1, 'PREENCHIDO') RETURNING id`,
+        [op.instituicao ?? instituicao, gestorUsuarioId],
+      )
+    ).rows
+    const [candidatura] = (
+      await db.query<{ id: string }>(
+        "INSERT INTO candidaturas (plantao_id, medico_id, status) VALUES ($1, $2, 'APROVADA') RETURNING id",
+        [plantao.id, medicoId],
+      )
+    ).rows
+    const [alocacao] = (
+      await db.query<{ id: string }>(
+        'INSERT INTO alocacoes (plantao_id, medico_id, candidatura_id) VALUES ($1, $2, $3) RETURNING id',
+        [plantao.id, medicoId, candidatura.id],
+      )
+    ).rows
+    const [p] = (
+      await db.query<{ id: string }>(
+        'INSERT INTO pagamentos (alocacao_id, valor, status, vencimento_em) VALUES ($1, $2, $3, $4) RETURNING id',
+        [
+          alocacao.id,
+          op.valor ?? '100.00',
+          op.status ?? 'PENDENTE',
+          op.vencimento ?? null,
+        ],
+      )
+    ).rows
+    return { id: p.id, plantao: plantao.id, alocacao: alocacao.id }
+  }
+  const listar = (token: string) =>
+    request(app.getHttpServer())
+      .get('/financeiro/pendentes-baixa')
+      .set('Authorization', token)
+  const baixar = (
+    id: string,
+    token = gestor,
+    buffer = pdf,
+    nome = 'comprovante.pdf',
+    mime = 'application/pdf',
+  ) =>
+    request(app.getHttpServer())
+      .post(`/financeiro/pagamentos/${id}/dar-baixa`)
+      .set('Authorization', token)
+      .attach('comprovante', buffer, { filename: nome, contentType: mime })
+  const comprovante = (id: string, token: string) =>
+    request(app.getHttpServer())
+      .get(`/financeiro/comprovantes/${id}`)
+      .set('Authorization', token)
+  const resumo = async () =>
+    (
+      await request(app.getHttpServer())
+        .get('/financeiro/medico')
+        .set('Authorization', medico)
+        .expect(200)
+    ).body.resumo
+
+  it('protege endpoints por autenticação, perfil e gestor ativo', async () => {
+    const p = await pagamento()
+    await request(app.getHttpServer())
+      .get('/financeiro/pendentes-baixa')
+      .expect(401)
+    await request(app.getHttpServer())
+      .post(`/financeiro/pagamentos/${p.id}/dar-baixa`)
+      .attach('comprovante', pdf, 'a.pdf')
+      .expect(401)
+    await request(app.getHttpServer())
+      .get(`/financeiro/comprovantes/${p.id}`)
+      .expect(401)
+    await listar(medico).expect(403)
+    await listar(inativo).expect(403)
+    await baixar(p.id, medico).expect(403)
+    await baixar(p.id, inativo).expect(403)
+    await comprovante(p.id, gestor).expect(403)
+  })
+  it('lista somente pendentes encerrados e ativos da instituição vinculada', async () => {
+    const elegivel = await pagamento()
+    await pagamento({ futuro: true })
+    await pagamento({ status: 'PAGO' })
+    await pagamento({ instituicao: outraInstituicao })
+    const cancelado = await pagamento()
+    await db.query("UPDATE plantoes SET status = 'CANCELADO' WHERE id = $1", [
+      cancelado.plantao,
+    ])
+    const excluido = await pagamento()
+    await db.query('UPDATE plantoes SET deleted_at = now() WHERE id = $1', [
+      excluido.plantao,
+    ])
+    const alocacao = await pagamento()
+    await db.query('UPDATE alocacoes SET deleted_at = now() WHERE id = $1', [
+      alocacao.alocacao,
+    ])
+    const removido = await pagamento()
+    await db.query('UPDATE pagamentos SET deleted_at = now() WHERE id = $1', [
+      removido.id,
+    ])
+    expect(
+      (await listar(gestor).expect(200)).body.map((p: { id: string }) => p.id),
+    ).toEqual([elegivel.id])
+    expect((await listar(outroGestor).expect(200)).body).toHaveLength(1)
+  })
+  it('registra baixa, reflete resumo e entrega arquivo somente ao dono', async () => {
+    const p = await pagamento()
+    expect(await resumo()).toMatchObject({
+      total_recebido: '0',
+      total_a_receber: '100.00',
+      total_pendente: '0',
+    })
+    expect((await baixar(p.id).expect(200)).body.message).toBe(
+      'Comprovante anexado e status financeiro atualizado para "Pago".',
+    )
+    const [linha] = (
+      await db.query<{
+        status: string
+        pago_at: Date
+        comprovante_chave: string
+        comprovante_mime: string
+        registrado_por_gestor_id: string
+      }>('SELECT * FROM pagamentos WHERE id = $1', [p.id])
+    ).rows
+    expect(linha).toMatchObject({
+      status: 'PAGO',
+      comprovante_mime: 'application/pdf',
+      registrado_por_gestor_id: gestorId,
+    })
+    expect(linha.pago_at).toBeTruthy()
+    expect(linha.comprovante_chave).toMatch(/^[\da-f-]{36}\.pdf$/)
+    expect(objetos.get(linha.comprovante_chave)?.buffer).toEqual(pdf)
+    expect(await resumo()).toMatchObject({
+      total_recebido: '100.00',
+      total_a_receber: '0',
+      total_pendente: '0',
+    })
+    expect((await listar(gestor).expect(200)).body).toEqual([])
+    const download = await comprovante(p.id, medico)
+      .expect(200)
+      .expect('Content-Type', /application\/pdf/)
+    expect(download.body).toEqual(pdf)
+    await comprovante(p.id, outroMedico).expect(404)
+    await baixar(p.id).expect(409)
+    expect(storage.salvar).toHaveBeenCalledTimes(1)
+  })
+  const integracaoStorage = process.env.E2E_SEAWEEDFS_FILER_URL ? it : it.skip
+  integracaoStorage(
+    'upload e download autenticados com SeaweedFS real',
+    async () => {
+      const real = new ComprovantesStorage(
+        new ConfigService({
+          SEAWEEDFS_FILER_URL: process.env.E2E_SEAWEEDFS_FILER_URL,
+        }),
+      )
+      const p = await pagamento()
+      let chave: string | undefined
+      storage.salvar.mockImplementationOnce(async (key, buffer, mime) => {
+        chave = key
+        await real.salvar(key, buffer, mime)
+      })
+      storage.baixar.mockImplementationOnce((key) => real.baixar(key))
+      try {
+        await baixar(p.id).expect(200)
+        const download = await comprovante(p.id, medico).expect(200)
+        expect(download.body).toEqual(pdf)
+        await comprovante(p.id, outroMedico).expect(404)
+        expect(storage.baixar).toHaveBeenCalledTimes(1)
+      } finally {
+        if (chave) await real.remover(chave)
+      }
+    },
+    30000,
+  )
+  const concorrencia = process.env.E2E_FINANCEIRO_PG_ADMIN ? it : it.skip
+  concorrencia(
+    'duas baixas simultâneas em PostgreSQL real geram um upload e um conflito',
+    async () => {
+      const p = await pagamento()
+      storage.salvar.mockImplementationOnce(async (chave, buffer, mime) => {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        objetos.set(chave, { buffer, mime })
+      })
+      const respostas = await Promise.all([baixar(p.id), baixar(p.id)])
+      expect(respostas.map((r) => r.status).sort((a, b) => a - b)).toEqual([
+        200, 409,
+      ])
+      expect(storage.salvar).toHaveBeenCalledTimes(1)
+      expect(objetos.size).toBe(1)
+      const pagamentoFinal = (
+        await db.query<{ status: string; comprovante_chave: string }>(
+          'SELECT status, comprovante_chave FROM pagamentos WHERE id = $1',
+          [p.id],
+        )
+      ).rows[0]
+      expect(pagamentoFinal.status).toBe('PAGO')
+      expect(objetos.has(pagamentoFinal.comprovante_chave)).toBe(true)
+    },
+  )
+  it('classifica vencimento nulo, futuro e passado sem inventar prazo', async () => {
+    await pagamento({ valor: '10.00' })
+    await pagamento({
+      valor: '20.00',
+      vencimento: new Date(Date.now() + 86400000).toISOString(),
+    })
+    const vencido = await pagamento({
+      valor: '30.00',
+      vencimento: new Date(Date.now() - 86400000).toISOString(),
+    })
+    await pagamento({ valor: '40.00', status: 'PAGO' })
+    expect(await resumo()).toEqual({
+      total_recebido: '40.00',
+      total_a_receber: '30.00',
+      total_pendente: '30.00',
+    })
+    await baixar(vencido.id).expect(200)
+    expect(await resumo()).toEqual({
+      total_recebido: '70.00',
+      total_a_receber: '30.00',
+      total_pendente: '0',
+    })
+  })
+  it('nega baixa futura, fora do escopo e em objetos excluídos ou cancelados', async () => {
+    const futuro = await pagamento({ futuro: true })
+    await baixar(futuro.id).expect(409)
+    const outro = await pagamento({ instituicao: outraInstituicao })
+    await baixar(outro.id).expect(404)
+    const cancelado = await pagamento()
+    await db.query("UPDATE plantoes SET status = 'CANCELADO' WHERE id = $1", [
+      cancelado.plantao,
+    ])
+    await baixar(cancelado.id).expect(404)
+    const excluido = await pagamento()
+    await db.query('UPDATE pagamentos SET deleted_at = now() WHERE id = $1', [
+      excluido.id,
+    ])
+    await baixar(excluido.id).expect(404)
+    await baixar('00000000-0000-4000-8000-000000000000').expect(404)
+    expect(storage.salvar).not.toHaveBeenCalled()
+  })
+  it('nega comprovante pendente, inexistente, ausente e de outro médico', async () => {
+    const pendente = await pagamento()
+    await comprovante(pendente.id, medico).expect(404)
+    const pago = await pagamento({ status: 'PAGO' })
+    await comprovante(pago.id, medico).expect(404)
+    await comprovante('00000000-0000-4000-8000-000000000000', medico).expect(
+      404,
+    )
+    await baixar(pendente.id).expect(200)
+    await comprovante(pendente.id, outroMedico).expect(404)
+    objetos.clear()
+    await comprovante(pendente.id, medico).expect(404)
+    await db.query('UPDATE plantoes SET deleted_at = now() WHERE id = $1', [
+      pendente.plantao,
+    ])
+    await comprovante(pendente.id, medico).expect(404)
+  })
+  it.each([
+    [pdf, 'a.pdf', 'application/pdf'],
+    [jpeg, 'a.jpeg', 'image/jpeg'],
+    [png, 'a.png', 'image/png'],
+  ] as const)('aceita formato permitido %s', async (buffer, nome, mime) => {
+    const p = await pagamento()
+    await baixar(p.id, gestor, buffer, nome, mime).expect(200)
+    expect(storage.salvar).toHaveBeenCalledWith(
+      expect.any(String),
+      buffer,
+      mime,
+    )
+  })
+  it('valida campo, extensão, MIME, assinatura e limite de tamanho', async () => {
+    const p = await pagamento()
+    await request(app.getHttpServer())
+      .post(`/financeiro/pagamentos/${p.id}/dar-baixa`)
+      .set('Authorization', gestor)
+      .expect(400)
+    for (const [buffer, nome, mime] of [
+      [pdf, 'a.txt', 'application/pdf'],
+      [pdf, 'a.pdf', 'image/png'],
+      [Buffer.from('não é PDF'), 'a.pdf', 'application/pdf'],
+      [jpeg, 'a.png', 'image/png'],
+      [Buffer.alloc(0), 'a.pdf', 'application/pdf'],
+    ] as const)
+      await baixar(p.id, gestor, buffer, nome, mime).expect(400)
+    const exato = Buffer.alloc(limite, 0x20)
+    pdf.copy(exato)
+    Buffer.from('%%EOF').copy(exato, limite - 5)
+    await baixar(p.id, gestor, Buffer.concat([exato, Buffer.from('x')])).expect(
+      413,
+    )
+    await baixar(p.id, gestor, exato).expect(200)
+  })
+  it('falha de upload não marca pago e preserva objeto incerto para reconciliação', async () => {
+    const p = await pagamento()
+    storage.salvar.mockImplementationOnce(async (chave, buffer, mime) => {
+      objetos.set(chave, { buffer, mime })
+      throw new ServiceUnavailableException()
+    })
+    await baixar(p.id).expect(503)
+    expect(
+      (
+        await db.query<{ status: string; comprovante_chave: string | null }>(
+          'SELECT status, comprovante_chave FROM pagamentos WHERE id = $1',
+          [p.id],
+        )
+      ).rows[0],
+    ).toEqual({ status: 'PENDENTE', comprovante_chave: null })
+    expect(storage.remover).not.toHaveBeenCalled()
+    expect(objetos.size).toBe(1)
+  })
+  it('falha reportada após commit preserva comprovante já referenciado', async () => {
+    const p = await pagamento()
+    const provider = app.get<{
+      transaction: (...args: unknown[]) => Promise<unknown>
+    }>(DRIZZLE_DB)
+    const original = provider.transaction.bind(provider)
+    const espiao = vi
+      .spyOn(provider, 'transaction')
+      .mockImplementationOnce(async (...args) => {
+        await original(...args)
+        throw new Error('Conexão perdida após commit')
+      })
+    try {
+      await baixar(p.id).expect(500)
+      expect(storage.remover).not.toHaveBeenCalled()
+      expect(objetos.size).toBe(1)
+      const linha = (
+        await db.query<{ status: string }>(
+          'SELECT status FROM pagamentos WHERE id = $1',
+          [p.id],
+        )
+      ).rows[0]
+      expect(linha.status).toBe('PAGO')
+      expect((await comprovante(p.id, medico).expect(200)).body).toEqual(pdf)
+    } finally {
+      espiao.mockRestore()
+    }
+  })
+  it('rollback após upload remove objeto e preserva pagamento pendente', async () => {
+    const p = await pagamento()
+    await db.exec(
+      `CREATE FUNCTION rejeitar_baixa_teste() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'falha de banco'; END $$; CREATE TRIGGER rejeitar_baixa_teste BEFORE UPDATE ON pagamentos FOR EACH ROW EXECUTE FUNCTION rejeitar_baixa_teste()`,
+    )
+    try {
+      await baixar(p.id).expect(500)
+      expect(
+        (
+          await db.query<{ status: string }>(
+            'SELECT status FROM pagamentos WHERE id = $1',
+            [p.id],
+          )
+        ).rows[0].status,
+      ).toBe('PENDENTE')
+      expect(storage.salvar).toHaveBeenCalledTimes(1)
+      expect(storage.remover).toHaveBeenCalledTimes(1)
+      expect(objetos.size).toBe(0)
+    } finally {
+      await db.exec(
+        'DROP TRIGGER rejeitar_baixa_teste ON pagamentos; DROP FUNCTION rejeitar_baixa_teste()',
+      )
+    }
+  })
+})

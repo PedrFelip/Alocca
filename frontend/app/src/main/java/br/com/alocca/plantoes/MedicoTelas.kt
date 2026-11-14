@@ -793,6 +793,7 @@ internal fun FinanceiroConteudo() {
                 }
                 Text(Datas.moeda(p.valor), color = Navy, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             }
+            if (p.status == "PAGO") BaixarComprovanteButton(p.id)
             Spacer(Modifier.height(8.dp))
         }
     }

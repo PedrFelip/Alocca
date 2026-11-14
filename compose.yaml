@@ -1,6 +1,16 @@
 name: alocca
 
 services:
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.00
+    restart: unless-stopped
+    working_dir: /data
+    command: server -dir=/data -ip=seaweedfs -filer -filer.port=8888 -volume.max=5 -master.volumeSizeLimitMB=100
+    ports:
+      - "127.0.0.1:8888:8888"
+    volumes:
+      - seaweedfs_data:/data
+
   db:
     image: postgres:17-alpine
     restart: unless-stopped
@@ -21,3 +31,4 @@ services:
 
 volumes:
   postgres_data:
+  seaweedfs_data:
