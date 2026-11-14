@@ -72,6 +72,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -100,6 +103,13 @@ class MainActivity : ComponentActivity() {
 
         setContent { MaterialTheme { AuthApp() } }
     }
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch(Dispatchers.IO) {
+            ComprovanteDownload.limparCacheLegado(cacheDir)
+        }
+    }
+
 }
 
 private enum class Screen { Login, Register, EsqueciSenha }

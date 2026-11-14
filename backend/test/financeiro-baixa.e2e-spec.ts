@@ -15,6 +15,7 @@ import request from 'supertest'
 import { vi } from 'vitest'
 import { AppModule } from '../src/app.module.ts'
 import { DRIZZLE_DB } from '../src/db/db.provider.ts'
+import { GestoresService } from '../src/gestores/gestores.service.ts'
 import { ComprovantesStorage } from '../src/financeiro/comprovantes.storage.ts'
 
 const pdf = Buffer.from('%PDF-1.4\nconteudo\n%%EOF')
@@ -368,6 +369,169 @@ describe('Baixa financeira e comprovantes (#85 e #86)', () => {
       expect(objetos.has(pagamentoFinal.comprovante_chave)).toBe(true)
     },
   )
+  const alteracoes = [
+    'vinculo',
+    'gestor_inativo',
+    'gestor_excluido',
+    'usuario_bloqueado',
+    'plantao_cancelado',
+    'plantao_excluido',
+    'plantao_adiado',
+    'instituicao_excluida',
+    'alocacao_excluida',
+  ] as const
+  type Alteracao = (typeof alteracoes)[number]
+  function mutacao(tipo: Alteracao, p: { plantao: string; alocacao: string }) {
+    const comandos: Record<Alteracao, [string, string[]]> = {
+      vinculo: [
+        'DELETE FROM gestores_instituicoes WHERE gestor_id = $1 AND instituicao_id = $2',
+        [gestorId, instituicao],
+      ],
+      gestor_inativo: [
+        'UPDATE gestores SET ativa = false WHERE id = $1',
+        [gestorId],
+      ],
+      gestor_excluido: [
+        'UPDATE gestores SET deleted_at = now() WHERE id = $1',
+        [gestorId],
+      ],
+      usuario_bloqueado: [
+        "UPDATE usuarios SET status = 'BLOQUEADO' WHERE id = $1",
+        [gestorUsuarioId],
+      ],
+      plantao_cancelado: [
+        "UPDATE plantoes SET status = 'CANCELADO' WHERE id = $1",
+        [p.plantao],
+      ],
+      plantao_excluido: [
+        'UPDATE plantoes SET deleted_at = now() WHERE id = $1',
+        [p.plantao],
+      ],
+      plantao_adiado: [
+        "UPDATE plantoes SET data_fim = now() + interval '1 day' WHERE id = $1",
+        [p.plantao],
+      ],
+      instituicao_excluida: [
+        'UPDATE instituicoes SET deleted_at = now() WHERE id = $1',
+        [instituicao],
+      ],
+      alocacao_excluida: [
+        'UPDATE alocacoes SET deleted_at = now() WHERE id = $1',
+        [p.alocacao],
+      ],
+    }
+    return comandos[tipo]
+  }
+
+  it.each(alteracoes)(
+    'revalida %s entre a consulta inicial do perfil e a transação',
+    async (tipo) => {
+      const p = await pagamento()
+      const perfis = app.get(GestoresService)
+      const original = perfis.perfilAtivo.bind(perfis)
+      const espiao = vi
+        .spyOn(perfis, 'perfilAtivo')
+        .mockImplementationOnce(async (usuarioId) => {
+          const perfil = await original(usuarioId)
+          const [texto, params] = mutacao(tipo, p)
+          await db.query(texto, params)
+          return perfil
+        })
+      try {
+        await baixar(p.id).expect(tipo === 'plantao_adiado' ? 409 : 404)
+        expect(storage.salvar).not.toHaveBeenCalled()
+        expect(
+          (
+            await db.query<{ status: string }>(
+              'SELECT status FROM pagamentos WHERE id = $1',
+              [p.id],
+            )
+          ).rows[0].status,
+        ).toBe('PENDENTE')
+      } finally {
+        espiao.mockRestore()
+      }
+    },
+  )
+
+  concorrencia.each(alteracoes)(
+    'protege %s durante upload em PostgreSQL real',
+    async (tipo) => {
+      const p = await pagamento()
+      let entrou!: () => void
+      let liberar!: () => void
+      const iniciou = new Promise<void>((resolve) => {
+        entrou = resolve
+      })
+      const liberado = new Promise<void>((resolve) => {
+        liberar = resolve
+      })
+      storage.salvar.mockImplementationOnce(async (chave, buffer, mime) => {
+        entrou()
+        await liberado
+        objetos.set(chave, { buffer, mime })
+      })
+      const resposta = baixar(p.id).then((r) => r)
+      const [texto, params] = mutacao(tipo, p)
+      try {
+        await iniciou
+        // Conexão independente: UPDATE/DELETE precisa esperar os locks da baixa.
+        await expect(
+          pg!.begin(async (outro) => {
+            await outro.unsafe("SET LOCAL lock_timeout = '100ms'")
+            await outro.unsafe(texto, params)
+          }),
+        ).rejects.toMatchObject({ code: '55P03' })
+      } finally {
+        liberar()
+        expect((await resposta).status).toBe(200)
+      }
+      // Depois do commit a mesma alteração fica livre para prosseguir.
+      await db.query(texto, params)
+      expect(storage.salvar).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  concorrencia(
+    'uploads de pagamentos distintos da mesma instituição avançam em paralelo',
+    async () => {
+      const primeiro = await pagamento()
+      const segundo = await pagamento()
+      let liberar!: () => void
+      let ambos!: () => void
+      let entradas = 0
+      const liberado = new Promise<void>((resolve) => {
+        liberar = resolve
+      })
+      const iniciados = new Promise<void>((resolve) => {
+        ambos = resolve
+      })
+      storage.salvar.mockImplementation(async (chave, buffer, mime) => {
+        if (++entradas === 2) ambos()
+        await liberado
+        objetos.set(chave, { buffer, mime })
+      })
+      const respostas = Promise.all([baixar(primeiro.id), baixar(segundo.id)])
+      let prazo: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          iniciados,
+          new Promise((_, reject) => {
+            prazo = setTimeout(
+              () => reject(new Error('Uploads independentes serializados')),
+              2000,
+            )
+          }),
+        ])
+      } finally {
+        clearTimeout(prazo)
+        liberar()
+        expect((await respostas).map((r) => r.status)).toEqual([200, 200])
+      }
+      expect(storage.salvar).toHaveBeenCalledTimes(2)
+    },
+  )
+
   it('classifica vencimento nulo, futuro e passado sem inventar prazo', async () => {
     await pagamento({ valor: '10.00' })
     await pagamento({

@@ -45,16 +45,24 @@ export class FinanceiroService {
           id,
         )
         if (!pagamento) throw new NotFoundException('Pagamento não encontrado')
-        if (
-          pagamento.status !== 'PENDENTE' ||
-          !(await this.repository.plantaoEncerrado(tx, pagamento.plantao.id))
-        )
+        if (pagamento.status !== 'PENDENTE' || !pagamento.elegivel)
           throw new ConflictException(
             'Pagamento já baixado ou plantão ainda não encerrado',
           )
         uploadTentado = true
         await this.storage.salvar(chave, arquivo!.buffer, formato.mime)
         uploadConfirmado = true
+        // Revalida sob os mesmos locks antes da alteração financeira.
+        const atual = await this.repository.revalidarPagamento(
+          tx,
+          gestor.id,
+          id,
+        )
+        if (!atual || atual.status !== 'PENDENTE' || !atual.elegivel) {
+          throw new ConflictException(
+            'Pagamento deixou de ser elegível para baixa',
+          )
+        }
         await this.repository.registrarBaixa(
           tx,
           id,

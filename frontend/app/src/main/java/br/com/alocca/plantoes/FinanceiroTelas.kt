@@ -6,14 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import java.io.File
-import java.util.UUID
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 internal fun PagamentosGestorConteudo() {
@@ -80,45 +75,41 @@ internal fun PagamentosGestorConteudo() {
 internal fun BaixarComprovanteButton(pagamentoId: String) {
     val executor = rememberExecutor()
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var ocupado by remember { mutableStateOf(false) }
-    // Só o caminho privado vai ao saved state, nunca bytes nem token.
-    var arquivoPath by rememberSaveable(pagamentoId) { mutableStateOf<String?>(null) }
+    // Bytes apenas em memória. Após recriação, busca autenticada no retorno do seletor.
+    var arquivo by remember { mutableStateOf<ComprovanteArquivo?>(null) }
+    var escolhendoDestino by rememberSaveable(pagamentoId) { mutableStateOf(false) }
     var mensagem by remember { mutableStateOf<String?>(null) }
     val salvar = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri ->
-        val path = arquivoPath
-        arquivoPath = null
-        if (path != null) scope.launch {
+        val preparado = arquivo
+        arquivo = null
+        escolhendoDestino = false
+        if (uri != null) {
             ocupado = true
-            val salvo = withContext(Dispatchers.IO) {
-                val arquivo = File(path)
-                try {
-                    if (uri == null) true else runCatching {
-                        context.contentResolver.openOutputStream(uri)?.use { out -> arquivo.inputStream().use { it.copyTo(out) } } ?: error("Destino indisponível")
-                    }.isSuccess
-                } finally { arquivo.delete() }
+            executor.executar({ token ->
+                ComprovanteDownload.salvar(preparado,
+                    obter = { FinanceiroApi.baixar(token, pagamentoId) },
+                    abrirDestino = { context.contentResolver.openOutputStream(uri) },
+                )
+            }) { r ->
+                ocupado = false
+                mensagem = when (r) {
+                    is Resposta.Ok -> "Comprovante salvo."
+                    is Resposta.Falha -> r.mensagem
+                }
             }
-            ocupado = false
-            if (uri != null) mensagem = if (salvo) "Comprovante salvo." else "Não foi possível salvar. Tente novamente."
         }
     }
-    TextButton(enabled = !ocupado && arquivoPath == null, onClick = {
+    TextButton(enabled = !ocupado && !escolhendoDestino, onClick = {
         ocupado = true; mensagem = null
-        executor.executar({ token ->
-            when (val r = FinanceiroApi.baixar(token, pagamentoId)) {
-                is Resposta.Falha -> r
-                is Resposta.Ok -> runCatching {
-                    val dir = File(context.cacheDir, "comprovantes").apply { mkdirs() }
-                    dir.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - 86_400_000 }?.forEach { it.delete() }
-                    val arquivo = File(dir, "${UUID.randomUUID()}.${r.dados.nome.substringAfterLast('.')}")
-                    arquivo.writeBytes(r.dados.bytes)
-                    Resposta.Ok(arquivo.absolutePath to r.dados.nome)
-                }.getOrElse { Resposta.Falha("Não foi possível preparar o comprovante.", 0) }
-            }
-        }) { r ->
+        executor.executar({ FinanceiroApi.baixar(it, pagamentoId) }) { r ->
             ocupado = false
             when (r) {
-                is Resposta.Ok -> { arquivoPath = r.dados.first; salvar.launch(r.dados.second) }
+                is Resposta.Ok -> {
+                    arquivo = r.dados
+                    escolhendoDestino = true
+                    salvar.launch(r.dados.nome)
+                }
                 is Resposta.Falha -> mensagem = r.mensagem
             }
         }
