@@ -39,6 +39,10 @@ import type {
 
 const MSG_SEM_ESPECIALIDADE =
   'Complete a especialidade do perfil para se candidatar a esta vaga.'
+const MSG_CRM_NAO_VALIDADO =
+  'Seu CRM ainda não foi validado. Aguarde a análise para se candidatar.'
+const MSG_CRM_NAO_VALIDADO_GESTOR =
+  'O CRM deste médico não está validado. A candidatura não pode ser aprovada.'
 const MSG_CANDIDATURA_ENVIADA = mensagensOficiais['MSG-09']
 const MSG_ALOCACAO = mensagensOficiais['MSG-17']
 const MSG_DOUBLE_BOOKING = mensagensOficiais['MSG-10']
@@ -66,6 +70,7 @@ export class CandidaturasService {
         .select({
           id: medicosTable.id,
           especialidade: medicosTable.especialidade,
+          status_validacao: medicosTable.status_validacao,
         })
         .from(medicosTable)
         .where(
@@ -77,6 +82,11 @@ export class CandidaturasService {
         .for('update')
         .limit(1)
       if (!medico) throw new NotFoundException('Perfil médico não encontrado')
+
+      // crm pendente ou rejeitado nao se candidata
+      if (medico.status_validacao !== 'APROVADO') {
+        throw new ForbiddenException(MSG_CRM_NAO_VALIDADO)
+      }
 
       // RN17 — Sem especialidade, não aplica para vagas específicas.
       if (!medico.especialidade) {
@@ -297,7 +307,10 @@ export class CandidaturasService {
       // sobrepostos disputam esta linha; o segundo reavalia a agenda após o
       // commit do primeiro (RN16 a rigor).
       const [medico] = await tx
-        .select({ id: medicosTable.id })
+        .select({
+          id: medicosTable.id,
+          status_validacao: medicosTable.status_validacao,
+        })
         .from(medicosTable)
         .where(
           and(
@@ -308,6 +321,10 @@ export class CandidaturasService {
         .for('update')
         .limit(1)
       if (!medico) throw new NotFoundException('Perfil médico não encontrado')
+      // o crm pode ter sido rejeitado depois da candidatura
+      if (medico.status_validacao !== 'APROVADO') {
+        throw new ForbiddenException(MSG_CRM_NAO_VALIDADO_GESTOR)
+      }
 
       // 2ª trava: plantão.
       const [plantao] = await tx
