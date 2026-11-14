@@ -29,11 +29,12 @@ describe('Minhas candidaturas (GET /candidaturas/medico, #49)', () => {
     plantaoId: string,
     medicoId: string,
     status = 'PENDENTE',
+    criadaEm: string | null = null,
   ): Promise<string> {
     const [candidatura] = (
       await database.query<{ id: string }>(
-        'INSERT INTO candidaturas (plantao_id, medico_id, status) VALUES ($1, $2, $3) RETURNING id',
-        [plantaoId, medicoId, status],
+        'INSERT INTO candidaturas (plantao_id, medico_id, status, created_at) VALUES ($1, $2, $3, COALESCE($4::timestamptz, now())) RETURNING id',
+        [plantaoId, medicoId, status, criadaEm],
       )
     ).rows
     return candidatura.id
@@ -90,7 +91,11 @@ describe('Minhas candidaturas (GET /candidaturas/medico, #49)', () => {
       )
     ).rows[0]
 
-    const criarPlantao = async (titulo: string, inicio: string, fim: string) => {
+    const criarPlantao = async (
+      titulo: string,
+      inicio: string,
+      fim: string,
+    ) => {
       const [plantao] = (
         await database.query<{ id: string }>(
           `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade,
@@ -141,8 +146,18 @@ describe('Minhas candidaturas (GET /candidaturas/medico, #49)', () => {
   })
 
   it('lista as candidaturas do próprio médico com plantão e instituição', async () => {
-    await inserirCandidatura(plantaoAberto, medico1Id)
-    await inserirCandidatura(plantaoUmaVaga, medico1Id, 'REJEITADA')
+    await inserirCandidatura(
+      plantaoAberto,
+      medico1Id,
+      'PENDENTE',
+      '2026-01-01T10:00:00Z',
+    )
+    await inserirCandidatura(
+      plantaoUmaVaga,
+      medico1Id,
+      'REJEITADA',
+      '2026-01-01T11:00:00Z',
+    )
 
     const resposta = await listar(medico1Token).expect(200)
     expect(resposta.body).toHaveLength(2)
@@ -204,7 +219,9 @@ describe('Minhas candidaturas (GET /candidaturas/medico, #49)', () => {
     expect(aprovadas.body).toHaveLength(1)
     expect(aprovadas.body[0].plantao.id).toBe(plantaoUmaVaga)
 
-    const rejeitadas = await listar(medico1Token, '?status=REJEITADA').expect(200)
+    const rejeitadas = await listar(medico1Token, '?status=REJEITADA').expect(
+      200,
+    )
     expect(rejeitadas.body).toHaveLength(0)
   })
 
@@ -233,6 +250,24 @@ describe('Minhas candidaturas (GET /candidaturas/medico, #49)', () => {
     expect(tudo.body).toHaveLength(2)
   })
 
+  it('pagina sem repetir nem omitir itens com created_at igual', async () => {
+    const ids = [
+      await inserirCandidatura(plantaoAberto, medico1Id),
+      await inserirCandidatura(plantaoUmaVaga, medico1Id),
+    ]
+    await database.query(
+      "UPDATE candidaturas SET created_at = '2026-01-01T12:00:00Z' WHERE medico_id = $1",
+      [medico1Id],
+    )
+
+    const primeira = await listar(medico1Token, '?limit=1&offset=0').expect(200)
+    const segunda = await listar(medico1Token, '?limit=1&offset=1').expect(200)
+
+    expect([primeira.body[0].id, segunda.body[0].id].sort((a, b) => a.localeCompare(b))).toEqual(
+      [...ids].sort((a, b) => a.localeCompare(b)),
+    )
+  })
+
   it('médico sem candidaturas recebe lista vazia', async () => {
     const resposta = await listar(medico1Token).expect(200)
     expect(resposta.body).toEqual([])
@@ -240,7 +275,10 @@ describe('Minhas candidaturas (GET /candidaturas/medico, #49)', () => {
 
   it('candidatura excluída (soft delete) não aparece', async () => {
     const id = await inserirCandidatura(plantaoAberto, medico1Id)
-    await database.query('UPDATE candidaturas SET deleted_at = now() WHERE id = $1', [id])
+    await database.query(
+      'UPDATE candidaturas SET deleted_at = now() WHERE id = $1',
+      [id],
+    )
     const resposta = await listar(medico1Token).expect(200)
     expect(resposta.body).toEqual([])
   })
