@@ -280,9 +280,81 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
       await alocarConfirmado(plantaoEncerrando, '654321')
       await candidatar(plantaoAberto, medico2Token).expect(201)
     })
+
+    it('201: plantão cancelado no mesmo horário não é conflito de agenda', async () => {
+      const cancelado = await novoPlantao({
+        titulo: 'Cancelado no mesmo horário',
+        inicio: ts(5),
+        fim: ts(6),
+        status: 'CANCELADO',
+      })
+      await alocarConfirmado(cancelado, '654321')
+      await candidatar(plantaoAberto, medico2Token).expect(201)
+    })
   })
 
   describe('UC11 — Avaliar candidaturas', () => {
+    // candidatura do medico 1 e o que o banco ficou depois da tentativa
+    async function candidaturaPendente(plantaoId: string) {
+      return (await candidatar(plantaoId, medico1Token).expect(201)).body
+        .candidatura as { id: string }
+    }
+    async function semAlocacao(candidaturaId: string) {
+      const alocacoes = await database.query('SELECT id FROM alocacoes')
+      expect(alocacoes.rows).toHaveLength(0)
+      const status = await database.query<{ status: string }>(
+        'SELECT status FROM candidaturas WHERE id = $1',
+        [candidaturaId],
+      )
+      expect(status.rows[0].status).toBe('PENDENTE')
+    }
+
+    it('409: plantão que já terminou não recebe alocação', async () => {
+      const encerrado = await novoPlantao({
+        titulo: 'Já terminou',
+        inicio: ts(-2),
+        fim: ts(-1.5),
+      })
+      const medico = (
+        await database.query<{ id: string }>(
+          "SELECT id FROM medicos WHERE crm = '123456'",
+        )
+      ).rows[0]
+      // direto no banco: a candidatura e de antes do plantao acabar
+      const candidatura = (
+        await database.query<{ id: string }>(
+          'INSERT INTO candidaturas (plantao_id, medico_id) VALUES ($1, $2) RETURNING id',
+          [encerrado, medico.id],
+        )
+      ).rows[0]
+
+      const resposta = await aprovar(encerrado, candidatura.id, gestorToken).expect(409)
+      expect(resposta.body.message).toBe(
+        'Este plantão já terminou e não pode receber alocação.',
+      )
+      await semAlocacao(candidatura.id)
+    })
+
+    it('409: instituição inativa não aloca', async () => {
+      const candidatura = await candidaturaPendente(plantaoUmaVaga)
+      await database.query('UPDATE instituicoes SET ativa = false')
+
+      const resposta = await aprovar(plantaoUmaVaga, candidatura.id, gestorToken).expect(409)
+      expect(resposta.body.message).toBe('A instituição deste plantão está inativa.')
+      await semAlocacao(candidatura.id)
+    })
+
+    it('409: conta do médico inativa não é alocada', async () => {
+      const candidatura = await candidaturaPendente(plantaoUmaVaga)
+      await database.query(
+        "UPDATE usuarios SET status = 'INATIVO' WHERE nome = 'Médico Um'",
+      )
+
+      const resposta = await aprovar(plantaoUmaVaga, candidatura.id, gestorToken).expect(409)
+      expect(resposta.body.message).toBe('A conta deste médico não está ativa.')
+      await semAlocacao(candidatura.id)
+    })
+
     it('listar exige autenticação (401) e gestor responsável (403)', async () => {
       await request(app.getHttpServer())
         .get(`/plantoes/${plantaoAberto}/candidaturas`)
