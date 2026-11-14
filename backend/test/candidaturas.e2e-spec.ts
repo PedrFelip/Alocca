@@ -122,10 +122,10 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
     const gestor2 = usuario('Gestor Dois')
 
     await database.query(
-      "INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade) SELECT id, '123456', 'DF', 'Clínica Médica' FROM usuarios WHERE nome = 'Médico Um'",
+      "INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade, status_validacao) SELECT id, '123456', 'DF', 'Clínica Médica', 'APROVADO' FROM usuarios WHERE nome = 'Médico Um'",
     )
     await database.query(
-      "INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade) SELECT id, '654321', 'SP', 'Clínica Médica' FROM usuarios WHERE nome = 'Médico Dois'",
+      "INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade, status_validacao) SELECT id, '654321', 'SP', 'Clínica Médica', 'APROVADO' FROM usuarios WHERE nome = 'Médico Dois'",
     )
     // Gestor Um tem perfil de gestor; Gestor Dois também, sem vínculo com a instituição.
     await database.query(
@@ -220,7 +220,7 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
         )
       ).rows[0]
       await database.query(
-        'INSERT INTO medicos (usuario_id, crm, uf_crm) VALUES ($1, $2, $3)',
+        "INSERT INTO medicos (usuario_id, crm, uf_crm, status_validacao) VALUES ($1, $2, $3, 'APROVADO')",
         [usuarioSemEspecialidade.id, '999111', 'DF'],
       )
       const tokenSemEspecialidade = `Bearer ${await app
@@ -234,6 +234,22 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
       expect(resposta.body.message).toBe(
         'Complete a especialidade do perfil para se candidatar a esta vaga.',
       )
+    })
+
+    it('403: médico com CRM pendente ou rejeitado não se candidata', async () => {
+      for (const status of ['PENDENTE', 'REJEITADO']) {
+        await database.query(
+          `UPDATE medicos SET status_validacao = $1 FROM usuarios
+           WHERE usuarios.id = medicos.usuario_id AND usuarios.nome = 'Médico Um'`,
+          [status],
+        )
+        const resposta = await candidatar(plantaoAberto, medico1Token).expect(403)
+        expect(resposta.body.message).toBe(
+          'Seu CRM ainda não foi validado. Aguarde a análise para se candidatar.',
+        )
+      }
+      const candidaturas = await database.query('SELECT id FROM candidaturas')
+      expect(candidaturas.rows).toHaveLength(0)
     })
 
     it('404: candidatura a plantão inexistente', async () => {
@@ -297,6 +313,33 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
         .get(`/plantoes/${plantaoAberto}/candidaturas`)
         .set('Authorization', gestorEstranhoToken)
         .expect(403)
+    })
+
+    it('403: CRM rejeitado depois da candidatura não deixa aprovar', async () => {
+      const candidatura = (
+        await candidatar(plantaoUmaVaga, medico1Token).expect(201)
+      ).body.candidatura
+      await database.query(
+        `UPDATE medicos SET status_validacao = 'REJEITADO' WHERE id = $1`,
+        [candidatura.medico_id],
+      )
+
+      const resposta = await aprovar(
+        plantaoUmaVaga,
+        candidatura.id,
+        gestorToken,
+      ).expect(403)
+      expect(resposta.body.message).toBe(
+        'O CRM deste médico não está validado. A candidatura não pode ser aprovada.',
+      )
+      // nada muda: sem alocacao e a candidatura continua pendente
+      const alocacoes = await database.query('SELECT id FROM alocacoes')
+      expect(alocacoes.rows).toHaveLength(0)
+      const status = await database.query<{ status: string }>(
+        'SELECT status FROM candidaturas WHERE id = $1',
+        [candidatura.id],
+      )
+      expect(status.rows[0].status).toBe('PENDENTE')
     })
 
     it('200: gestor lista candidatos do próprio plantão', async () => {
