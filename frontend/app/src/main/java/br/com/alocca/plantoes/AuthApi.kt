@@ -27,6 +27,7 @@ internal object AuthApi {
     private const val MSG_02 = "Este dado (E-mail/CPF/CRM) já pertence a uma conta ativa."
     private const val MSG_03 = "Conta bloqueada temporariamente. Tente novamente em 15 minutos."
     private const val FALHA_GENERICA = "Não foi possível concluir. Tente novamente."
+    private const val MUITOS_PEDIDOS = "Muitas tentativas. Aguarde um minuto e tente de novo."
 
     fun post(path: String, payload: JSONObject): ApiResult {
         val result = request(path, "POST", payload = payload)
@@ -38,6 +39,23 @@ internal object AuthApi {
             else ApiResult(false, null, INVALID_RESPONSE, result.status)
             else -> ApiResult(false, null, "Operação não suportada.", result.status)
         }
+    }
+
+    // recuperacao de senha (UC04): a resposta so traz a mensagem
+    fun recuperarSenha(email: String): ApiResult =
+        postMensagem("auth/recuperar-senha", JSONObject().put("email", email))
+
+    fun redefinirSenha(codigo: String, novaSenha: String): ApiResult =
+        postMensagem("auth/redefinir-senha", JSONObject().put("token", codigo).put("nova_senha", novaSenha))
+
+    private fun postMensagem(path: String, payload: JSONObject): ApiResult {
+        val result = request(path, "POST", payload = payload)
+        // aqui o 429 e o limite de pedidos, nao conta bloqueada
+        if (result.status == 429) return result.copy(message = MUITOS_PEDIDOS)
+        if (!result.successful) return result
+        val mensagem = result.body?.optString("message").orEmpty()
+        return if (mensagem.isBlank()) ApiResult(false, null, INVALID_RESPONSE, result.status)
+        else result.copy(message = mensagem)
     }
 
     /** Consulta o perfil autenticado para validar uma sessão restaurada. */
