@@ -55,10 +55,7 @@ export class AuthService {
             usuario.id,
             tentativa.tentativas_falhas,
           )
-          throw new HttpException(
-            'Conta bloqueada temporariamente. Tente novamente em 15 minutos.',
-            429,
-          )
+          throw new HttpException(mensagensOficiais['MSG-03'], 429)
         }
         this.registrarLoginFalho(
           'SENHA_INCORRETA',
