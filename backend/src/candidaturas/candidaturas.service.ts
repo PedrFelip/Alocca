@@ -646,24 +646,18 @@ export class CandidaturasService {
     instituicaoId: string,
     usuarioId: string,
   ): Promise<boolean> {
-    const [gestor] = await this.db
-      .select({ id: gestoresTable.id })
+    const [vinculo] = await this.db
+      .select({ um: sql`1` })
       .from(gestoresTable)
+      .innerJoin(
+        gestoresInstituicoesTable,
+        eq(gestoresInstituicoesTable.gestor_id, gestoresTable.id),
+      )
       .where(
         and(
           eq(gestoresTable.usuario_id, usuarioId),
           eq(gestoresTable.ativa, true),
           isNull(gestoresTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!gestor) return false
-    const [vinculo] = await this.db
-      .select({ um: sql`1` })
-      .from(gestoresInstituicoesTable)
-      .where(
-        and(
-          eq(gestoresInstituicoesTable.gestor_id, gestor.id),
           eq(gestoresInstituicoesTable.instituicao_id, instituicaoId),
         ),
       )
