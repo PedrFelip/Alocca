@@ -17,6 +17,7 @@ const envSchema = z
     ADMIN_WEB_ORIGIN: z.url().default('http://localhost:5173'),
     ADMIN_EMAIL: z.email().trim().toLowerCase().optional(),
     ADMIN_PASSWORD: z.string().min(8).max(128).optional(),
+    SEAWEEDFS_FILER_URL: z.url().default('http://127.0.0.1:8888'),
     DATABASE_URL: z.string().url('DATABASE_URL deve ser uma URL válida'),
     // sem smtp o back sobe, so nao manda e-mail
     SMTP_HOST: z.preprocess(vazioViraNada, z.string().trim().min(1).optional()),

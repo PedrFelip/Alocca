@@ -72,6 +72,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -100,6 +103,13 @@ class MainActivity : ComponentActivity() {
 
         setContent { MaterialTheme { AuthApp() } }
     }
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch(Dispatchers.IO) {
+            ComprovanteDownload.limparCacheLegado(cacheDir)
+        }
+    }
+
 }
 
 private enum class Screen { Login, Register, EsqueciSenha }
@@ -1040,16 +1050,7 @@ private fun InstitutionPaymentsScreen(onNavigate: (InstitutionScreen) -> Unit) {
     InstitutionPage(InstitutionScreen.Payments, onNavigate) {
         SimpleManagerTitle("Pagamentos", "Acompanhe os pagamentos dos plantões, visualize o histórico e\ngerencie os valores de forma prática e segura.")
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PaymentSummary("Total a pagar", "R$ 24.580,00", "12 plantões", Color(0xFFEAF5FF))
-                PaymentSummary("Pagamentos\nrealizados", "R$ 18.320,00", "8 plantões", Color(0xFFEAFBF3))
-                PaymentSummary("Aguardando\npagamento", "R$ 6.260,00", "4 plantões", Color(0xFFFFF4E4))
-            }
-            Spacer(Modifier.height(17.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) { Text("Pagamentos recentes", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("Ver todos", color = Color(0xFF1679C3), fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-            Spacer(Modifier.height(10.dp))
-            listOf("Dr. Carlos Mendes" to "R$ 1.800,00" to "Pago", "Dra. Ana Souza" to "R$ 1.200,00" to "Pago", "Dr. Rafael Lima" to "R$ 1.500,00" to "Aguardando", "Dra. Juliana Alves" to "R$ 1.300,00" to "Pago", "Dr. Bruno Costa" to "R$ 1.100,00" to "Aguardando").forEach { item -> PaymentCard(item.first.first, item.first.second, item.second) }
-            Spacer(Modifier.height(18.dp))
+            PagamentosGestorConteudo()
         }
         ManagerBottomNavigation(InstitutionScreen.Payments, onNavigate)
     }

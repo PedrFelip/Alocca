@@ -406,3 +406,7 @@ Para garantir entrega incremental e testável, o agente deve implementar os mód
 * **Erros:** exception filter centralizado retornando o padrão MSG-XX do spec.
 * **Env:** nenhum segredo hardcodado (`.env`, chaves JWT, credenciais).
 * **Logs:** estruturados com timestamp para login falho, aprovação de alocação e baixa financeira.
+
+## Contrato financeiro implementado (#85/#86, decisão de 14/11/2026)
+
+As rotas atuais não usam `/api/v1` e os campos são snake_case, seguindo o contrato existente (D18). Ver `contrato-financeiro.md`. Recebido soma PAGO; a receber soma PENDENTE sem vencimento ou com vencimento >= now(); em atraso soma PENDENTE com vencimento < now(). Não há prazo automático. O fim do plantão define apenas elegibilidade para baixa (RN28). SeaweedFS Filer privado guarda `/comprovantes/<UUID>.<ext>`; `pagamentos.comprovante_chave` e `comprovante_mime` guardam a referência interna. O backend autoriza cada download e serve o arquivo sem URL pública (D11/D14).

@@ -24,6 +24,8 @@ export const pagamentosTable = pgTable(
     vencimento_em: timestamp('vencimento_em'),
     pago_at: timestamp('pago_at'),
     observacoes: text('observacoes'),
+    comprovante_chave: text('comprovante_chave'),
+    comprovante_mime: text('comprovante_mime'),
     registrado_por_gestor_id: uuid('registrado_por_gestor_id').references(
       () => gestoresTable.id,
     ),
