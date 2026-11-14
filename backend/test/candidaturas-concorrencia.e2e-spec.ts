@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 import { CandidaturasService } from '../src/candidaturas/candidaturas.service.ts'
+import { GestoresService } from '../src/gestores/gestores.service.ts'
 
 /**
  * Cenários de concorrência (review do PR): aprovações simultâneas do mesmo
@@ -53,7 +54,8 @@ describeConcorrencia(
     function servicoEm(): CandidaturasService {
       const conexao = postgres(urlBanco(), { max: 2 })
       conexoes.push(conexao)
-      return new CandidaturasService(drizzle({ client: conexao as never }))
+      const db = drizzle({ client: conexao as never })
+      return new CandidaturasService(db, new GestoresService(db))
     }
 
     function aprovar(service: CandidaturasService, plantaoId: string, candidaturaId: string) {

@@ -23,6 +23,8 @@ Marque `[x]` e mova para o spec quando decidir.
 
 ## Regras e fluxos
 
+- [ ] **Publicação com início no passado (UC10):** decidir se o servidor deve rejeitar plantões cuja data de início já passou. A especificação atual não proíbe explicitamente; avaliar também o efeito no feed.
+
 - [ ] **D17 — Completude de perfil na candidatura (RN17):** porção "Sem Especialidade, não aplica para vagas específicas" implementada no UC05 (médico sem `especialidade` recebe 403). Pendente: limiar de `taxaCompletude` exigido e se a especialidade declarada precisa casar com a `especialidade` do plantão. Impacto: filtro de candidatos/publicação.
 - [ ] **D5 — Convites diretos (RN31):** regra de expiração existe, mas não há nenhum endpoint/UC de convite no spec. Vai ter convite direto no MVP ou a RN31 cai? Impacto: escopo do MVP.
 - [ ] **D6 — Numeração das RNs:** unifiquei pela base do AGENTS + RN31 por inferência (item 15). Validar se algum número conflita com doc externa (mobile/Kotlin).
@@ -35,3 +37,4 @@ Marque `[x]` e mova para o spec quando decidir.
 
 - [ ] **D11 — SeaweedFS:** bucket, URL pública vs assinada, quem serve o download do comprovante (back-end proxy ou URL direta)? Impacto: UC08/UC12.
 - [ ] **D12 — Cadastro de gestor e de instituição:** não há UC para criar conta de gestor nem vincular instituição (só `GET /instituicoes/vinculadas`). Endpoints novos ou seed manual? Impacto: UC10 trava sem isso.
+- [ ] **D22 — Paginação do `GET /plantoes/gerenciados` por offset:** o app pagina por `offset` (páginas de 50); inserção/remoção de plantões entre duas páginas pode omitir ou repetir itens. A janela é pequena (a tela recarrega da página 0 a cada entrada), mas o correto é paginação por cursor (`data_inicio` + `id`). Impacto: contrato do app + novo parâmetro.

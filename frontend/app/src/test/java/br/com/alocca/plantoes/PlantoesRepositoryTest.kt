@@ -20,11 +20,11 @@ class PlantoesRepositoryTest {
         val repository = HttpPlantoesRepository(transport)
         repository.feed(2)
         repository.minhasCandidaturas(1)
-        repository.plantoesGestor()
+        repository.plantoesGestor(0)
         repository.candidatos("plantao-1")
         assertEquals(listOf(
             "plantoes?limit=20&offset=40", "candidaturas/medico?limit=20&offset=20",
-            "plantoes/gestor", "plantoes/plantao-1/candidaturas",
+            "plantoes/gerenciados?limit=20&offset=0", "plantoes/plantao-1/candidaturas",
         ), transport.calls.map { it.first })
         assertTrue(transport.calls.all { it.second == null })
     }
@@ -38,7 +38,7 @@ class PlantoesRepositoryTest {
         assertEquals("1234.50", item.valor)
         assertEquals("", item.local)
         transport.response = Resultado.Sucesso("""[{"id":"p2","instituicao":"Clínica","valor":100}]""")
-        val flat = (HttpPlantoesRepository(transport).plantoesGestor() as Resultado.Sucesso).valor.single()
+        val flat = (HttpPlantoesRepository(transport).plantoesGestor(0) as Resultado.Sucesso).valor.single()
         assertEquals("Clínica", flat.instituicao)
         assertEquals("100", flat.valor)
     }

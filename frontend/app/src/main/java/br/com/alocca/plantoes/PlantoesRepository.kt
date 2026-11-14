@@ -32,7 +32,7 @@ internal sealed interface Resultado<out T> {
 internal interface PlantoesRepository {
     suspend fun feed(pagina: Int): Resultado<List<ItemPlantao>>
     suspend fun minhasCandidaturas(pagina: Int): Resultado<List<ItemPlantao>>
-    suspend fun plantoesGestor(): Resultado<List<ItemPlantao>>
+    suspend fun plantoesGestor(pagina: Int): Resultado<List<ItemPlantao>>
     suspend fun candidatos(plantaoId: String): Resultado<List<ItemPlantao>>
     suspend fun candidatar(plantaoId: String, mensagem: String): Resultado<Unit>
     suspend fun aprovar(plantaoId: String, candidaturaId: String): Resultado<Unit>
@@ -48,7 +48,7 @@ internal class HttpPlantoesRepository(
     constructor(token: String) : this(UrlConnectionPlantoesTransport(token))
     override suspend fun feed(pagina: Int) = listar("plantoes?limit=20&offset=${pagina * 20}")
     override suspend fun minhasCandidaturas(pagina: Int) = listar("candidaturas/medico?limit=20&offset=${pagina * 20}")
-    override suspend fun plantoesGestor() = listar("plantoes/gestor")
+    override suspend fun plantoesGestor(pagina: Int) = listar("plantoes/gerenciados?limit=20&offset=${pagina * 20}")
     override suspend fun candidatos(plantaoId: String) = listar("plantoes/$plantaoId/candidaturas")
     override suspend fun candidatar(plantaoId: String, mensagem: String) = enviar(
         "plantoes/$plantaoId/candidaturas", JSONObject().apply {

@@ -12,16 +12,16 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit) {
+internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit, inicial: ItemPlantao? = null) {
     val context = LocalContext.current
     val repository = remember(context) { HttpPlantoesRepository(TokenStore.read(context).orEmpty()) }
-    PlantoesScreen(gestor, onBack, repository)
+    PlantoesScreen(gestor, onBack, repository, inicial)
 }
 
 @Composable
-internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit, repository: PlantoesRepository) {
+internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit, repository: PlantoesRepository, inicial: ItemPlantao? = null) {
     var aba by remember { mutableIntStateOf(0) }
-    var plantao by remember { mutableStateOf<ItemPlantao?>(null) }
+    var plantao by remember { mutableStateOf(inicial) }
     var itens by remember { mutableStateOf<List<ItemPlantao>>(emptyList()) }
     var erro by remember { mutableStateOf("") }
     var aviso by remember { mutableStateOf("") }
@@ -32,13 +32,13 @@ internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit, repository: Pla
     var pagina by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     var enviando by remember { mutableStateOf(false) }
-    val voltar = { if (!enviando) { if (plantao != null) plantao = null else onBack() } }
+    val voltar = { if (!enviando) { if (plantao != null && inicial == null) plantao = null else onBack() } }
     BackHandler(onBack = voltar)
     LaunchedEffect(repository, gestor, plantao?.id, aba, pagina, revisao) {
         carregando = true; erro = ""; itens = emptyList()
         val resultado = when {
             gestor && plantao != null -> repository.candidatos(plantao!!.id)
-            gestor -> repository.plantoesGestor()
+            gestor -> repository.plantoesGestor(pagina)
             aba == 0 -> repository.feed(pagina)
             else -> repository.minhasCandidaturas(pagina)
         }
@@ -66,7 +66,7 @@ internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit, repository: Pla
     }
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(16.dp)) {
         TextButton(enabled = !enviando, onClick = voltar) { Text("‹ Voltar") }
-        Text(if (gestor) plantao?.titulo ?: "Plantões da instituição" else "Plantões", style = MaterialTheme.typography.headlineSmall)
+        Text(if (gestor) plantao?.titulo ?: "Plantões da instituição" else "Plantões", style = MaterialTheme.typography.headlineSmall, color = Navy)
         if (!gestor) Row { TextButton(enabled = !enviando, onClick = { aba = 0; pagina = 0 }) { Text("Feed") }; TextButton(enabled = !enviando, onClick = { aba = 1; pagina = 0 }) { Text("Minhas candidaturas") } }
         if (carregando || enviando) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (erro.isNotBlank()) { Text(erro, color = MaterialTheme.colorScheme.error); TextButton(onClick = { revisao++ }) { Text("Tentar novamente") } }
@@ -78,12 +78,12 @@ internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit, repository: Pla
                     if (gestor && plantao != null) {
                         Text(item.medico.ifBlank { "Médico" }, style = MaterialTheme.typography.titleMedium)
                         Text("CRM: ${item.crm}  •  ${item.status}")
-                        item.mensagem.takeIf { it.isNotBlank() && it != "null" }?.let { Text(it) }
+                        item.mensagem.takeIf { it.isNotBlank() }?.let { Text(it) }
                         if (item.status == "PENDENTE") Button(enabled = !carregando && !enviando, onClick = { selecionado = item }) { Text("Aprovar") }
                     } else {
                         Text(item.titulo, style = MaterialTheme.typography.titleMedium)
-                        Text(listOf(item.instituicao, item.especialidade, item.local).filter { it.isNotBlank() && it != "null" }.joinToString(" • "))
-                        Text("${item.inicio} — ${item.fim}")
+                        Text(listOf(item.instituicao, item.especialidade, item.local).filter { it.isNotBlank() }.joinToString(" • "))
+                        Text("${PlantoesApi.formatarDataHora(item.inicio)} — ${PlantoesApi.formatarDataHora(item.fim)}", color = Navy)
                         item.valor?.let { Text("Valor: R$ $it") }
                         if (!gestor && aba == 1) Text("Status: ${item.status}")
                         if (gestor) TextButton(enabled = !enviando, onClick = { plantao = item; aviso = "" }) { Text("Ver candidaturas") }
