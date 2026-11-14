@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { DRIZZLE_DB, type Database } from "../db/db.provider.ts";
 import {
   alocacoesTable,
@@ -35,6 +35,9 @@ function visaoDoMedico(medicoId: string) {
     isNull(alocacoesTable.deleted_at),
     isNull(pagamentosTable.deleted_at),
     isNull(instituicoesTable.deleted_at),
+    // plantao excluido ou cancelado nao entra no financeiro
+    isNull(plantoesTable.deleted_at),
+    ne(plantoesTable.status, "CANCELADO"),
   );
 }
 
