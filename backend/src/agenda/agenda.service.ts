@@ -1,11 +1,11 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common'
+import { PerfilMedicoService } from '../medicos/perfil-medico.service.ts'
+import { Inject, Injectable } from '@nestjs/common'
 import { and, eq, gte, isNull, lt, sql } from 'drizzle-orm'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
   alocacoesTable,
   candidaturasTable,
   instituicoesTable,
-  medicosTable,
   plantoesTable,
 } from '../db/schemas/index.ts'
 import type { AgendaDia, AgendaPeriodo } from './agenda.tipos.ts'
@@ -47,7 +47,12 @@ type RegistroDoBanco = {
     valor: string
     local_unidade: string
   }
-  instituicao: { id: string; nome: string; cidade: string | null; uf: string | null }
+  instituicao: {
+    id: string
+    nome: string
+    cidade: string | null
+    uf: string | null
+  }
 }
 
 type RegistroBruto = Omit<RegistroDoBanco, 'tipo_origem'> & {
@@ -56,10 +61,13 @@ type RegistroBruto = Omit<RegistroDoBanco, 'tipo_origem'> & {
 
 @Injectable()
 export class AgendaService {
-  constructor(@Inject(DRIZZLE_DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DRIZZLE_DB) private readonly db: Database,
+    @Inject(PerfilMedicoService) private readonly perfis: PerfilMedicoService,
+  ) {}
 
   async doMes(usuarioId: string, periodo: AgendaPeriodo): Promise<AgendaDia[]> {
-    const medicoId = await this.perfilMedicoId(usuarioId)
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
 
     // Limites do mês no mesmo fuso nomeado usado para agrupar por dia
     // (respeita o horário de verão histórico de America/Sao_Paulo).
@@ -154,7 +162,10 @@ export class AgendaService {
         plantao: registro.plantao,
         instituicao: registro.instituicao,
       }))
-      .sort((a, b) => a.plantao.data_inicio.getTime() - b.plantao.data_inicio.getTime())
+      .sort(
+        (a, b) =>
+          a.plantao.data_inicio.getTime() - b.plantao.data_inicio.getTime(),
+      )
 
     const dias = new Map<string, AgendaDia>()
     for (const item of itens) {
@@ -164,22 +175,5 @@ export class AgendaService {
       dias.set(chave, grupo)
     }
     return [...dias.values()]
-  }
-
-  private async perfilMedicoId(usuarioId: string) {
-    const [medico] = await this.db
-      .select({ id: medicosTable.id })
-      .from(medicosTable)
-      .where(
-        and(
-          eq(medicosTable.usuario_id, usuarioId),
-          isNull(medicosTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!medico) {
-      throw new NotFoundException('Perfil médico não encontrado')
-    }
-    return medico.id
   }
 }

@@ -1,3 +1,4 @@
+import { usuarioPublico } from './usuario-publico.ts'
 import {
   ConflictException,
   Inject,
@@ -13,14 +14,8 @@ import type { AtualizarUsuario, CadastroMedico } from './usuarios.schemas.ts'
 
 export type Usuario = typeof usuariosTable.$inferSelect
 
-export function usuarioPublico(usuario: Usuario) {
-  const { senha_hash: _senha, ...publico } = usuario
-  return publico
-}
-
 // MSG-02 — mensagem oficial para qualquer dado duplicado no cadastro.
-export const MSG_CONFLITO_CADASTRO =
-  mensagensOficiais['MSG-02']
+export const MSG_CONFLITO_CADASTRO = mensagensOficiais['MSG-02']
 
 function tratarConflito(error: unknown): never {
   // Drizzle mantém o erro do PostgreSQL em cause.

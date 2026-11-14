@@ -19,6 +19,10 @@ const envSchema = z
     ADMIN_PASSWORD: z.string().min(8).max(128).optional(),
     DATABASE_URL: z.string().url('DATABASE_URL deve ser uma URL válida'),
     // sem smtp o back sobe, so nao manda e-mail
+    EMAIL_OUTBOX_SECRET: z.preprocess(
+      vazioViraNada,
+      z.string().min(32).optional(),
+    ),
     SMTP_HOST: z.preprocess(vazioViraNada, z.string().trim().min(1).optional()),
     SMTP_PORT: z.preprocess(
       vazioViraNada,

@@ -122,7 +122,14 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
       email: 'maria@example.com',
       medico: { crm: '123456', uf_crm: 'SP' },
     })
-    expect(response.body).not.toHaveProperty('senha_hash')
+    for (const campo of [
+      'senha_hash',
+      'tentativas_falhas',
+      'bloqueado_ate',
+      'deleted_at',
+    ]) {
+      expect(response.body).not.toHaveProperty(campo)
+    }
     const result = await database.query<{ senha_hash: string }>(
       "SELECT cpf, senha_hash FROM usuarios WHERE email = 'maria@example.com'",
     )

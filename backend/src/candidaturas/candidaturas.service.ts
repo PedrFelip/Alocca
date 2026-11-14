@@ -1,3 +1,7 @@
+import { AlocacaoRepository } from './alocacao.repository.ts'
+import { AprovarCandidaturaUseCase } from './aprovar-candidatura.use-case.ts'
+import { AcessoInstitucionalService } from '../gestores/acesso-institucional.service.ts'
+import { PerfilMedicoService } from '../medicos/perfil-medico.service.ts'
 import {
   ConflictException,
   ForbiddenException,
@@ -6,31 +10,14 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common'
-import {
-  and,
-  desc,
-  eq,
-  gt,
-  inArray,
-  isNull,
-  lt,
-  ne,
-  sql,
-} from 'drizzle-orm'
-import { alias } from 'drizzle-orm/pg-core'
+import { and, desc, eq, isNull } from 'drizzle-orm'
 import { serializarLogCritico } from '../common/log-critico.ts'
 import { mensagensOficiais } from '../common/mensagens.ts'
-import { GestoresService } from '../gestores/gestores.service.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
-  alocacoesTable,
   candidaturasTable,
-  gestoresInstituicoesTable,
-  gestoresTable,
   instituicoesTable,
   medicosTable,
-  notificacoesTable,
-  pagamentosTable,
   plantoesTable,
   usuariosTable,
 } from '../db/schemas/index.ts'
@@ -43,14 +30,8 @@ const MSG_SEM_ESPECIALIDADE =
   'Complete a especialidade do perfil para se candidatar a esta vaga.'
 const MSG_CRM_NAO_VALIDADO =
   'Seu CRM ainda não foi validado. Aguarde a análise para se candidatar.'
-const MSG_CRM_NAO_VALIDADO_GESTOR =
-  'O CRM deste médico não está validado. A candidatura não pode ser aprovada.'
 const MSG_CANDIDATURA_ENVIADA = mensagensOficiais['MSG-09']
-const MSG_ALOCACAO = mensagensOficiais['MSG-17']
 const MSG_DOUBLE_BOOKING = mensagensOficiais['MSG-10']
-const MSG_PLANTAO_ENCERRADO = 'Este plantão já terminou e não pode receber alocação.'
-const MSG_INSTITUICAO_INATIVA = 'A instituição deste plantão está inativa.'
-const MSG_MEDICO_INATIVO = 'A conta deste médico não está ativa.'
 
 @Injectable()
 export class CandidaturasService {
@@ -58,7 +39,12 @@ export class CandidaturasService {
 
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: Database,
-    @Inject(GestoresService) private readonly gestores: GestoresService,
+    @Inject(PerfilMedicoService) private readonly perfis: PerfilMedicoService,
+    @Inject(AcessoInstitucionalService)
+    private readonly acesso: AcessoInstitucionalService,
+    @Inject(AprovarCandidaturaUseCase)
+    private readonly aprovacao: AprovarCandidaturaUseCase,
+    @Inject(AlocacaoRepository) private readonly alocacoes: AlocacaoRepository,
   ) {}
 
   /**
@@ -70,7 +56,7 @@ export class CandidaturasService {
    * plantão após o commit do vencedor e só então decide.
    */
   async criar(plantaoId: string, usuarioId: string, dados: CriarCandidatura) {
-    const medicoId = await this.perfilMedicoId(usuarioId)
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
 
     return this.db.transaction(async (tx) => {
       // 1ª trava: perfil do médico (também serializa com a aprovação RN16).
@@ -82,10 +68,7 @@ export class CandidaturasService {
         })
         .from(medicosTable)
         .where(
-          and(
-            eq(medicosTable.id, medicoId),
-            isNull(medicosTable.deleted_at),
-          ),
+          and(eq(medicosTable.id, medicoId), isNull(medicosTable.deleted_at)),
         )
         .for('update')
         .limit(1)
@@ -129,20 +112,26 @@ export class CandidaturasService {
         .limit(1)
       if (!plantao) throw new NotFoundException('Plantão não encontrado')
       if (!plantao.instituicao_ativa || plantao.status !== 'ABERTO') {
-        throw new ConflictException('Este plantão não está aberto para candidaturas')
+        throw new ConflictException(
+          'Este plantão não está aberto para candidaturas',
+        )
       }
       if (!plantao.permite_candidatura) {
         throw new ConflictException('Este plantão não aceita candidaturas')
       }
       if (plantao.vagas_disponiveis <= 0) {
-        throw new ConflictException('Não há vagas disponíveis para este plantão')
+        throw new ConflictException(
+          'Não há vagas disponíveis para este plantão',
+        )
       }
       if (plantao.data_fim.getTime() <= Date.now()) {
-        throw new ConflictException('Este plantão já encerrou o período de candidaturas')
+        throw new ConflictException(
+          'Este plantão já encerrou o período de candidaturas',
+        )
       }
 
       // RN16 — Double-booking (MSG-10): proteção compartilhada com a aprovação.
-      const [conflito] = await this.sobrepoeAlocacao(
+      const [conflito] = await this.alocacoes.sobrepoeAlocacao(
         plantao.id,
         medico.id,
         plantao,
@@ -192,7 +181,7 @@ export class CandidaturasService {
   }
 
   async listarMinhas(usuarioId: string, filtros: ListarMinhasCandidaturas) {
-    const medicoId = await this.perfilMedicoId(usuarioId)
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
 
     const condicoes = [
       eq(candidaturasTable.medico_id, medicoId),
@@ -243,7 +232,7 @@ export class CandidaturasService {
 
   /** UC11 — Lista as candidaturas de um plantão para o gestor responsável. */
   async listar(plantaoId: string, usuarioId: string) {
-    await this.garantirAcessoGestor(plantaoId, usuarioId)
+    await this.acesso.exigirAcessoPlantao(usuarioId, plantaoId)
     return this.db
       .select({
         id: candidaturasTable.id,
@@ -273,429 +262,7 @@ export class CandidaturasService {
       .orderBy(candidaturasTable.created_at)
   }
 
-  /**
-   * UC11 — Aprovação de candidatura com alocação do médico (RN20).
-   * Tudo roda em transação atômica (spec §6 UC11): alocação → candidatura
-   * 'APROVADA' → pagamento 'PENDENTE' → decremento de vaga →, se esgotar,
-   * plantão 'PREENCHIDO' + rejeição em cascata das demais candidaturas (RN21)
-   * + eventos de notificação gravados na mesma transação (outbox).
-   * As travas seguem a ordem consistente medicos → plantoes → candidaturas:
-   * a trava do médico serializa aprovações do mesmo profissional, impedindo
-   * duas alocações sobrepostas em plantões diferentes.
-   */
-  async aprovar(
-    plantaoId: string,
-    candidaturaId: string,
-    usuarioId: string,
-  ) {
-    await this.garantirAcessoGestor(plantaoId, usuarioId)
-    const gestor = await this.perfilGestor(usuarioId)
-
-    return this.db.transaction(async (tx) => {
-      // Leitura inicial sem trava: só para descobrir de quem é a candidatura.
-      const [reserva] = await tx
-        .select({
-          id: candidaturasTable.id,
-          medico_id: candidaturasTable.medico_id,
-          plantao_id: candidaturasTable.plantao_id,
-        })
-        .from(candidaturasTable)
-        .where(
-          and(
-            eq(candidaturasTable.id, candidaturaId),
-            isNull(candidaturasTable.deleted_at),
-          ),
-        )
-        .limit(1)
-      if (!reserva) {
-        throw new NotFoundException('Candidatura não encontrada')
-      }
-
-      // 1ª trava: médico — dois gestores aprovando o mesmo médico em plantões
-      // sobrepostos disputam esta linha; o segundo reavalia a agenda após o
-      // commit do primeiro (RN16 a rigor).
-      const [medico] = await tx
-        .select({
-          id: medicosTable.id,
-          status_validacao: medicosTable.status_validacao,
-        })
-        .from(medicosTable)
-        .where(
-          and(
-            eq(medicosTable.id, reserva.medico_id),
-            isNull(medicosTable.deleted_at),
-          ),
-        )
-        .for('update')
-        .limit(1)
-      if (!medico) throw new NotFoundException('Perfil médico não encontrado')
-      // o crm pode ter sido rejeitado depois da candidatura
-      if (medico.status_validacao !== 'APROVADO') {
-        throw new ForbiddenException(MSG_CRM_NAO_VALIDADO_GESTOR)
-      }
-
-      // 2ª trava: plantão.
-      const [plantao] = await tx
-        .select({
-          id: plantoesTable.id,
-          status: plantoesTable.status,
-          vagas_disponiveis: plantoesTable.vagas_disponiveis,
-          data_inicio: plantoesTable.data_inicio,
-          data_fim: plantoesTable.data_fim,
-          valor: plantoesTable.valor,
-          instituicao_id: plantoesTable.instituicao_id,
-        })
-        .from(plantoesTable)
-        .where(
-          and(
-            eq(plantoesTable.id, plantaoId),
-            isNull(plantoesTable.deleted_at),
-          ),
-        )
-        .for('update')
-        .limit(1)
-      if (!plantao) throw new NotFoundException('Plantão não encontrado')
-      if (reserva.plantao_id !== plantaoId) {
-        throw new NotFoundException('Candidatura não encontrada neste plantão')
-      }
-      if (plantao.status !== 'ABERTO' || plantao.vagas_disponiveis <= 0) {
-        throw new ConflictException('Este plantão não está aberto para alocação')
-      }
-      // plantao que ja acabou nao recebe medico
-      if (plantao.data_fim <= new Date()) {
-        throw new ConflictException(MSG_PLANTAO_ENCERRADO)
-      }
-
-      const [instituicao] = await tx
-        .select({ id: instituicoesTable.id })
-        .from(instituicoesTable)
-        .where(
-          and(
-            eq(instituicoesTable.id, plantao.instituicao_id),
-            eq(instituicoesTable.ativa, true),
-            isNull(instituicoesTable.deleted_at),
-          ),
-        )
-        .limit(1)
-      if (!instituicao) throw new ConflictException(MSG_INSTITUICAO_INATIVA)
-
-      // conta do medico desativada ou bloqueada pelo admin nao e alocada
-      const [contaMedico] = await tx
-        .select({ status: usuariosTable.status })
-        .from(medicosTable)
-        .innerJoin(usuariosTable, eq(medicosTable.usuario_id, usuariosTable.id))
-        .where(eq(medicosTable.id, medico.id))
-        .limit(1)
-      if (contaMedico?.status !== 'ATIVO') {
-        throw new ConflictException(MSG_MEDICO_INATIVO)
-      }
-
-      // 3ª trava: reconfirma estado da candidatura sob lock.
-      const [candidatura] = await tx
-        .select({
-          id: candidaturasTable.id,
-          medico_id: candidaturasTable.medico_id,
-          status: candidaturasTable.status,
-        })
-        .from(candidaturasTable)
-        .where(eq(candidaturasTable.id, candidaturaId))
-        .for('update')
-        .limit(1)
-      if (candidatura.status !== 'PENDENTE') {
-        throw new ConflictException('Esta candidatura já foi analisada')
-      }
-
-      // RN16 — Double-booking na aprovação: o médico pode ter sido alocado em
-      // outro plantão sobreposto após se candidatar.
-      const [conflito] = await this.sobrepoeAlocacao(
-        plantaoId,
-        medico.id,
-        plantao,
-        tx,
-      )
-      if (conflito) throw new ConflictException(MSG_DOUBLE_BOOKING)
-
-      // 1. Alocação do médico.
-      const [alocacao] = await tx
-        .insert(alocacoesTable)
-        .values({
-          plantao_id: plantaoId,
-          medico_id: medico.id,
-          candidatura_id: candidaturaId,
-        })
-        .returning()
-
-      // 2. Candidatura do aprovado.
-      await tx
-        .update(candidaturasTable)
-        .set({
-          status: 'APROVADA',
-          analisado_por_gestor_id: gestor.id,
-          analisado_at: new Date(),
-        })
-        .where(eq(candidaturasTable.id, candidaturaId))
-
-      // 3. Pagamento inicial pendente.
-      await tx.insert(pagamentosTable).values({
-        alocacao_id: alocacao.id,
-        valor: plantao.valor,
-        status: 'PENDENTE',
-        registrado_por_gestor_id: gestor.id,
-      })
-
-      // 4. Decremento atômico da vaga (só se ainda houver vaga).
-      const [atualizado] = await tx
-        .update(plantoesTable)
-        .set({
-          vagas_disponiveis: sql`${plantoesTable.vagas_disponiveis} - 1`,
-        })
-        .where(
-          and(
-            eq(plantoesTable.id, plantaoId),
-            gt(plantoesTable.vagas_disponiveis, 0),
-          ),
-        )
-        .returning({
-          status: plantoesTable.status,
-          quantidade_vagas: plantoesTable.quantidade_vagas,
-          vagas_disponiveis: plantoesTable.vagas_disponiveis,
-        })
-      if (!atualizado) {
-        throw new ConflictException('Não há vagas disponíveis para este plantão')
-      }
-      const preenchido = atualizado.vagas_disponiveis === 0
-
-      // 5. Notificações em outbox, na mesma transação (UC11; provedor: D10).
-      const destinatarios = await this.usuariosPorMedicoId(tx, [
-        alocacao.medico_id,
-      ])
-      const eventos: Array<{
-        usuario_destino_id: string
-        plantao_id: string
-        tipo: string
-      }> = []
-      if (preenchido) {
-        // 5a. Plantão esgotado: status 'PREENCHIDO' (RN20).
-        await tx
-          .update(plantoesTable)
-          .set({ status: 'PREENCHIDO' })
-          .where(eq(plantoesTable.id, plantaoId))
-        // 5b. RN21 — Rejeição em cascata dos demais candidatos pendentes.
-        const rejeitadas = await tx
-          .update(candidaturasTable)
-          .set({
-            status: 'REJEITADA',
-            analisado_por_gestor_id: gestor.id,
-            analisado_at: new Date(),
-          })
-          .where(
-            and(
-              eq(candidaturasTable.plantao_id, plantaoId),
-              ne(candidaturasTable.id, candidaturaId),
-              eq(candidaturasTable.status, 'PENDENTE'),
-              isNull(candidaturasTable.deleted_at),
-            ),
-          )
-          .returning({ medico_id: candidaturasTable.medico_id })
-        if (rejeitadas.length > 0) {
-          const usuariosRejeitados = await this.usuariosPorMedicoId(
-            tx,
-            rejeitadas.map((c) => c.medico_id),
-          )
-          eventos.push(
-            ...usuariosRejeitados.map((destino) => ({
-              usuario_destino_id: destino.usuario_id,
-              plantao_id: plantaoId,
-              tipo: 'CANDIDATURA_REJEITADA',
-            })),
-          )
-        }
-      }
-      const aprovado = destinatarios.find((d) => d.medico_id === alocacao.medico_id)
-      if (aprovado) {
-        eventos.push({
-          usuario_destino_id: aprovado.usuario_id,
-          plantao_id: plantaoId,
-          tipo: 'ALOCACAO_APROVADA',
-        })
-      }
-      const outbox = await tx
-        .insert(notificacoesTable)
-        .values(eventos)
-        .returning({ id: notificacoesTable.id })
-
-      const statusPlantaoFinal = preenchido
-        ? ('PREENCHIDO' as const)
-        : atualizado.status
-
-      // Ação crítica: aprovação de alocação (log estruturado, além do outbox).
-      this.logger.log(
-        serializarLogCritico({
-          evento: 'ALOCACAO_APROVADA',
-          plantao_id: plantaoId,
-          candidatura_id: candidaturaId,
-          alocacao_id: alocacao.id,
-          medico_id: medico.id,
-          gestor_id: gestor.id,
-          plantao_preenchido: preenchido,
-          plantao_status: statusPlantaoFinal,
-          notificacoes: eventos.map((e) => ({
-            usuario_destino_id: e.usuario_destino_id,
-            tipo: e.tipo,
-          })),
-          outbox_ids: outbox.map((n) => n.id),
-        }),
-      )
-
-      return {
-        message: MSG_ALOCACAO,
-        alocacao: {
-          id: alocacao.id,
-          plantao_id: alocacao.plantao_id,
-          medico_id: alocacao.medico_id,
-          candidatura_id: alocacao.candidatura_id,
-        },
-        plantao: {
-          id: plantaoId,
-          status: statusPlantaoFinal,
-          quantidade_vagas: atualizado.quantidade_vagas,
-          vagas_disponiveis: atualizado.vagas_disponiveis,
-        },
-      }
-    })
-  }
-
-  private async usuariosPorMedicoId(
-    tx: Parameters<Parameters<Database['transaction']>[0]>[0],
-    medicoIds: string[],
-  ) {
-    if (medicoIds.length === 0) return []
-    return tx
-      .select({
-        medico_id: medicosTable.id,
-        usuario_id: usuariosTable.id,
-      })
-      .from(medicosTable)
-      .innerJoin(usuariosTable, eq(medicosTable.usuario_id, usuariosTable.id))
-      .where(inArray(medicosTable.id, medicoIds))
-  }
-
-  private async perfilMedicoId(usuarioId: string) {
-    const [medico] = await this.db
-      .select({ id: medicosTable.id })
-      .from(medicosTable)
-      .where(
-        and(
-          eq(medicosTable.usuario_id, usuarioId),
-          isNull(medicosTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!medico) throw new NotFoundException('Perfil médico não encontrado')
-    return medico.id
-  }
-
-  /** Perfil de gestor ativo (regra centralizada em GestoresService). */
-  private async perfilGestor(usuarioId: string) {
-    return this.gestores.perfilAtivo(usuarioId)
-  }
-
-  /** Garante que o plantão existe e o gestor o administra. Regra: RN23. */
-  private async garantirAcessoGestor(plantaoId: string, usuarioId: string) {
-    const [plantao] = await this.db
-      .select({
-        id: plantoesTable.id,
-        gestor_criador_id: plantoesTable.gestor_criador_id,
-        instituicao_id: plantoesTable.instituicao_id,
-        instituicao_usuario_id: instituicoesTable.usuario_id,
-      })
-      .from(plantoesTable)
-      .innerJoin(
-        instituicoesTable,
-        eq(plantoesTable.instituicao_id, instituicoesTable.id),
-      )
-      .where(
-        and(
-          eq(plantoesTable.id, plantaoId),
-          isNull(plantoesTable.deleted_at),
-          isNull(instituicoesTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!plantao) throw new NotFoundException('Plantão não encontrado')
-
-    const proprietario =
-      plantao.gestor_criador_id === usuarioId ||
-      plantao.instituicao_usuario_id === usuarioId
-
-    if (!proprietario) {
-      const vinculado = await this.pertenceAEquipeGestor(
-        plantao.instituicao_id,
-        usuarioId,
-      )
-      if (!vinculado) {
-        throw new ForbiddenException('Você não administra este plantão')
-      }
-    }
-    return plantao
-  }
-
-  private async pertenceAEquipeGestor(
-    instituicaoId: string,
-    usuarioId: string,
-  ): Promise<boolean> {
-    const [gestor] = await this.db
-      .select({ id: gestoresTable.id })
-      .from(gestoresTable)
-      .where(
-        and(
-          eq(gestoresTable.usuario_id, usuarioId),
-          eq(gestoresTable.ativa, true),
-          isNull(gestoresTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!gestor) return false
-    const [vinculo] = await this.db
-      .select({ um: sql`1` })
-      .from(gestoresInstituicoesTable)
-      .where(
-        and(
-          eq(gestoresInstituicoesTable.gestor_id, gestor.id),
-          eq(gestoresInstituicoesTable.instituicao_id, instituicaoId),
-        ),
-      )
-      .limit(1)
-    return Boolean(vinculo)
-  }
-
-  private sobrepoeAlocacao(
-    plantaoId: string,
-    medicoId: string,
-    plantao: { data_inicio: Date; data_fim: Date },
-    banco: Database,
-  ) {
-    const plantaoConflito = alias(plantoesTable, 'plantao_conflito')
-    return banco
-      .select({ plantao_id: plantaoConflito.id })
-      .from(alocacoesTable)
-      .innerJoin(
-        plantaoConflito,
-        eq(alocacoesTable.plantao_id, plantaoConflito.id),
-      )
-      .where(
-        and(
-          eq(alocacoesTable.medico_id, medicoId),
-          ne(alocacoesTable.plantao_id, plantaoId),
-          isNull(alocacoesTable.deleted_at),
-          isNull(plantaoConflito.deleted_at),
-          // plantao cancelado nao ocupa mais a agenda
-          ne(plantaoConflito.status, 'CANCELADO'),
-          // Intervalos semi-abertos: toca nas bordas não é sobreposição.
-          lt(plantaoConflito.data_inicio, plantao.data_fim),
-          gt(plantaoConflito.data_fim, plantao.data_inicio),
-        ),
-      )
-      .limit(1)
+  aprovar(plantaoId: string, candidaturaId: string, usuarioId: string) {
+    return this.aprovacao.executar(plantaoId, candidaturaId, usuarioId)
   }
 }

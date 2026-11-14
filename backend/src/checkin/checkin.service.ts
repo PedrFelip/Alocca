@@ -1,34 +1,16 @@
+import { CheckinRepository } from './checkin.repository.ts'
+import { PerfilMedicoService } from '../medicos/perfil-medico.service.ts'
 import {
   ConflictException,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import {
-  and,
-  asc,
-  eq,
-  exists,
-  gte,
-  isNull,
-  ne,
-  notExists,
-  sql,
-} from 'drizzle-orm'
-import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
-import {
-  alocacoesTable,
-  instituicoesTable,
-  medicosTable,
-  plantoesTable,
-  registrosPontoTable,
-} from '../db/schemas/index.ts'
 import type { RegistrarPresenca } from './checkin.schemas.ts'
 import { distanciaEmMetros } from './distancia.ts'
 import {
   checkinLiberadoEm,
   checkoutAte,
-  DEPOIS_DO_FIM,
   podeFazerCheckin,
   podeFazerCheckout,
 } from './horario.ts'
@@ -53,47 +35,21 @@ function gpsValido(latitude?: number | null, longitude?: number | null) {
   )
 }
 
-// o POST e o GET usam os mesmos filtros pra nunca discordarem
-function alocacaoAtivaDoMedico(medicoId: string) {
-  return [
-    eq(alocacoesTable.medico_id, medicoId),
-    isNull(alocacoesTable.deleted_at),
-    isNull(plantoesTable.deleted_at),
-    isNull(instituicoesTable.deleted_at),
-  ]
-}
-
 @Injectable()
 export class CheckinService {
-  constructor(@Inject(DRIZZLE_DB) private readonly db: Database) {}
+  constructor(
+    @Inject(CheckinRepository) private readonly registros: CheckinRepository,
+    @Inject(PerfilMedicoService) private readonly perfis: PerfilMedicoService,
+  ) {}
 
   async registrar(usuarioId: string, dados: RegistrarPresenca) {
-    const medicoId = await this.perfilMedicoId(usuarioId)
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
 
     // o medico é pego pelo token para ninguem marcar presenca no plantao do outro
-    const [alocacao] = await this.db
-      .select({
-        status_plantao: plantoesTable.status,
-        exige_checkin: plantoesTable.exige_checkin,
-        data_inicio: plantoesTable.data_inicio,
-        data_fim: plantoesTable.data_fim,
-        permite_geolocalizacao: plantoesTable.permite_geolocalizacao,
-        hospital_lat: instituicoesTable.latitude,
-        hospital_lon: instituicoesTable.longitude,
-      })
-      .from(alocacoesTable)
-      .innerJoin(plantoesTable, eq(alocacoesTable.plantao_id, plantoesTable.id))
-      .innerJoin(
-        instituicoesTable,
-        eq(plantoesTable.instituicao_id, instituicoesTable.id),
-      )
-      .where(
-        and(
-          eq(alocacoesTable.id, dados.alocacao_id),
-          ...alocacaoAtivaDoMedico(medicoId),
-        ),
-      )
-      .limit(1)
+    const [alocacao] = await this.registros.alocacaoDoMedico(
+      medicoId,
+      dados.alocacao_id,
+    )
     if (!alocacao) throw new NotFoundException('Alocação não encontrada')
     if (alocacao.status_plantao === 'CANCELADO') {
       throw new ConflictException('Este plantão foi cancelado')
@@ -116,16 +72,7 @@ export class CheckinService {
     }
 
     if (dados.tipo_evento === 'SAIDA') {
-      const [entrada] = await this.db
-        .select({ id: registrosPontoTable.id })
-        .from(registrosPontoTable)
-        .where(
-          and(
-            eq(registrosPontoTable.alocacao_id, dados.alocacao_id),
-            eq(registrosPontoTable.tipo_evento, 'ENTRADA'),
-          ),
-        )
-        .limit(1)
+      const [entrada] = await this.registros.entrada(dados.alocacao_id)
       if (!entrada) {
         throw new ConflictException('Faça o check-in antes do check-out')
       }
@@ -161,22 +108,12 @@ export class CheckinService {
 
     try {
       // hora do servidor, nao do celular
-      const [registro] = await this.db
-        .insert(registrosPontoTable)
-        .values({
-          alocacao_id: dados.alocacao_id,
-          tipo_evento: dados.tipo_evento,
-          latitude,
-          longitude,
-          precisao_metros: precisao,
-          distancia_local: distancia,
-        })
-        .returning({
-          id: registrosPontoTable.id,
-          tipo_evento: registrosPontoTable.tipo_evento,
-          timestamp_servidor: registrosPontoTable.timestamp_servidor,
-          distancia_local: registrosPontoTable.distancia_local,
-        })
+      const [registro] = await this.registros.inserir(dados, {
+        latitude,
+        longitude,
+        precisao,
+        distancia,
+      })
 
       const mensagens = MENSAGENS[dados.tipo_evento]
       return {
@@ -203,60 +140,10 @@ export class CheckinService {
   // plantoes que a tela de check-in deve mostrar. normalmente vem 1, mas
   // se o medico emendar dois plantoes vem o check-out de um e o check-in do outro
   async proximos(usuarioId: string) {
-    const medicoId = await this.perfilMedicoId(usuarioId)
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
     const agora = new Date()
 
-    const registro = (tipo: 'ENTRADA' | 'SAIDA') =>
-      this.db
-        .select({ um: sql`1` })
-        .from(registrosPontoTable)
-        .where(
-          and(
-            eq(registrosPontoTable.alocacao_id, alocacoesTable.id),
-            eq(registrosPontoTable.tipo_evento, tipo),
-          ),
-        )
-
-    // o banco so corta o que ja passou do prazo, quem decide o resto
-    // sao as mesmas funcoes do POST (horario.ts)
-    const candidatos = await this.db
-      .select({
-        alocacao_id: alocacoesTable.id,
-        checkin_feito: sql<boolean>`${exists(registro('ENTRADA'))}`,
-        plantao: {
-          id: plantoesTable.id,
-          titulo: plantoesTable.titulo,
-          especialidade: plantoesTable.especialidade,
-          local_unidade: plantoesTable.local_unidade,
-          data_inicio: plantoesTable.data_inicio,
-          data_fim: plantoesTable.data_fim,
-        },
-        instituicao: {
-          id: instituicoesTable.id,
-          nome: instituicoesTable.nome,
-          cidade: instituicoesTable.cidade,
-          uf: instituicoesTable.uf,
-        },
-      })
-      .from(alocacoesTable)
-      .innerJoin(plantoesTable, eq(alocacoesTable.plantao_id, plantoesTable.id))
-      .innerJoin(
-        instituicoesTable,
-        eq(plantoesTable.instituicao_id, instituicoesTable.id),
-      )
-      .where(
-        and(
-          ...alocacaoAtivaDoMedico(medicoId),
-          ne(plantoesTable.status, 'CANCELADO'),
-          eq(plantoesTable.exige_checkin, true),
-          notExists(registro('SAIDA')),
-          gte(
-            plantoesTable.data_fim,
-            new Date(agora.getTime() - DEPOIS_DO_FIM),
-          ),
-        ),
-      )
-      .orderBy(asc(plantoesTable.data_inicio), asc(alocacoesTable.id))
+    const candidatos = await this.registros.proximos(medicoId, agora)
 
     const plantoes = candidatos.map((candidato) => {
       const { data_inicio, data_fim } = candidato.plantao
@@ -282,20 +169,5 @@ export class CheckinService {
       (p) => !p.checkin_feito && agora < p.checkin_liberado_em,
     )
     return proximo ? [proximo] : []
-  }
-
-  private async perfilMedicoId(usuarioId: string) {
-    const [medico] = await this.db
-      .select({ id: medicosTable.id })
-      .from(medicosTable)
-      .where(
-        and(
-          eq(medicosTable.usuario_id, usuarioId),
-          isNull(medicosTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!medico) throw new NotFoundException('Perfil médico não encontrado')
-    return medico.id
   }
 }

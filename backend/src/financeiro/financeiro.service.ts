@@ -1,14 +1,14 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
-import { DRIZZLE_DB, type Database } from "../db/db.provider.ts";
+import { PerfilMedicoService } from '../medicos/perfil-medico.service.ts'
+import { Inject, Injectable } from '@nestjs/common'
+import { and, desc, eq, isNull, ne, sql } from 'drizzle-orm'
+import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
   alocacoesTable,
   instituicoesTable,
-  medicosTable,
   pagamentosTable,
   plantoesTable,
-} from "../db/schemas/index.ts";
-import type { DashboardFinanceiro } from "./financeiro.tipos.ts";
+} from '../db/schemas/index.ts'
+import type { DashboardFinanceiro } from './financeiro.tipos.ts'
 
 const CAMPOS_PAGAMENTO = {
   id: pagamentosTable.id,
@@ -27,7 +27,7 @@ const CAMPOS_PAGAMENTO = {
     cidade: instituicoesTable.cidade,
     uf: instituicoesTable.uf,
   },
-};
+}
 
 function visaoDoMedico(medicoId: string) {
   return and(
@@ -37,17 +37,20 @@ function visaoDoMedico(medicoId: string) {
     isNull(instituicoesTable.deleted_at),
     // plantao excluido ou cancelado nao entra no financeiro
     isNull(plantoesTable.deleted_at),
-    ne(plantoesTable.status, "CANCELADO"),
-  );
+    ne(plantoesTable.status, 'CANCELADO'),
+  )
 }
 
 @Injectable()
 export class FinanceiroService {
-  constructor(@Inject(DRIZZLE_DB) private readonly db: Database) {}
+  constructor(
+    @Inject(DRIZZLE_DB) private readonly db: Database,
+    @Inject(PerfilMedicoService) private readonly perfis: PerfilMedicoService,
+  ) {}
 
   async doMedico(usuarioId: string): Promise<DashboardFinanceiro> {
-    const medicoId = await this.perfilMedicoId(usuarioId);
-    const visao = visaoDoMedico(medicoId);
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
+    const visao = visaoDoMedico(medicoId)
 
     // REPEATABLE READ compartilha um único snapshot entre resumo e lista; em
     // READ COMMITTED uma baixa concorrente poderia aparecer só em um deles.
@@ -72,7 +75,7 @@ export class FinanceiroService {
             instituicoesTable,
             eq(plantoesTable.instituicao_id, instituicoesTable.id),
           )
-          .where(visao);
+          .where(visao)
         const pagamentos = await tx
           .select(CAMPOS_PAGAMENTO)
           .from(pagamentosTable)
@@ -89,28 +92,11 @@ export class FinanceiroService {
             eq(plantoesTable.instituicao_id, instituicoesTable.id),
           )
           .where(visao)
-          .orderBy(desc(plantoesTable.data_inicio));
+          .orderBy(desc(plantoesTable.data_inicio))
 
-        return { resumo: linhasResumo[0]!, pagamentos };
+        return { resumo: linhasResumo[0]!, pagamentos }
       },
-      { isolationLevel: "repeatable read", accessMode: "read only" },
-    );
-  }
-
-  private async perfilMedicoId(usuarioId: string) {
-    const [medico] = await this.db
-      .select({ id: medicosTable.id })
-      .from(medicosTable)
-      .where(
-        and(
-          eq(medicosTable.usuario_id, usuarioId),
-          isNull(medicosTable.deleted_at),
-        ),
-      )
-      .limit(1);
-    if (!medico) {
-      throw new NotFoundException("Perfil médico não encontrado");
-    }
-    return medico.id;
+      { isolationLevel: 'repeatable read', accessMode: 'read only' },
+    )
   }
 }

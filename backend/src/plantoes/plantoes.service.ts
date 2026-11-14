@@ -1,7 +1,8 @@
+import { AcessoInstitucionalService } from '../gestores/acesso-institucional.service.ts'
+import { PerfilMedicoService } from '../medicos/perfil-medico.service.ts'
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -11,8 +12,6 @@ import {
   and,
   asc,
   eq,
-  exists,
-  or,
   gt,
   gte,
   ilike,
@@ -28,8 +27,6 @@ import {
   candidaturasTable,
   gestoresInstituicoesTable,
   instituicoesTable,
-  gestoresTable,
-  medicosTable,
   plantoesTable,
 } from '../db/schemas/index.ts'
 import type {
@@ -49,20 +46,13 @@ export class PlantoesService {
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: Database,
     @Inject(GestoresService) private readonly gestores: GestoresService,
+    @Inject(PerfilMedicoService) private readonly perfis: PerfilMedicoService,
+    @Inject(AcessoInstitucionalService)
+    private readonly acesso: AcessoInstitucionalService,
   ) {}
 
   async listar(usuarioId: string, filtros: ListarPlantoes) {
-    const [medico] = await this.db
-      .select({ id: medicosTable.id })
-      .from(medicosTable)
-      .where(
-        and(
-          eq(medicosTable.usuario_id, usuarioId),
-          isNull(medicosTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!medico) throw new NotFoundException('Perfil médico não encontrado')
+    const medicoId = await this.perfis.idDoUsuario(usuarioId)
 
     const condicoes = [
       eq(plantoesTable.status, 'ABERTO'),
@@ -80,7 +70,7 @@ export class PlantoesService {
           .where(
             and(
               eq(candidaturasTable.plantao_id, plantoesTable.id),
-              eq(candidaturasTable.medico_id, medico.id),
+              eq(candidaturasTable.medico_id, medicoId),
             ),
           ),
       ),
@@ -144,8 +134,6 @@ export class PlantoesService {
    * (nasce 'ABERTO'), MSG-14.
    */
   async criar(usuarioId: string, dados: CriarPlantao) {
-    const gestor = await this.perfilGestor(usuarioId)
-
     const [instituicao] = await this.db
       .select({
         id: instituicoesTable.id,
@@ -163,20 +151,7 @@ export class PlantoesService {
       throw new NotFoundException('Instituição não encontrada')
     }
 
-    // RN23 — Só publica em instituição ativa vinculada ao gestor.
-    const [vinculo] = await this.db
-      .select({ um: sql`1` })
-      .from(gestoresInstituicoesTable)
-      .where(
-        and(
-          eq(gestoresInstituicoesTable.gestor_id, gestor.id),
-          eq(gestoresInstituicoesTable.instituicao_id, instituicao.id),
-        ),
-      )
-      .limit(1)
-    if (!vinculo) {
-      throw new ForbiddenException('Você não administra esta instituição')
-    }
+    const gestor = await this.acesso.exigirVinculo(usuarioId, instituicao.id)
     if (!instituicao.ativa) {
       throw new ConflictException('Esta instituição está desativada')
     }
@@ -237,7 +212,10 @@ export class PlantoesService {
   }
 
   /** UC10 — Plantões das instituições administradas pelo gestor logado. */
-  async listarGerenciados(usuarioId: string, filtros: ListarPlantoesGerenciados) {
+  async listarGerenciados(
+    usuarioId: string,
+    filtros: ListarPlantoesGerenciados,
+  ) {
     const gestor = await this.perfilGestor(usuarioId)
 
     const condicoes = [
