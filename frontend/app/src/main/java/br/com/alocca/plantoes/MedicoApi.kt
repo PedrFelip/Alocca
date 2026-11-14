@@ -127,18 +127,18 @@ internal object MedicoApi {
             if (filtros.valorMin.isNotBlank()) add("valor_min" to filtros.valorMin.trim().replace(',', '.'))
             if (filtros.valorMax.isNotBlank()) add("valor_max" to filtros.valorMax.trim().replace(',', '.'))
         }
-        return ApiHttp.get("plantoes" + queryString(query), token).lista { it.plantao() }
+        return MedicoApiHttp.get("plantoes" + queryString(query), token).lista { it.plantao() }
     }
 
     fun candidatar(token: String, plantaoId: String): Resposta<String> =
-        when (val r = ApiHttp.send("POST", "plantoes/$plantaoId/candidaturas", token, JSONObject())) {
+        when (val r = MedicoApiHttp.send("POST", "plantoes/$plantaoId/candidaturas", token, JSONObject())) {
             is Resposta.Ok -> Resposta.Ok((r.dados as? JSONObject)?.optString("message").orEmpty()
                 .ifBlank { "Candidatura enviada com sucesso." })
             is Resposta.Falha -> r
         }
 
     fun minhasCandidaturas(token: String): Resposta<List<Candidatura>> =
-        ApiHttp.get("candidaturas/medico?limit=50", token).lista { json ->
+        MedicoApiHttp.get("candidaturas/medico?limit=50", token).lista { json ->
             Candidatura(
                 id = json.getString("id"),
                 status = json.getString("status"),
@@ -148,7 +148,7 @@ internal object MedicoApi {
         }
 
     fun agendaMes(token: String, ano: Int, mes: Int): Resposta<List<DiaAgenda>> =
-        ApiHttp.get("agenda/mes?ano=$ano&mes=$mes", token).lista { dia ->
+        MedicoApiHttp.get("agenda/mes?ano=$ano&mes=$mes", token).lista { dia ->
             val itens = dia.getJSONArray("itens")
             DiaAgenda(
                 dia = dia.getString("dia"),
@@ -165,7 +165,7 @@ internal object MedicoApi {
         }
 
     fun financeiro(token: String): Resposta<Financeiro> =
-        ApiHttp.get("financeiro/medico", token).objeto { json ->
+        MedicoApiHttp.get("financeiro/medico", token).objeto { json ->
             val resumo = json.getJSONObject("resumo")
             val pagamentos = json.getJSONArray("pagamentos")
             Financeiro(
@@ -190,7 +190,7 @@ internal object MedicoApi {
         }
 
     fun proximos(token: String): Resposta<List<PresencaProxima>> =
-        ApiHttp.get("presenca/proximos", token).lista { json ->
+        MedicoApiHttp.get("presenca/proximos", token).lista { json ->
             PresencaProxima(
                 alocacaoId = json.getString("alocacao_id"),
                 checkinFeito = json.optBoolean("checkin_feito"),
@@ -217,7 +217,7 @@ internal object MedicoApi {
             .put("latitude", latitude ?: JSONObject.NULL)
             .put("longitude", longitude ?: JSONObject.NULL)
             .put("precisao_metros", precisaoMetros ?: JSONObject.NULL)
-        return when (val r = ApiHttp.send("POST", "presenca", token, corpo)) {
+        return when (val r = MedicoApiHttp.send("POST", "presenca", token, corpo)) {
             is Resposta.Ok -> Resposta.Ok((r.dados as? JSONObject)?.optString("message").orEmpty()
                 .ifBlank { "Registro realizado com sucesso." })
             is Resposta.Falha -> r
@@ -225,7 +225,7 @@ internal object MedicoApi {
     }
 
     fun historico(token: String, limit: Int = 30): Resposta<List<RegistroPonto>> =
-        ApiHttp.get("presenca/historico?limit=$limit", token).lista { json ->
+        MedicoApiHttp.get("presenca/historico?limit=$limit", token).lista { json ->
             RegistroPonto(
                 id = json.getString("id"),
                 tipoEvento = json.getString("tipo_evento"),
@@ -238,11 +238,11 @@ internal object MedicoApi {
         }
 
     fun perfil(token: String): Resposta<PerfilCompleto> =
-        ApiHttp.get("usuarios/me", token).objeto { it.perfilCompleto() }
+        MedicoApiHttp.get("usuarios/me", token).objeto { it.perfilCompleto() }
 
     /** PATCH /usuarios/me com os campos alterados; devolve o perfil recarregado. */
     fun atualizarPerfil(token: String, campos: JSONObject): Resposta<PerfilCompleto> =
-        when (val r = ApiHttp.send("PATCH", "usuarios/me", token, campos)) {
+        when (val r = MedicoApiHttp.send("PATCH", "usuarios/me", token, campos)) {
             is Resposta.Ok -> perfil(token)
             is Resposta.Falha -> r
         }
@@ -257,7 +257,7 @@ internal object MedicoApi {
 // HTTP e parsing.
 // ---------------------------------------------------------------------------
 
-private object ApiHttp {
+private object MedicoApiHttp {
     private const val CONEXAO =
         "Não foi possível conectar ao servidor. Verifique sua conexão e a URL do backend."
     private const val SESSAO_EXPIRADA = "Sua sessão expirou. Entre novamente."
@@ -320,9 +320,9 @@ private fun <T> Resposta<Any?>.lista(mapear: (JSONObject) -> T): Resposta<List<T
     is Resposta.Falha -> this
     is Resposta.Ok -> {
         val array = dados as? JSONArray
-        if (array == null) ApiHttp.invalida()
+        if (array == null) MedicoApiHttp.invalida()
         else runCatching { List(array.length()) { mapear(array.getJSONObject(it)) } }
-            .fold({ Resposta.Ok(it) }, { ApiHttp.invalida() })
+            .fold({ Resposta.Ok(it) }, { MedicoApiHttp.invalida() })
     }
 }
 
@@ -330,8 +330,8 @@ private fun <T> Resposta<Any?>.objeto(mapear: (JSONObject) -> T): Resposta<T> = 
     is Resposta.Falha -> this
     is Resposta.Ok -> {
         val json = dados as? JSONObject
-        if (json == null) ApiHttp.invalida()
-        else runCatching { mapear(json) }.fold({ Resposta.Ok(it) }, { ApiHttp.invalida() })
+        if (json == null) MedicoApiHttp.invalida()
+        else runCatching { mapear(json) }.fold({ Resposta.Ok(it) }, { MedicoApiHttp.invalida() })
     }
 }
 
