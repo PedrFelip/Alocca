@@ -485,13 +485,7 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
                 )
                 // Cada aba tem seu próprio scroll (key), para não herdar a posição da anterior.
                 if (activeTab == "Plantões") {
-                    Box(Modifier.weight(1f)) {
-                        PlantoesScreen(
-                            gestor = false,
-                            onBack = { activeTab = "Início" },
-                            abaInicial = abaPlantoesDestino,
-                        )
-                    }
+                    Box(Modifier.weight(1f)) { PlantoesScreen(gestor = false, onBack = { activeTab = "Início" }) }
                 } else key(activeTab) {
                     Column(
                         modifier = Modifier
@@ -532,11 +526,7 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
                         Spacer(Modifier.height(22.dp))
                     }
                 }
-                HomeBottomNavigation(activeTab, onSelected = { selected ->
-                    // Navegação manual pelo menu: deep link de plantão não se aplica.
-                    abaPlantoesDestino = 0
-                    activeTab = selected
-                })
+                HomeBottomNavigation(activeTab, onSelected = { selected -> activeTab = selected })
             }
 
             AnimatedVisibility(
