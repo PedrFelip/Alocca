@@ -70,134 +70,141 @@ export class CheckinService {
   async registrar(usuarioId: string, dados: RegistrarPresenca) {
     const medicoId = await this.perfilMedicoId(usuarioId)
 
-    // o medico é pego pelo token para ninguem marcar presenca no plantao do outro
-    const [alocacao] = await this.db
-      .select({
-        status_plantao: plantoesTable.status,
-        exige_checkin: plantoesTable.exige_checkin,
-        data_inicio: plantoesTable.data_inicio,
-        data_fim: plantoesTable.data_fim,
-        permite_geolocalizacao: plantoesTable.permite_geolocalizacao,
-        hospital_lat: instituicoesTable.latitude,
-        hospital_lon: instituicoesTable.longitude,
-      })
-      .from(alocacoesTable)
-      .innerJoin(plantoesTable, eq(alocacoesTable.plantao_id, plantoesTable.id))
-      .innerJoin(
-        instituicoesTable,
-        eq(plantoesTable.instituicao_id, instituicoesTable.id),
-      )
-      .where(
-        and(
-          eq(alocacoesTable.id, dados.alocacao_id),
-          ...alocacaoAtivaDoMedico(medicoId),
-        ),
-      )
-      .limit(1)
-    if (!alocacao) throw new NotFoundException('Alocação não encontrada')
-    if (alocacao.status_plantao === 'CANCELADO') {
-      throw new ConflictException('Este plantão foi cancelado')
-    }
-    if (!alocacao.exige_checkin) {
-      throw new ConflictException('Este plantão não exige check-in')
-    }
-
-    // a hora é sempre a do servidor, a tela so mostra o que o back deixa
-    const agora = new Date()
-    if (dados.tipo_evento === 'ENTRADA') {
-      if (agora < checkinLiberadoEm(alocacao.data_inicio)) {
-        throw new ConflictException(
-          'O check-in libera 10 minutos antes do plantão',
+    // Serializa com cancelamento entre validação e gravação da presença.
+    return this.db.transaction(async (tx) => {
+      // o medico é pego pelo token para ninguem marcar presenca no plantao do outro
+      const [alocacao] = await tx
+        .select({
+          status_plantao: plantoesTable.status,
+          exige_checkin: plantoesTable.exige_checkin,
+          data_inicio: plantoesTable.data_inicio,
+          data_fim: plantoesTable.data_fim,
+          permite_geolocalizacao: plantoesTable.permite_geolocalizacao,
+          hospital_lat: instituicoesTable.latitude,
+          hospital_lon: instituicoesTable.longitude,
+        })
+        .from(alocacoesTable)
+        .innerJoin(
+          plantoesTable,
+          eq(alocacoesTable.plantao_id, plantoesTable.id),
         )
-      }
-      if (!podeFazerCheckin(alocacao.data_inicio, alocacao.data_fim, agora)) {
-        throw new ConflictException('Este plantão já terminou')
-      }
-    }
-
-    if (dados.tipo_evento === 'SAIDA') {
-      const [entrada] = await this.db
-        .select({ id: registrosPontoTable.id })
-        .from(registrosPontoTable)
+        .innerJoin(
+          instituicoesTable,
+          eq(plantoesTable.instituicao_id, instituicoesTable.id),
+        )
         .where(
           and(
-            eq(registrosPontoTable.alocacao_id, dados.alocacao_id),
-            eq(registrosPontoTable.tipo_evento, 'ENTRADA'),
+            eq(alocacoesTable.id, dados.alocacao_id),
+            ...alocacaoAtivaDoMedico(medicoId),
           ),
         )
+        .for('update', { of: plantoesTable })
         .limit(1)
-      if (!entrada) {
-        throw new ConflictException('Faça o check-in antes do check-out')
+      if (!alocacao) throw new NotFoundException('Alocação não encontrada')
+      if (alocacao.status_plantao === 'CANCELADO') {
+        throw new ConflictException('Este plantão foi cancelado')
       }
-      if (!podeFazerCheckout(alocacao.data_fim, agora)) {
-        throw new ConflictException('O prazo para o check-out já acabou')
+      if (!alocacao.exige_checkin) {
+        throw new ConflictException('Este plantão não exige check-in')
       }
-    }
 
-    // RN19: so salva o gps se o plantão aceitar e se ele for valido
-    let latitude: number | null = null
-    let longitude: number | null = null
-    let precisao: number | null = null
-    let distancia: number | null = null
-    if (
-      alocacao.permite_geolocalizacao &&
-      gpsValido(dados.latitude, dados.longitude)
-    ) {
-      latitude = dados.latitude!
-      longitude = dados.longitude!
-      if (dados.precisao_metros != null && dados.precisao_metros >= 0) {
-        precisao = dados.precisao_metros
+      // a hora é sempre a do servidor, a tela so mostra o que o back deixa
+      const agora = new Date()
+      if (dados.tipo_evento === 'ENTRADA') {
+        if (agora < checkinLiberadoEm(alocacao.data_inicio)) {
+          throw new ConflictException(
+            'O check-in libera 10 minutos antes do plantão',
+          )
+        }
+        if (!podeFazerCheckin(alocacao.data_inicio, alocacao.data_fim, agora)) {
+          throw new ConflictException('Este plantão já terminou')
+        }
       }
-      // hospital sem coordenada salva sem distância
-      if (alocacao.hospital_lat != null && alocacao.hospital_lon != null) {
-        distancia = distanciaEmMetros(
-          latitude,
-          longitude,
-          alocacao.hospital_lat,
-          alocacao.hospital_lon,
-        )
-      }
-    }
 
-    try {
-      // hora do servidor, nao do celular
-      const [registro] = await this.db
-        .insert(registrosPontoTable)
-        .values({
-          alocacao_id: dados.alocacao_id,
-          tipo_evento: dados.tipo_evento,
-          latitude,
-          longitude,
-          precisao_metros: precisao,
-          distancia_local: distancia,
-        })
-        .returning({
-          id: registrosPontoTable.id,
-          tipo_evento: registrosPontoTable.tipo_evento,
-          timestamp_servidor: registrosPontoTable.timestamp_servidor,
-          distancia_local: registrosPontoTable.distancia_local,
-        })
+      if (dados.tipo_evento === 'SAIDA') {
+        const [entrada] = await tx
+          .select({ id: registrosPontoTable.id })
+          .from(registrosPontoTable)
+          .where(
+            and(
+              eq(registrosPontoTable.alocacao_id, dados.alocacao_id),
+              eq(registrosPontoTable.tipo_evento, 'ENTRADA'),
+            ),
+          )
+          .limit(1)
+        if (!entrada) {
+          throw new ConflictException('Faça o check-in antes do check-out')
+        }
+        if (!podeFazerCheckout(alocacao.data_fim, agora)) {
+          throw new ConflictException('O prazo para o check-out já acabou')
+        }
+      }
 
-      const mensagens = MENSAGENS[dados.tipo_evento]
-      return {
-        message: latitude === null ? mensagens.semGps : mensagens.comGps,
-        registro,
+      // RN19: so salva o gps se o plantão aceitar e se ele for valido
+      let latitude: number | null = null
+      let longitude: number | null = null
+      let precisao: number | null = null
+      let distancia: number | null = null
+      if (
+        alocacao.permite_geolocalizacao &&
+        gpsValido(dados.latitude, dados.longitude)
+      ) {
+        latitude = dados.latitude!
+        longitude = dados.longitude!
+        if (dados.precisao_metros != null && dados.precisao_metros >= 0) {
+          precisao = dados.precisao_metros
+        }
+        // hospital sem coordenada salva sem distância
+        if (alocacao.hospital_lat != null && alocacao.hospital_lon != null) {
+          distancia = distanciaEmMetros(
+            latitude,
+            longitude,
+            alocacao.hospital_lat,
+            alocacao.hospital_lon,
+          )
+        }
       }
-    } catch (erro) {
-      // 23505 = ja existe entrada/saida dessa alocacao
-      const codigo = ((erro as { code?: string }).code ??
-        (erro as { cause?: { code?: string } }).cause?.code) as
-        | string
-        | undefined
-      if (codigo === '23505') {
-        throw new ConflictException(
-          dados.tipo_evento === 'ENTRADA'
-            ? 'Você já fez o check-in deste plantão'
-            : 'Você já fez o check-out deste plantão',
-        )
+
+      try {
+        // hora do servidor, nao do celular
+        const [registro] = await tx
+          .insert(registrosPontoTable)
+          .values({
+            alocacao_id: dados.alocacao_id,
+            tipo_evento: dados.tipo_evento,
+            latitude,
+            longitude,
+            precisao_metros: precisao,
+            distancia_local: distancia,
+          })
+          .returning({
+            id: registrosPontoTable.id,
+            tipo_evento: registrosPontoTable.tipo_evento,
+            timestamp_servidor: registrosPontoTable.timestamp_servidor,
+            distancia_local: registrosPontoTable.distancia_local,
+          })
+
+        const mensagens = MENSAGENS[dados.tipo_evento]
+        return {
+          message: latitude === null ? mensagens.semGps : mensagens.comGps,
+          registro,
+        }
+      } catch (erro) {
+        // 23505 = ja existe entrada/saida dessa alocacao
+        const codigo = ((erro as { code?: string }).code ??
+          (erro as { cause?: { code?: string } }).cause?.code) as
+          | string
+          | undefined
+        if (codigo === '23505') {
+          throw new ConflictException(
+            dados.tipo_evento === 'ENTRADA'
+              ? 'Você já fez o check-in deste plantão'
+              : 'Você já fez o check-out deste plantão',
+          )
+        }
+        throw erro
       }
-      throw erro
-    }
+    })
   }
 
   // plantoes que a tela de check-in deve mostrar. normalmente vem 1, mas

@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Inject, Post, Query, Req, UseGuards } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Post,
+  Patch,
+  Param,
+  ParseUUIDPipe,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common'
 import { AuthGuard, type AuthenticatedRequest } from '../auth/auth.guard.ts'
 import { Permissoes } from '../auth/permissoes.decorator.ts'
 import { PermissoesGuard } from '../auth/permissoes.guard.ts'
@@ -6,6 +18,8 @@ import { mensagensOficiais } from '../common/mensagens.ts'
 import { ZodValidationPipe } from '../common/zod-validation.pipe.ts'
 import {
   criarPlantaoSchema,
+  editarPlantaoSchema,
+  type EditarPlantao,
   listarPlantoesGerenciadosSchema,
   listarPlantoesSchema,
   type CriarPlantao,
@@ -52,5 +66,32 @@ export class PlantoesController {
     filtros: ListarPlantoesGerenciados,
   ) {
     return this.plantoes.listarGerenciados(request.usuarioId, filtros)
+  }
+  @Patch(':id')
+  @Permissoes('GESTOR')
+  editar(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(editarPlantaoSchema)) dados: EditarPlantao,
+  ) {
+    return this.plantoes.editar(request.usuarioId, id, dados)
+  }
+
+  @Post(':id/cancelar')
+  @Permissoes('GESTOR')
+  cancelar(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.plantoes.encerrar(request.usuarioId, id, 'CANCELADO')
+  }
+
+  @Post(':id/concluir')
+  @Permissoes('GESTOR')
+  concluir(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.plantoes.encerrar(request.usuarioId, id, 'CONCLUIDO')
   }
 }
