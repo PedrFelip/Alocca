@@ -228,6 +228,30 @@ describe('Financeiro do médico (GET /financeiro/medico, #18)', () => {
     })
   })
 
+  it('plantão cancelado ou excluído não entra no resumo nem na lista', async () => {
+    const zerado = {
+      total_recebido: '0',
+      total_a_receber: '0',
+      total_pendente: '0',
+    }
+    const plantaoDoMedico2 = `SELECT plantao_id FROM alocacoes a JOIN medicos m ON m.id = a.medico_id
+       JOIN usuarios u ON u.id = m.usuario_id WHERE u.nome = 'Médico Dois'`
+
+    await database.query(
+      `UPDATE plantoes SET status = 'CANCELADO' WHERE id IN (${plantaoDoMedico2})`,
+    )
+    const cancelado = await consultar(medico2Token).expect(200)
+    expect(cancelado.body.resumo).toEqual(zerado)
+    expect(cancelado.body.pagamentos).toEqual([])
+
+    await database.query(
+      `UPDATE plantoes SET status = 'PREENCHIDO', deleted_at = now() WHERE id IN (${plantaoDoMedico2})`,
+    )
+    const excluido = await consultar(medico2Token).expect(200)
+    expect(excluido.body.resumo).toEqual(zerado)
+    expect(excluido.body.pagamentos).toEqual([])
+  })
+
   it('médico sem pagamentos recebe resumo zerado e lista vazia', async () => {
     await database.query('DELETE FROM pagamentos')
     const resposta = await consultar(medico1Token).expect(200)
