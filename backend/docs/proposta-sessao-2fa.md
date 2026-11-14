@@ -1,26 +1,25 @@
 # Proposta de sessão mobile e 2FA — D9
 
-Estado: **aguardando decisão de produto; não implementado nem contrato vigente**.
+Estado: **proposta aprovada pelo usuário em 14/11/2026; implementação em andamento**.
 A troca de senha autenticada é independente desta proposta. Mantêm-se as convenções
 atuais (snake_case, sem `/api/v1`, D18); não se migram todos os UCs nesta frente.
 
-## Decisões solicitadas
+## Decisões aprovadas
 
 1. Manter access JWT de 15 minutos (configuração atual). Challenge opaco aleatório,
    de uso único, 5 minutos. Refresh opaco aleatório, 30 dias absolutos por família,
    sem extensão deslizante; rotação em cada uso. Reutilização revoga a família.
 2. PIN por e-mail no login inicial (6 dígitos, 5 minutos, RN10), SMTP existente.
    Biometria Android apenas desbloqueia localmente credenciais protegidas pelo
-   Keystore. Isso exige alinhamento explícito com RN09: um booleano do cliente
-   não comprova biometria no servidor. Alternativa de maior escopo: cadastrar
-   chave de dispositivo e validar assinatura de desafio após biometria.
+   Keystore. Alinhamento de RN09 aprovado: um booleano do cliente
+   não comprova biometria no servidor. A alternativa de chave de dispositivo no servidor não foi adotada nesta etapa.
 3. Novas rotas mobile por papel; preservar `/auth/login` legado nesta transição.
    Esse legado não passa a exigir 2FA: sua retirada/exclusividade administrativa
    requer migração coordenada dos consumidores. Sem SMTP, login mobile não deve
    emitir sessão nem simular sucesso. PIN: 5 erros invalidam desafio; 3 envios por
    conta em 15 minutos; reenvio invalida o anterior. Somar limite por IP.
 
-## Contrato candidato (ainda não habilitado)
+## Contrato aprovado (implementação em andamento)
 
 - `POST /auth/login/medico` e `/auth/login/gestor`: `{email, senha}` →
   `{challenge_token, requer_2fa: true, expires_in}`; nenhum access token antes do PIN.
