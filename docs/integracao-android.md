@@ -12,7 +12,7 @@ A tela de médicos exibe nome, CRM/UF, especialidade, estado da conta e validaç
 - **Segurança:** implementar troca de senha autenticada nas configurações. Recuperação de senha já chama a API, mas envio real requer SMTP configurado. Definir e implementar o contrato de 2FA/PIN e renovação de sessão; não adicionar autenticação fictícia.
 - **Notificações:** entregar os eventos da outbox por push/e-mail, registrar dispositivo e implementar listagem/leitura e preferências no aplicativo. A interface atual informa indisponibilidade.
 - **Resumo do gestor:** indicadores agregados de médicos, vagas e financeiro foram removidos por serem fictícios. Para retornarem, precisam de consultas agregadas no backend; a home hoje mostra uma página reduzida dos plantões reais.
-- **Médicos e ponto:** busca/filtros no servidor, detalhes do profissional e eventual fluxo de contestação/ajuste de ponto precisam de contrato próprio. A consulta paginada está integrada; a tela de gestor não concede poderes de validação cadastral do administrador.
+- **Médicos e ponto:** buscas/filtros têm contrato em `backend/docs/contrato-consultas-gestor.md`. Detalhes do profissional e eventual fluxo de contestação/ajuste permanecem pendentes; a tela de gestor não concede poderes de validação cadastral do administrador nem altera presença.
 - **Regras de produto:** fechar compensações/estornos no cancelamento, validação cadastral institucional e contratos pendentes listados em `backend/docs/decisoes-pendentes.md`.
 - **Operação:** validar o fluxo completo em dispositivo com contas reais (publicação → candidatura → aprovação → ponto → pagamento com comprovante), configurar HTTPS, SMTP e infraestrutura de produção. O modo HTTP/ADB do script é para desenvolvimento.
 
