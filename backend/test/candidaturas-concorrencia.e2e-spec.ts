@@ -89,9 +89,9 @@ describeConcorrencia(
       medico1UsuarioId = usuarios.find((u) => u.nome === 'Médico Um')!.id
       medico2UsuarioId = usuarios.find((u) => u.nome === 'Médico Dois')!.id
       const medicos = await base.unsafe<{ id: string; crm: string }[]>(
-        `INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade) VALUES
-          ($1, '123456', 'DF', 'Clínica Médica'),
-          ($2, '654321', 'SP', 'Clínica Médica')
+        `INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade, status_validacao) VALUES
+          ($1, '123456', 'DF', 'Clínica Médica', 'APROVADO'),
+          ($2, '654321', 'SP', 'Clínica Médica', 'APROVADO')
          RETURNING id, crm`,
         [medico1UsuarioId, medico2UsuarioId],
       )
