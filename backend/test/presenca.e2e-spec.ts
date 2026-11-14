@@ -128,21 +128,146 @@ describe('Presença do médico (GET /presenca e /presenca/historico, #50)', () =
     gestorToken = `Bearer ${await jwt.signAsync({ sub: gestor1.id })}`
   })
 
+  it('não mistura dados de outra instituição mesmo havendo vínculo com a primeira', async () => {
+    await vincularGestor()
+    const [outra] = (
+      await database.query<{ id: string }>(`
+      INSERT INTO instituicoes (usuario_id, nome, cnpj)
+      SELECT usuario_id, 'Outra instituição', '33333333000133' FROM instituicoes LIMIT 1
+      RETURNING id`)
+    ).rows
+    await database.query(
+      `UPDATE plantoes SET instituicao_id = $1
+      WHERE id = (SELECT plantao_id FROM alocacoes WHERE id = $2)`,
+      [outra.id, alocacaoMedico2],
+    )
+    await database.query(
+      `INSERT INTO registros_ponto (alocacao_id, tipo_evento)
+      VALUES ($1, 'ENTRADA')`,
+      [alocacaoMedico2],
+    )
+    const medicos = await request(app.getHttpServer())
+      .get('/gestor/medicos')
+      .set('Authorization', gestorToken)
+      .expect(200)
+    expect(medicos.body).toHaveLength(1)
+    expect(medicos.body[0].nome).toBe('Médico Um')
+    const ponto = await request(app.getHttpServer())
+      .get('/gestor/ponto')
+      .set('Authorization', gestorToken)
+      .expect(200)
+    expect(ponto.body).toHaveLength(2)
+    expect(
+      ponto.body.every(
+        (item: { medico: { nome: string } }) =>
+          item.medico.nome === 'Médico Um',
+      ),
+    ).toBe(true)
+  })
+
+  async function vincularGestor() {
+    await database.exec(`INSERT INTO gestores_instituicoes (gestor_id, instituicao_id)
+      SELECT g.id, i.id FROM gestores g CROSS JOIN instituicoes i`)
+  }
+
+  it('consultas do gestor exigem autenticação, papel e paginação válida', async () => {
+    for (const recurso of ['medicos', 'ponto']) {
+      await request(app.getHttpServer()).get(`/gestor/${recurso}`).expect(401)
+      await request(app.getHttpServer())
+        .get(`/gestor/${recurso}`)
+        .set('Authorization', medico1Token)
+        .expect(403)
+      await request(app.getHttpServer())
+        .get(`/gestor/${recurso}?limit=51`)
+        .set('Authorization', gestorToken)
+        .expect(400)
+    }
+  })
+
+  it('gestor só consulta médicos e ponto de instituições vinculadas', async () => {
+    for (const recurso of ['medicos', 'ponto']) {
+      const vazia = await request(app.getHttpServer())
+        .get(`/gestor/${recurso}`)
+        .set('Authorization', gestorToken)
+        .expect(200)
+      expect(vazia.body).toEqual([])
+    }
+    await vincularGestor()
+    const medicos = await request(app.getHttpServer())
+      .get('/gestor/medicos')
+      .set('Authorization', gestorToken)
+      .expect(200)
+    expect(medicos.body).toHaveLength(2)
+    expect(medicos.body[0]).toMatchObject({
+      nome: 'Médico Dois',
+      crm: '654321',
+      uf_crm: 'SP',
+    })
+    expect(medicos.body[0]).not.toHaveProperty('senha_hash')
+    expect(medicos.body[0]).not.toHaveProperty('cpf')
+    const ponto = await request(app.getHttpServer())
+      .get('/gestor/ponto?limit=1&offset=1')
+      .set('Authorization', gestorToken)
+      .expect(200)
+    expect(ponto.body).toHaveLength(1)
+    expect(ponto.body[0]).toMatchObject({
+      tipo_evento: 'ENTRADA',
+      com_localizacao: true,
+      medico: { nome: 'Médico Um' },
+    })
+    expect(ponto.body[0]).not.toHaveProperty('latitude')
+    expect(ponto.body[0]).not.toHaveProperty('longitude')
+    await database.exec('UPDATE instituicoes SET ativa = false')
+    for (const recurso of ['medicos', 'ponto']) {
+      const resposta = await request(app.getHttpServer())
+        .get(`/gestor/${recurso}`)
+        .set('Authorization', gestorToken)
+        .expect(200)
+      expect(resposta.body).toEqual([])
+    }
+  })
+
+  it('paginação de médicos é estável e alocações excluídas não aparecem', async () => {
+    await vincularGestor()
+    const todos = await request(app.getHttpServer())
+      .get('/gestor/medicos')
+      .set('Authorization', gestorToken)
+      .expect(200)
+    const primeira = await request(app.getHttpServer())
+      .get('/gestor/medicos?limit=1')
+      .set('Authorization', gestorToken)
+      .expect(200)
+    const segunda = await request(app.getHttpServer())
+      .get('/gestor/medicos?limit=1&offset=1')
+      .set('Authorization', gestorToken)
+      .expect(200)
+    expect([...primeira.body, ...segunda.body]).toEqual(todos.body)
+    await database.exec('UPDATE alocacoes SET deleted_at = now()')
+    for (const recurso of ['medicos', 'ponto']) {
+      const resposta = await request(app.getHttpServer())
+        .get(`/gestor/${recurso}`)
+        .set('Authorization', gestorToken)
+        .expect(200)
+      expect(resposta.body).toEqual([])
+    }
+  })
+
   afterAll(async () => {
     await app?.close()
     await database?.close()
   })
 
   it('exige autenticação (401) e perfil de médico (403)', async () => {
-    await request(app.getHttpServer())
-      .get('/presenca/historico')
-      .expect(401)
+    await request(app.getHttpServer()).get('/presenca/historico').expect(401)
     await statusDaAlocacao(alocacaoMedico1, medico1Token).expect(200)
     await statusDaAlocacao(alocacaoMedico1, gestorToken).expect(403)
   })
 
   it('status da alocação traz plantão, instituição e os dois eventos', async () => {
-    const resposta = await statusDaAlocacao(alocacaoMedico1, medico1Token).expect(200)
+    const resposta = await statusDaAlocacao(
+      alocacaoMedico1,
+      medico1Token,
+    ).expect(200)
     expect(resposta.body.alocacao).toMatchObject({
       id: alocacaoMedico1,
       plantao: {
@@ -160,7 +285,10 @@ describe('Presença do médico (GET /presenca e /presenca/historico, #50)', () =
   })
 
   it('registros não expõem coordenadas, apenas com_localizacao', async () => {
-    const resposta = await statusDaAlocacao(alocacaoMedico1, medico1Token).expect(200)
+    const resposta = await statusDaAlocacao(
+      alocacaoMedico1,
+      medico1Token,
+    ).expect(200)
     const registros = resposta.body.registros as Array<Record<string, unknown>>
     const entrada = registros.find((r) => r.tipo_evento === 'ENTRADA')!
     const saida = registros.find((r) => r.tipo_evento === 'SAIDA')!
@@ -175,7 +303,10 @@ describe('Presença do médico (GET /presenca e /presenca/historico, #50)', () =
 
   it('isolamento: alocação de outro médico e inexistente viram 404', async () => {
     await statusDaAlocacao(alocacaoMedico2, medico1Token).expect(404)
-    await statusDaAlocacao('11111111-1111-4111-8111-111111111111', medico1Token).expect(404)
+    await statusDaAlocacao(
+      '11111111-1111-4111-8111-111111111111',
+      medico1Token,
+    ).expect(404)
   })
 
   it('alocacao_id inválido retorna 400', async () => {
@@ -192,7 +323,9 @@ describe('Presença do médico (GET /presenca e /presenca/historico, #50)', () =
       [alocacaoMedico2],
     )
 
-    const resposta = await historico('?limit=10&offset=0', medico1Token).expect(200)
+    const resposta = await historico('?limit=10&offset=0', medico1Token).expect(
+      200,
+    )
     const timestamps = resposta.body.map(
       (r: { timestamp_servidor: string }) => r.timestamp_servidor,
     )
@@ -208,16 +341,18 @@ describe('Presença do médico (GET /presenca e /presenca/historico, #50)', () =
     })
     expect(Object.keys(resposta.body[0])).not.toContain('latitude')
 
-    const pagina2 = await historico('?limit=1&offset=1', medico1Token).expect(200)
-    expect((pagina2.body as Array<{ tipo_evento: string }>)[0].tipo_evento).toBe('ENTRADA')
+    const pagina2 = await historico('?limit=1&offset=1', medico1Token).expect(
+      200,
+    )
+    expect(
+      (pagina2.body as Array<{ tipo_evento: string }>)[0].tipo_evento,
+    ).toBe('ENTRADA')
 
     const doMedico2 = await historico('', medico2Token).expect(200)
+    expect(doMedico2.body as Array<{ alocacao_id: string }>).toHaveLength(1)
     expect(
-      doMedico2.body as Array<{ alocacao_id: string }>,
-    ).toHaveLength(1)
-    expect((doMedico2.body as Array<{ alocacao_id: string }>)[0].alocacao_id).toBe(
-      alocacaoMedico2,
-    )
+      (doMedico2.body as Array<{ alocacao_id: string }>)[0].alocacao_id,
+    ).toBe(alocacaoMedico2)
   })
 
   it('histórico pagina sem repetir nem omitir registros com timestamp igual', async () => {
@@ -226,9 +361,15 @@ describe('Presença do médico (GET /presenca e /presenca/historico, #50)', () =
       [alocacaoMedico1],
     )
 
-    const todos = await historico('?limit=10&offset=0', medico1Token).expect(200)
-    const pagina1 = await historico('?limit=1&offset=0', medico1Token).expect(200)
-    const pagina2 = await historico('?limit=1&offset=1', medico1Token).expect(200)
+    const todos = await historico('?limit=10&offset=0', medico1Token).expect(
+      200,
+    )
+    const pagina1 = await historico('?limit=1&offset=0', medico1Token).expect(
+      200,
+    )
+    const pagina2 = await historico('?limit=1&offset=1', medico1Token).expect(
+      200,
+    )
 
     const ids = (corpo: Array<{ id: string }>) => corpo.map((r) => r.id)
     expect(ids(todos.body)).toHaveLength(2)
@@ -238,9 +379,11 @@ describe('Presença do médico (GET /presenca e /presenca/historico, #50)', () =
   })
 
   it('plantão ou instituição excluídos (soft delete) somem do status e do histórico', async () => {
-    await historico('', medico1Token).expect(200).expect((r) => {
-      expect(r.body.length).toBeGreaterThan(0)
-    })
+    await historico('', medico1Token)
+      .expect(200)
+      .expect((r) => {
+        expect(r.body.length).toBeGreaterThan(0)
+      })
     await database.query('UPDATE plantoes SET deleted_at = now()')
     await statusDaAlocacao(alocacaoMedico1, medico1Token).expect(404)
     expect((await historico('', medico1Token).expect(200)).body).toEqual([])
