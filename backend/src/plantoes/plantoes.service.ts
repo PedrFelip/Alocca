@@ -67,7 +67,7 @@ export class PlantoesService {
       eq(plantoesTable.permite_candidatura, true),
       eq(instituicoesTable.ativa, true),
       gt(plantoesTable.vagas_disponiveis, 0),
-      gte(plantoesTable.data_fim, sql`now()`),
+      gt(plantoesTable.data_inicio, sql`now() AT TIME ZONE 'UTC'`),
       isNull(plantoesTable.deleted_at),
       isNull(instituicoesTable.deleted_at),
       // Não lista plantões em que o próprio médico já se candidatou.

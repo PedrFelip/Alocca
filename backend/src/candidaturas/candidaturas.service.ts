@@ -125,7 +125,7 @@ export class CandidaturasService {
           'Não há vagas disponíveis para este plantão',
         )
       }
-      if (plantao.data_fim.getTime() <= Date.now()) {
+      if (plantao.data_inicio.getTime() <= Date.now()) {
         throw new ConflictException(
           'Este plantão já encerrou o período de candidaturas',
         )

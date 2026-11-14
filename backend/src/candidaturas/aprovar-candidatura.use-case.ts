@@ -74,9 +74,14 @@ export class AprovarCandidaturaUseCase {
           'Este plantão não está aberto para alocação',
         )
       }
-      // plantao que ja acabou nao recebe medico
-      if (plantao.data_fim <= new Date()) {
+      const agora = new Date()
+      if (plantao.data_fim <= agora) {
         throw new ConflictException(MSG_PLANTAO_ENCERRADO)
+      }
+      if (plantao.data_inicio <= agora) {
+        throw new ConflictException(
+          'Este plantão já começou e não pode receber alocação.',
+        )
       }
 
       const [instituicao] = await this.alocacoes.instituicaoAtiva(

@@ -266,6 +266,32 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
       ).expect(404)
     })
 
+    it.each([-1, 0])(
+      '409: bloqueia candidatura no início ou após ele (%s dias)',
+      async (dias) => {
+        const inicio = new Date()
+        const plantao = await novoPlantao({
+          titulo: 'Plantão iniciado',
+          inicio: new Date(inicio.getTime() + dias * 86_400_000).toISOString(),
+          fim: ts(1),
+        })
+        vi.spyOn(Date, 'now').mockReturnValue(inicio.getTime())
+        try {
+          const resposta = await candidatar(plantao, medico1Token).expect(409)
+          expect(resposta.body.message).toBe(
+            'Este plantão já encerrou o período de candidaturas',
+          )
+          const candidaturas = await database.query(
+            'SELECT id FROM candidaturas WHERE plantao_id = $1',
+            [plantao],
+          )
+          expect(candidaturas.rows).toHaveLength(0)
+        } finally {
+          vi.restoreAllMocks()
+        }
+      },
+    )
+
     it('409: plantão preenchido não aceita candidatura', async () => {
       const preenchido = await novoPlantao({
         titulo: 'Preenchido',
@@ -361,6 +387,38 @@ describe('Candidaturas (UC05) e alocação (UC11)', () => {
       )
       await semAlocacao(candidatura.id)
     })
+
+    it.each([-1, 0])(
+      '409: não aprova candidatura no início ou após ele (%s dias)',
+      async (dias) => {
+        const candidatura = await candidaturaPendente(plantaoUmaVaga)
+        const agora = new Date()
+        await database.query(
+          'UPDATE plantoes SET data_inicio = $1 WHERE id = $2',
+          [
+            new Date(agora.getTime() + dias * 86_400_000).toISOString(),
+            plantaoUmaVaga,
+          ],
+        )
+        const resposta = await aprovar(
+          plantaoUmaVaga,
+          candidatura.id,
+          gestorToken,
+        ).expect(409)
+        expect(resposta.body.message).toBe(
+          'Este plantão já começou e não pode receber alocação.',
+        )
+        await semAlocacao(candidatura.id)
+        expect(
+          (await database.query('SELECT id FROM pagamentos')).rows,
+        ).toHaveLength(0)
+        const vagas = await database.query<{ vagas_disponiveis: number }>(
+          'SELECT vagas_disponiveis FROM plantoes WHERE id = $1',
+          [plantaoUmaVaga],
+        )
+        expect(vagas.rows[0].vagas_disponiveis).toBe(1)
+      },
+    )
 
     it('409: instituição inativa não aloca', async () => {
       const candidatura = await candidaturaPendente(plantaoUmaVaga)
