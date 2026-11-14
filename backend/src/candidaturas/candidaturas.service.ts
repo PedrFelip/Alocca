@@ -70,10 +70,10 @@ export class CandidaturasService {
    * plantão após o commit do vencedor e só então decide.
    */
   async criar(plantaoId: string, usuarioId: string, dados: CriarCandidatura) {
-    const medicoId = await this.perfilMedicoId(usuarioId)
-
     return this.db.transaction(async (tx) => {
       // 1ª trava: perfil do médico (também serializa com a aprovação RN16).
+      // Resolve o perfil por usuario_id já sob trava: uma consulta a menos
+      // e sem janela entre a leitura fora da transação e o lock.
       const [medico] = await tx
         .select({
           id: medicosTable.id,
@@ -83,7 +83,7 @@ export class CandidaturasService {
         .from(medicosTable)
         .where(
           and(
-            eq(medicosTable.id, medicoId),
+            eq(medicosTable.usuario_id, usuarioId),
             isNull(medicosTable.deleted_at),
           ),
         )
@@ -466,14 +466,14 @@ export class CandidaturasService {
       const preenchido = atualizado.vagas_disponiveis === 0
 
       // 5. Notificações em outbox, na mesma transação (UC11; provedor: D10).
-      const destinatarios = await this.usuariosPorMedicoId(tx, [
-        alocacao.medico_id,
-      ])
+      // O usuário do aprovado e dos rejeitados sai de uma única consulta
+      // (medicos ⋈ usuarios), em vez de uma por grupo.
       const eventos: Array<{
         usuario_destino_id: string
         plantao_id: string
         tipo: string
       }> = []
+      const medicosDestino = [alocacao.medico_id]
       if (preenchido) {
         // 5a. Plantão esgotado: status 'PREENCHIDO' (RN20).
         await tx
@@ -497,19 +497,21 @@ export class CandidaturasService {
             ),
           )
           .returning({ medico_id: candidaturasTable.medico_id })
-        if (rejeitadas.length > 0) {
-          const usuariosRejeitados = await this.usuariosPorMedicoId(
-            tx,
-            rejeitadas.map((c) => c.medico_id),
-          )
-          eventos.push(
-            ...usuariosRejeitados.map((destino) => ({
+        // O índice único (plantao_id, medico_id) garante que nenhum rejeitado
+        // repita o médico aprovado aqui.
+        medicosDestino.push(...rejeitadas.map((c) => c.medico_id))
+      }
+      const destinatarios = await this.usuariosPorMedicoId(tx, medicosDestino)
+      if (preenchido) {
+        eventos.push(
+          ...destinatarios
+            .filter((d) => d.medico_id !== alocacao.medico_id)
+            .map((destino) => ({
               usuario_destino_id: destino.usuario_id,
               plantao_id: plantaoId,
               tipo: 'CANDIDATURA_REJEITADA',
             })),
-          )
-        }
+        )
       }
       const aprovado = destinatarios.find((d) => d.medico_id === alocacao.medico_id)
       if (aprovado) {
@@ -644,24 +646,18 @@ export class CandidaturasService {
     instituicaoId: string,
     usuarioId: string,
   ): Promise<boolean> {
-    const [gestor] = await this.db
-      .select({ id: gestoresTable.id })
+    const [vinculo] = await this.db
+      .select({ um: sql`1` })
       .from(gestoresTable)
+      .innerJoin(
+        gestoresInstituicoesTable,
+        eq(gestoresInstituicoesTable.gestor_id, gestoresTable.id),
+      )
       .where(
         and(
           eq(gestoresTable.usuario_id, usuarioId),
           eq(gestoresTable.ativa, true),
           isNull(gestoresTable.deleted_at),
-        ),
-      )
-      .limit(1)
-    if (!gestor) return false
-    const [vinculo] = await this.db
-      .select({ um: sql`1` })
-      .from(gestoresInstituicoesTable)
-      .where(
-        and(
-          eq(gestoresInstituicoesTable.gestor_id, gestor.id),
           eq(gestoresInstituicoesTable.instituicao_id, instituicaoId),
         ),
       )

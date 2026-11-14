@@ -10,6 +10,7 @@
     LoaderCircle,
   } from "lucide-svelte";
   import type { MedicoPendente } from "../lib/types";
+  const dateFormatter = new Intl.DateTimeFormat("pt-BR");
   let {
     medicos,
     loading,
@@ -32,17 +33,18 @@
   let estados = $derived(
     [...new Set(medicos.map((medico) => medico.uf_crm))].sort(),
   );
-  let filtered = $derived(
-    medicos
+  let filtered = $derived.by(() => {
+    const query = search.toLocaleLowerCase("pt-BR");
+    return medicos
       .filter(
         (medico) =>
           (!uf || medico.uf_crm === uf) &&
           `${medico.nome} ${medico.email} ${medico.crm} ${medico.especialidade_declarada || ""}`
             .toLocaleLowerCase("pt-BR")
-            .includes(search.toLocaleLowerCase("pt-BR")),
+            .includes(query),
       )
-      .sort((a, b) => Date.parse(a.criado_at) - Date.parse(b.criado_at)),
-  );
+      .sort((a, b) => Date.parse(a.criado_at) - Date.parse(b.criado_at));
+  });
   let totalPages = $derived(Math.max(1, Math.ceil(filtered.length / pageSize)));
   let activePage = $derived(Math.min(page, totalPages));
   let visible = $derived(
@@ -147,9 +149,7 @@
                     "Não informada"}</span
                 ></td
               ><td class="date-cell"
-                >{new Intl.DateTimeFormat("pt-BR").format(
-                  new Date(medico.criado_at),
-                )}</td
+                >{dateFormatter.format(new Date(medico.criado_at))}</td
               ><td
                 ><button
                   class="review-button"

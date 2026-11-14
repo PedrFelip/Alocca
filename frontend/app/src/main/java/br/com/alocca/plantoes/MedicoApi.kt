@@ -385,8 +385,20 @@ internal object Datas {
     private val brasil = Locale("pt", "BR")
     val fuso: TimeZone = TimeZone.getTimeZone("America/Sao_Paulo")
 
-    private fun formato(padrao: String, tz: TimeZone = fuso) =
-        SimpleDateFormat(padrao, brasil).apply { timeZone = tz }
+    // SimpleDateFormat/NumberFormat são caros de construir e mutáveis. A
+    // formatação roda na main thread (Compose) e o parse nas threads de IO,
+    // então a reutilização é por thread (ThreadLocal), sem compartilhamento.
+    private val formatos = object : ThreadLocal<HashMap<String, SimpleDateFormat>>() {
+        override fun initialValue(): HashMap<String, SimpleDateFormat> = HashMap()
+    }
+    private val moedas = object : ThreadLocal<HashMap<String, NumberFormat>>() {
+        override fun initialValue(): HashMap<String, NumberFormat> = HashMap()
+    }
+
+    private fun formato(padrao: String, tz: TimeZone = fuso): SimpleDateFormat =
+        formatos.get()!!.getOrPut("$padrao|${tz.id}") {
+            SimpleDateFormat(padrao, brasil).apply { timeZone = tz }
+        }
 
     fun parseIso(texto: String): Date? = listOf(
         "yyyy-MM-dd'T'HH:mm:ss.SSSX",
@@ -410,5 +422,6 @@ internal object Datas {
         return "${hora(inicio)} - ${hora(fim)} ($duracao)"
     }
 
-    fun moeda(valor: BigDecimal): String = NumberFormat.getCurrencyInstance(brasil).format(valor)
+    fun moeda(valor: BigDecimal): String =
+        moedas.get()!!.getOrPut("moeda") { NumberFormat.getCurrencyInstance(brasil) }.format(valor)
 }

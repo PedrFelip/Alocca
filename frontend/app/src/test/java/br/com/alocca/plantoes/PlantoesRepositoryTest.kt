@@ -1,7 +1,10 @@
 package br.com.alocca.plantoes
 
+import java.util.concurrent.Executors
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.runBlocking
+import kotlin.coroutines.CoroutineContext
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
@@ -92,6 +95,29 @@ class PlantoesRepositoryTest {
             fail("Cancellation must propagate")
         } catch (actual: CancellationException) {
             assertSame(cancellation, actual)
+        }
+    }
+
+    @Test fun `json parsing runs on the injected dispatcher, not the caller thread`() = runBlocking {
+        val executado = mutableListOf<Thread>()
+        val executor = Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "json-parse-test") }
+        val dispatcher = object : CoroutineDispatcher() {
+            override fun isDispatchNeeded(context: CoroutineContext) = true
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                executor.execute { executado += Thread.currentThread(); block.run() }
+            }
+        }
+        try {
+            val repository = HttpPlantoesRepository(
+                Transport(Resultado.Sucesso("""[{"id":"p1"}]""")),
+                dispatcher,
+            )
+            val item = (repository.feed(0) as Resultado.Sucesso).valor.single()
+            assertEquals("p1", item.id)
+            assertEquals("json-parse-test", executado.single().name)
+            assertNotEquals(Thread.currentThread(), executado.single())
+        } finally {
+            executor.shutdown()
         }
     }
 }

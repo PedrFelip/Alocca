@@ -1313,7 +1313,10 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
         carregarPagina(token, 0, reset = true, rodada = rodadas, filtro = selectedFilter)
     }
 
-    val visibleShifts = shifts.map { plantao ->
+    // O mapeamento faz parse/format de datas (caro) e só depende da lista
+    // carregada; manter em remember evita repetir isso a cada recomposição
+    // (troca de filtro, "Carregar mais", painel de notificações, etc.).
+    val visibleShifts = remember(shifts) { shifts.map { plantao ->
             val (dia, mes, diaSemanaHora) = PlantoesApi.dataDoCard(plantao.dataInicio)
             InstitutionShift(
                 status = when (plantao.status) {
@@ -1330,7 +1333,7 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
                 value = PlantoesApi.formatarValor(plantao.valor),
                 day = dia, month = mes, weekdayTime = diaSemanaHora,
             )
-        }
+        } }
     InstitutionPage(InstitutionScreen.Shifts, onNavigate) {
         SimpleManagerTitle("Plantões", "")
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
