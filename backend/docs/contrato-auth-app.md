@@ -53,6 +53,34 @@ status, …`, **sem `senha_hash`**) + `medico`:
   15 min, `tentativas_falhas` reseta no sucesso e na expiração do bloqueio.
 - Login aceita **somente e-mail**; login por CPF/CRM (RN07) fica fora do MVP.
 
+## `POST /auth/recuperar-senha` — pedir código (UC04, não autenticado, 5 req/min)
+
+```json
+{ "email": "lucas.silva@medico.com" }
+```
+
+- `200` sempre (MSG-05), exista o e-mail ou não (RN12). Se existir e a conta
+  estiver ATIVA, manda por e-mail um código de uso único que vale 15 min (RN11).
+  O código tem 8 caracteres (letras maiúsculas e números, sem 0/O/1/I).
+  Pedir de novo invalida o código anterior. O banco guarda só o hash (sha256).
+- No máximo 3 e-mails por conta a cada 15 min (além do limite por IP). Passou
+  disso, a resposta é a mesma, só não envia.
+- O e-mail sai por SMTP (`SMTP_*` no `.env`, ver `.env.example`). Sem
+  `SMTP_HOST` o back responde normal e só não envia.
+
+## `POST /auth/redefinir-senha` — trocar a senha (UC04, não autenticado, 5 req/min)
+
+```json
+{ "token": "K7MP2QXA", "nova_senha": "NovaSenhaForte123" }
+```
+
+- O código pode vir em minúsculo e com espaço nas pontas, o back normaliza.
+
+- `200` (MSG-08) → senha trocada; zera o bloqueio de login (RN08).
+- `400` (MSG-06) → código inválido, vencido ou já usado.
+- `400` → `nova_senha` fora da RN05 (mesma regra do cadastro); não gasta o código.
+- Spec usa `novaSenha`; aqui é `nova_senha` (snake_case, D18).
+
 ## `GET /usuarios/me` — sessão/restauração (Bearer)
 
 - `200`: `{ …usuario, medico: { … } | null }` (sem `senha_hash`).
