@@ -11,6 +11,8 @@ import {
   and,
   asc,
   eq,
+  exists,
+  or,
   gt,
   gte,
   ilike,
@@ -26,6 +28,7 @@ import {
   candidaturasTable,
   gestoresInstituicoesTable,
   instituicoesTable,
+  gestoresTable,
   medicosTable,
   plantoesTable,
 } from '../db/schemas/index.ts'

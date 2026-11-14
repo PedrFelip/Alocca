@@ -414,7 +414,9 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
                     onLogout = pedirSaida,
                 )
                 // Cada aba tem seu próprio scroll (key), para não herdar a posição da anterior.
-                key(activeTab) {
+                if (activeTab == "Plantões") {
+                    Box(Modifier.weight(1f)) { PlantoesScreen(gestor = false, onBack = { activeTab = "Início" }) }
+                } else key(activeTab) {
                     Column(
                         modifier = Modifier
                             .weight(1f)
@@ -792,10 +794,11 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
     val open: (InstitutionScreen) -> Unit = { screen = it }
     val context = LocalContext.current
     val token = remember { TokenStore.read(context) }
+    var candidaturaPlantao by remember { mutableStateOf<ItemPlantao?>(null) }
     Box(Modifier.fillMaxSize()) {
         when (screen) {
             InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, open) { notificationsOpen = !notificationsOpen }
-            InstitutionScreen.Shifts -> InstitutionShiftsScreen(token, open)
+            InstitutionScreen.Shifts -> if (candidaturaPlantao != null) PlantoesScreen(gestor = true, onBack = { candidaturaPlantao = null }, inicial = candidaturaPlantao) else InstitutionShiftsScreen(token, open) { candidaturaPlantao = it }
             InstitutionScreen.Doctors -> InstitutionDoctorsScreen(open)
             InstitutionScreen.Payments -> InstitutionPaymentsScreen(open)
             InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(open)
@@ -1238,7 +1241,7 @@ private fun InstitutionShiftsPreview(onNavigate: (InstitutionScreen) -> Unit) {
 }
 
 @Composable
-private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScreen) -> Unit) {
+private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScreen) -> Unit, onCandidaturas: (ItemPlantao) -> Unit) {
     var selectedShift by remember { mutableStateOf<InstitutionShift?>(null) }
     val tokenVigente by rememberUpdatedState(token)
     var selectedFilter by remember { mutableStateOf("Todos") }
@@ -1362,7 +1365,7 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
             } else if (visibleShifts.isEmpty()) {
                 Text(if (selectedFilter == "Todos") "Nenhum plantão publicado ainda.\nPublique o primeiro plantão da sua instituição." else "Nenhum plantão neste filtro.", color = Muted, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp))
             }
-            visibleShifts.forEach { shift -> InstitutionShiftCard(shift) { selectedShift = it }; Spacer(Modifier.height(9.dp)) }
+            visibleShifts.forEachIndexed { index, shift -> InstitutionShiftCard(shift) { onCandidaturas(ItemPlantao(id = shifts[index].id, titulo = shifts[index].titulo)) }; Spacer(Modifier.height(9.dp)) }
             if (!loading && errorMessage.isBlank() && hasMore) {
                 Button(
                     onClick = {
