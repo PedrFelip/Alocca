@@ -77,7 +77,10 @@ export class AuthService {
       throw new HttpException(mensagensOficiais['MSG-03'], 429)
     }
     return {
-      access_token: await this.jwt.signAsync({ sub: usuario.id }),
+      access_token: await this.jwt.signAsync({
+        sub: usuario.id,
+        versao_sessao: usuario.versao_sessao,
+      }),
       token_type: 'Bearer',
       expires_in: this.config.get('JWT_EXPIRES', { infer: true }),
       usuario: await this.usuarios.perfil(usuario.id),

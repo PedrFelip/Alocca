@@ -64,6 +64,9 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
         'utf8',
       ),
     )
+    await database.exec(
+      await readFile('drizzle/20261114231753_pretty_cardiac/migration.sql', 'utf8'),
+    )
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(DRIZZLE_DB)
       .useValue(drizzle({ client: database }))

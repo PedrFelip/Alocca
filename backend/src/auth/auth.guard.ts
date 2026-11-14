@@ -14,6 +14,7 @@ import { usuariosTable } from '../db/schemas/index.ts'
 
 export type AuthenticatedRequest = Request & {
   usuarioId: string
+  versaoSessao: number
   tipoUsuario: 'MEDICO' | 'GESTOR' | 'ADMIN'
 }
 
@@ -29,16 +30,29 @@ export class AuthGuard implements CanActivate {
     const match = /^Bearer ([^\s]+)$/i.exec(request.headers.authorization ?? '')
     if (!match) throw new UnauthorizedException('Autenticação necessária')
     let usuarioId: string
+    let versaoSessao: number
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(match[1], {
+      const payload = await this.jwt.verifyAsync<{
+        sub: string
+        versao_sessao?: number
+      }>(match[1], {
         algorithms: ['HS256'],
       })
       usuarioId = z.uuid().parse(payload.sub)
+      versaoSessao = z
+        .number()
+        .int()
+        .nonnegative()
+        .parse(payload.versao_sessao ?? 0)
     } catch {
       throw new UnauthorizedException('Token inválido ou expirado')
     }
     const [usuario] = await this.db
-      .select({ id: usuariosTable.id, tipo: usuariosTable.tipo })
+      .select({
+        id: usuariosTable.id,
+        tipo: usuariosTable.tipo,
+        versao: usuariosTable.versao_sessao,
+      })
       .from(usuariosTable)
       .where(
         and(
@@ -48,7 +62,9 @@ export class AuthGuard implements CanActivate {
         ),
       )
       .limit(1)
-    if (!usuario) throw new UnauthorizedException('Usuário indisponível')
+    if (!usuario || usuario.versao !== versaoSessao)
+      throw new UnauthorizedException('Usuário indisponível')
+    request.versaoSessao = versaoSessao
     request.usuarioId = usuario.id
     request.tipoUsuario = usuario.tipo
     return true

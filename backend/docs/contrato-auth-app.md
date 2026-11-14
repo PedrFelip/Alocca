@@ -47,7 +47,7 @@ status, …`, **sem `senha_hash`**) + `medico`:
 ```
 
 - `200`: `{ access_token, token_type: "Bearer", expires_in: 900, usuario: { …, medico|null } }`.
-  JWT HS256 de 15 min (env `JWT_EXPIRES`); o guard revalida `status = ATIVO` no banco a cada request.
+  JWT HS256 de 15 min (env `JWT_EXPIRES`); o guard revalida `status = ATIVO` e a versão de sessão no banco a cada request. Troca ou recuperação de senha invalida todos os tokens anteriores, inclusive legados sem versão.
 - `401` (MSG-01) → mesma resposta para senha errada e e-mail inexistente (anti-enumeração).
 - `429` (MSG-03) → 5 falhas consecutivas (RN08) ou throttle. RN08: bloqueio de
   15 min, `tentativas_falhas` reseta no sucesso e na expiração do bloqueio.
@@ -100,3 +100,30 @@ status, …`, **sem `senha_hash`**) + `medico`:
   deve mostrar a mensagem do servidor; 409 → MSG-02; 429 → MSG-03;
   exceção de rede → mensagem de conexão distinta das anteriores.
 - Senha do cadastro deve espelhar RN05 no cliente (mesma exigência do backend).
+
+
+## `POST /auth/alterar-senha` — configurações (Bearer)
+
+Corpo estrito: `{"senha_atual":"SenhaAtual123","nova_senha":"NovaSenha123"}`.
+`nova_senha` segue RN05, com máximo de 128 caracteres; senha atual não sofre trim.
+
+- `200`: `{"message":"Senha atualizada com sucesso!"}` (MSG-08). Android apaga
+  o token local e pede novo login. Todos os access tokens anteriores deixam de valer.
+- `400`: validação do corpo; não altera senha nem consome tentativa por conta.
+- `401`: sessão inválida ou senha atual incorreta (MSG-01); Android encerra sessão.
+- `429`: até 5 requisições/min por IP e 5 tentativas/conta por minuto, com contador
+  separado do bloqueio RN08. Não bloqueia o login da conta.
+
+Senha, incremento de `versao_sessao` e invalidação de códigos de recuperação pendentes
+são gravados na mesma transação, com trava de usuário. Recuperação bem-sucedida
+aplica a mesma revogação. JWT sem `versao_sessao` equivale à versão zero, preservando
+sessões legadas até a primeira troca/recuperação. Campos internos não entram no perfil.
+Aplicar a migração `20261114231753_pretty_cardiac` antes de iniciar o backend atualizado.
+
+## 2FA, refresh e logout
+
+Ainda pendentes de alinhamento D9; ver `proposta-sessao-2fa.md`. Nenhum endpoint
+2FA/refresh/logout remoto foi habilitado. Logout atual apaga apenas o token local:
+uma cópia do token continua válida até expirar ou ocorrer troca/recuperação de senha.
+O armazenamento Android existente cifra tokens com AES-GCM e chave Android Keystore;
+não guarda senha/PIN. A autenticação biométrica não está implementada.

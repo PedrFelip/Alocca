@@ -1,4 +1,12 @@
-import { Body, Controller, HttpCode, Inject, Post } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Inject,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { ZodValidationPipe } from '../common/zod-validation.pipe.ts'
 import {
@@ -7,6 +15,8 @@ import {
 } from '../usuarios/usuarios.schemas.ts'
 import { UsuariosService } from '../usuarios/usuarios.service.ts'
 import {
+  alterarSenhaSchema,
+  type AlterarSenha,
   loginSchema,
   recuperarSenhaSchema,
   redefinirSenhaSchema,
@@ -14,6 +24,7 @@ import {
   type RecuperarSenha,
   type RedefinirSenha,
 } from './auth.schemas.ts'
+import { AuthGuard, type AuthenticatedRequest } from './auth.guard.ts'
 import { AuthService } from './auth.service.ts'
 import { RecuperacaoSenhaService } from './recuperacao-senha.service.ts'
 
@@ -48,6 +59,21 @@ export class AuthController {
     @Body(new ZodValidationPipe(recuperarSenhaSchema)) data: RecuperarSenha,
   ) {
     return this.recuperacao.solicitar(data)
+  }
+
+  @Post('alterar-senha')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @UseGuards(AuthGuard)
+  alterarSenha(
+    @Req() request: AuthenticatedRequest,
+    @Body(new ZodValidationPipe(alterarSenhaSchema)) data: AlterarSenha,
+  ) {
+    return this.recuperacao.alterar(
+      request.usuarioId,
+      request.versaoSessao,
+      data,
+    )
   }
 
   @Post('redefinir-senha')
