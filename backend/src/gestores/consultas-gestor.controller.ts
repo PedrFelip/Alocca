@@ -18,6 +18,11 @@ export class ConsultasGestorController {
     private readonly consultas: ConsultasGestorService,
   ) {}
 
+  @Get('indicadores')
+  indicadores(@Req() request: AuthenticatedRequest) {
+    return this.consultas.indicadores(request.usuarioId)
+  }
+
   @Get('medicos')
   medicos(
     @Req() request: AuthenticatedRequest,
