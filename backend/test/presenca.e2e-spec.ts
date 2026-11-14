@@ -252,6 +252,128 @@ describe('Presença do médico (GET /presenca e /presenca/historico, #50)', () =
     }
   })
 
+  it('aplica busca literal e filtros combinados de médicos', async () => {
+    await vincularGestor()
+    await database.exec(
+      "UPDATE medicos SET especialidade = 'Cardio%_logia', status_validacao = 'APROVADO' WHERE crm = '123456'",
+    )
+    for (const query of [
+      'q=mÉDICO%20UM',
+      'q=1234',
+      'q=cardio',
+      'especialidade=%25_',
+      'q=%25_',
+      'status=ATIVO&status_validacao=APROVADO&uf_crm=df',
+    ]) {
+      const r = await request(app.getHttpServer())
+        .get(`/gestor/medicos?${query}`)
+        .set('Authorization', gestorToken)
+        .expect(200)
+      expect(r.body.map((m: { crm: string }) => m.crm)).toEqual(['123456'])
+    }
+    await database.exec(
+      "UPDATE medicos SET especialidade = E'Cardio\\\\logia' WHERE crm = '123456'",
+    )
+    const barra = await request(app.getHttpServer())
+      .get('/gestor/medicos?q=%5C')
+      .set('Authorization', gestorToken)
+      .expect(200)
+    expect(barra.body).toHaveLength(1)
+    const r = await request(app.getHttpServer())
+      .get('/gestor/medicos?q=cardio&limit=1&offset=1')
+      .set('Authorization', gestorToken)
+      .expect(200)
+    expect(r.body).toEqual([])
+  })
+
+  it('filtra ponto por médico, evento e intervalo semiaberto em fusos distintos', async () => {
+    await vincularGestor()
+    const [medico] = (
+      await database.query<{ medico_id: string }>(
+        'SELECT medico_id FROM alocacoes WHERE id = $1',
+        [alocacaoMedico1],
+      )
+    ).rows
+    const consultar = (query: string) =>
+      request(app.getHttpServer())
+        .get(`/gestor/ponto?${query}`)
+        .set('Authorization', gestorToken)
+        .expect(200)
+    const r = await consultar(
+      `medico_id=${medico.medico_id}&tipo_evento=ENTRADA&inicio=2026-10-20T07%3A05%3A00-03%3A00&fim=2026-10-20T18%3A02%3A00Z`,
+    )
+    expect(r.body).toHaveLength(1)
+    expect(r.body[0].tipo_evento).toBe('ENTRADA')
+    expect((await consultar('fim=2026-10-20T10%3A05%3A00Z')).body).toEqual([])
+    const todos = await consultar('limit=2')
+    expect([
+      ...(await consultar('limit=1')).body,
+      ...(await consultar('limit=1&offset=1')).body,
+    ]).toEqual(todos.body)
+  })
+
+  it('valida filtros e restringe instituição ao escopo do gestor', async () => {
+    await vincularGestor()
+    const [instituicao] = (
+      await database.query<{ id: string }>(
+        'SELECT id FROM instituicoes LIMIT 1',
+      )
+    ).rows
+    const [outra] = (
+      await database.query<{ id: string }>(
+        "INSERT INTO instituicoes (usuario_id, nome, cnpj) SELECT usuario_id, 'Outra', '33333333000133' FROM instituicoes LIMIT 1 RETURNING id",
+      )
+    ).rows
+    for (const recurso of ['medicos', 'ponto']) {
+      const fora = await request(app.getHttpServer())
+        .get(`/gestor/${recurso}?instituicao_id=${outra.id}`)
+        .set('Authorization', gestorToken)
+        .expect(200)
+      expect(fora.body).toEqual([])
+      for (const [query, status] of [
+        [`instituicao_id=${instituicao.id}`, 200],
+        [`instituicao_id=${outra.id}`, 200],
+        ['instituicao_id=x', 400],
+        ['limit=0', 400],
+        ['limit=51', 400],
+        ['offset=-1', 400],
+        ['offset=1.5', 400],
+        ['desconhecido=x', 400],
+      ] as const) {
+        await request(app.getHttpServer())
+          .get(`/gestor/${recurso}?${query}`)
+          .set('Authorization', gestorToken)
+          .expect(status)
+      }
+    }
+    for (const query of [
+      'status=INVALIDO',
+      'status_validacao=INVALIDO',
+      'uf_crm=XX',
+      'q=%20',
+    ]) {
+      await request(app.getHttpServer())
+        .get(`/gestor/medicos?${query}`)
+        .set('Authorization', gestorToken)
+        .expect(400)
+    }
+    for (const query of [
+      'medico_id=x',
+      'tipo_evento=INVALIDO',
+      'inicio=2026-10-20T10:00:00',
+      'inicio=2026-02-30T10:00:00Z',
+      'inicio=2026-10-20T10:00:00%2B25:00',
+      'fim=2026-13-01T10:00:00Z',
+      'inicio=2026-10-20T10:00:00Z&fim=2026-10-20T10:00:00Z',
+      'inicio=2026-10-21T10:00:00Z&fim=2026-10-20T10:00:00Z',
+    ]) {
+      await request(app.getHttpServer())
+        .get(`/gestor/ponto?${query}`)
+        .set('Authorization', gestorToken)
+        .expect(400)
+    }
+  })
+
   afterAll(async () => {
     await app?.close()
     await database?.close()

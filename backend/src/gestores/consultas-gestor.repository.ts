@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, lt, or, isNull, sql } from 'drizzle-orm'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
   alocacoesTable as alocacoes,
@@ -10,6 +10,16 @@ import {
   registrosPontoTable as pontos,
   usuariosTable as usuarios,
 } from '../db/schemas/index.ts'
+
+import type {
+  ConsultaMedicos,
+  ConsultaPonto,
+} from './consultas-gestor.schemas.ts'
+
+// Escape LIKE metacharacters so searches are literal substrings.
+function substring(valor: string) {
+  return `%${valor.replace(/[\\%_]/g, '\\$&')}%`
+}
 
 @Injectable()
 export class ConsultasGestorRepository {
@@ -27,7 +37,7 @@ export class ConsultasGestorRepository {
     )
   }
 
-  medicos(gestorId: string, limit: number, offset: number) {
+  medicos(gestorId: string, filtros: ConsultaMedicos) {
     return this.db
       .selectDistinct({
         id: medicos.id,
@@ -44,13 +54,36 @@ export class ConsultasGestorRepository {
       .innerJoin(vinculos, eq(vinculos.instituicao_id, instituicoes.id))
       .innerJoin(medicos, eq(alocacoes.medico_id, medicos.id))
       .innerJoin(usuarios, eq(medicos.usuario_id, usuarios.id))
-      .where(this.escopo(gestorId))
+      .where(
+        and(
+          this.escopo(gestorId),
+          filtros.instituicao_id
+            ? eq(instituicoes.id, filtros.instituicao_id)
+            : undefined,
+          filtros.q
+            ? or(
+                ...[usuarios.nome, medicos.crm, medicos.especialidade].map(
+                  (coluna) =>
+                    sql`${coluna} ilike ${substring(filtros.q!)} escape '\\'`,
+                ),
+              )
+            : undefined,
+          filtros.especialidade
+            ? sql`${medicos.especialidade} ilike ${substring(filtros.especialidade)} escape '\\'`
+            : undefined,
+          filtros.status ? eq(usuarios.status, filtros.status) : undefined,
+          filtros.status_validacao
+            ? eq(medicos.status_validacao, filtros.status_validacao)
+            : undefined,
+          filtros.uf_crm ? eq(medicos.uf_crm, filtros.uf_crm) : undefined,
+        ),
+      )
       .orderBy(asc(usuarios.nome), asc(medicos.id))
-      .limit(limit)
-      .offset(offset)
+      .limit(filtros.limit)
+      .offset(filtros.offset)
   }
 
-  ponto(gestorId: string, limit: number, offset: number) {
+  ponto(gestorId: string, filtros: ConsultaPonto) {
     return this.db
       .select({
         id: pontos.id,
@@ -73,9 +106,26 @@ export class ConsultasGestorRepository {
       .innerJoin(vinculos, eq(vinculos.instituicao_id, instituicoes.id))
       .innerJoin(medicos, eq(alocacoes.medico_id, medicos.id))
       .innerJoin(usuarios, eq(medicos.usuario_id, usuarios.id))
-      .where(this.escopo(gestorId))
+      .where(
+        and(
+          this.escopo(gestorId),
+          filtros.instituicao_id
+            ? eq(instituicoes.id, filtros.instituicao_id)
+            : undefined,
+          filtros.medico_id ? eq(medicos.id, filtros.medico_id) : undefined,
+          filtros.tipo_evento
+            ? eq(pontos.tipo_evento, filtros.tipo_evento)
+            : undefined,
+          filtros.inicio
+            ? gte(pontos.timestamp_servidor, new Date(filtros.inicio))
+            : undefined,
+          filtros.fim
+            ? lt(pontos.timestamp_servidor, new Date(filtros.fim))
+            : undefined,
+        ),
+      )
       .orderBy(desc(pontos.timestamp_servidor), desc(pontos.id))
-      .limit(limit)
-      .offset(offset)
+      .limit(filtros.limit)
+      .offset(filtros.offset)
   }
 }

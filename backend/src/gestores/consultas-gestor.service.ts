@@ -1,7 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { ConsultasGestorRepository } from './consultas-gestor.repository.ts'
 import { GestoresService } from './gestores.service.ts'
-import type { HistoricoPresenca } from '../presenca/presenca.schemas.ts'
+import type {
+  ConsultaMedicos,
+  ConsultaPonto,
+} from './consultas-gestor.schemas.ts'
 
 @Injectable()
 export class ConsultasGestorService {
@@ -11,13 +14,13 @@ export class ConsultasGestorService {
     private readonly repository: ConsultasGestorRepository,
   ) {}
 
-  async medicos(usuarioId: string, pagina: HistoricoPresenca) {
+  async medicos(usuarioId: string, pagina: ConsultaMedicos) {
     const gestor = await this.gestores.perfilAtivo(usuarioId)
-    return this.repository.medicos(gestor.id, pagina.limit, pagina.offset)
+    return this.repository.medicos(gestor.id, pagina)
   }
 
-  async ponto(usuarioId: string, pagina: HistoricoPresenca) {
+  async ponto(usuarioId: string, pagina: ConsultaPonto) {
     const gestor = await this.gestores.perfilAtivo(usuarioId)
-    return this.repository.ponto(gestor.id, pagina.limit, pagina.offset)
+    return this.repository.ponto(gestor.id, pagina)
   }
 }

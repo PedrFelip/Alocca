@@ -4,9 +4,11 @@ import { Permissoes } from '../auth/permissoes.decorator.ts'
 import { PermissoesGuard } from '../auth/permissoes.guard.ts'
 import { ZodValidationPipe } from '../common/zod-validation.pipe.ts'
 import {
-  historicoPresencaSchema,
-  type HistoricoPresenca,
-} from '../presenca/presenca.schemas.ts'
+  consultaMedicosSchema,
+  consultaPontoSchema,
+  type ConsultaMedicos,
+  type ConsultaPonto,
+} from './consultas-gestor.schemas.ts'
 import { ConsultasGestorService } from './consultas-gestor.service.ts'
 
 @Controller('gestor')
@@ -21,8 +23,8 @@ export class ConsultasGestorController {
   @Get('medicos')
   medicos(
     @Req() request: AuthenticatedRequest,
-    @Query(new ZodValidationPipe(historicoPresencaSchema))
-    pagina: HistoricoPresenca,
+    @Query(new ZodValidationPipe(consultaMedicosSchema))
+    pagina: ConsultaMedicos,
   ) {
     return this.consultas.medicos(request.usuarioId, pagina)
   }
@@ -30,8 +32,8 @@ export class ConsultasGestorController {
   @Get('ponto')
   ponto(
     @Req() request: AuthenticatedRequest,
-    @Query(new ZodValidationPipe(historicoPresencaSchema))
-    pagina: HistoricoPresenca,
+    @Query(new ZodValidationPipe(consultaPontoSchema))
+    pagina: ConsultaPonto,
   ) {
     return this.consultas.ponto(request.usuarioId, pagina)
   }
