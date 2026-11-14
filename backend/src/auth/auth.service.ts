@@ -39,10 +39,7 @@ export class AuthService {
       if (usuario && !valid) {
         const tentativa = await this.usuarios.registrarFalhaLogin(usuario.id)
         if (tentativa?.bloqueado_ate) {
-          throw new HttpException(
-            'Conta bloqueada temporariamente. Tente novamente em 15 minutos.',
-            429,
-          )
+          throw new HttpException(mensagensOficiais['MSG-03'], 429)
         }
       }
       throw new UnauthorizedException(mensagensOficiais['MSG-01'])

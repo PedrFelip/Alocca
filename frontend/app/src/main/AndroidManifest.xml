@@ -3,7 +3,7 @@
     <!-- Localização só no toque de check-in/check-out (LGPD, sem background). -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="Alocca Plantões" android:usesCleartextTraffic="true">
+    <application android:theme="@android:style/Theme.Material.Light.NoActionBar" android:label="Alocca Plantões">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
         </activity>
