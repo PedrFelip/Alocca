@@ -71,31 +71,30 @@ internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit, repository: Pla
         if (carregando || enviando) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (erro.isNotBlank()) { Text(erro, color = MaterialTheme.colorScheme.error); TextButton(onClick = { revisao++ }) { Text("Tentar novamente") } }
         if (aviso.isNotBlank()) Text(aviso, color = MaterialTheme.colorScheme.primary)
-        // formatarDataHora faz parse de ISO (caro); só depende da lista carregada,
-        // então calcula uma vez por lista em vez de a cada recomposição (ex.:
-        // cada tecla digitada na mensagem do diálogo recompõe a tela). A lista
-        // de candidaturas (gestor com plantão aberto) não exibe datas.
-        val datas = remember(itens, gestor, plantao?.id) {
-            if (gestor && plantao != null) emptyList()
-            else itens.map { PlantoesApi.formatarDataHora(it.inicio) to PlantoesApi.formatarDataHora(it.fim) }
+        // Prepara campos de exibição uma vez por lista/modo, mantendo o item para ações.
+        val linhas = remember(itens, gestor, plantao?.id) {
+            linhasPlantoes(itens, modoCandidaturas = gestor && plantao != null)
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             if (!carregando && erro.isEmpty() && itens.isEmpty()) Text("Nenhum resultado encontrado.")
-            itens.forEachIndexed { indice, item ->
+            linhas.forEach { linha ->
                 Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) { Column(Modifier.padding(14.dp)) {
-                    if (gestor && plantao != null) {
-                        Text(item.medico.ifBlank { "Médico" }, style = MaterialTheme.typography.titleMedium)
-                        Text("CRM: ${item.crm}  •  ${item.status}")
-                        item.mensagem.takeIf { it.isNotBlank() }?.let { Text(it) }
-                        if (item.status == "PENDENTE") Button(enabled = !carregando && !enviando, onClick = { selecionado = item }) { Text("Aprovar") }
-                    } else {
-                        Text(item.titulo, style = MaterialTheme.typography.titleMedium)
-                        Text(listOf(item.instituicao, item.especialidade, item.local).filter { it.isNotBlank() }.joinToString(" • "))
-                        Text("${datas[indice].first} — ${datas[indice].second}", color = Navy)
-                        item.valor?.let { Text("Valor: R$ $it") }
-                        if (!gestor && aba == 1) Text("Status: ${item.status}")
-                        if (gestor) TextButton(enabled = !enviando, onClick = { plantao = item; aviso = "" }) { Text("Ver candidaturas") }
-                        else if (aba == 0) Button(enabled = !carregando && !enviando, onClick = { selecionado = item }) { Text("Candidatar-me") }
+                    when (linha) {
+                        is LinhaPlantoes.Candidatura -> {
+                            Text(linha.nomeMedico, style = MaterialTheme.typography.titleMedium)
+                            Text(linha.crmStatus)
+                            linha.mensagem?.let { Text(it) }
+                            if (linha.item.status == "PENDENTE") Button(enabled = !carregando && !enviando, onClick = { selecionado = linha.item }) { Text("Aprovar") }
+                        }
+                        is LinhaPlantoes.Turno -> {
+                            Text(linha.item.titulo, style = MaterialTheme.typography.titleMedium)
+                            Text(linha.detalhes)
+                            Text(linha.periodo, color = Navy)
+                            linha.item.valor?.let { Text("Valor: R$ $it") }
+                            if (!gestor && aba == 1) Text("Status: ${linha.item.status}")
+                            if (gestor) TextButton(enabled = !enviando, onClick = { plantao = linha.item; aviso = "" }) { Text("Ver candidaturas") }
+                            else if (aba == 0) Button(enabled = !carregando && !enviando, onClick = { selecionado = linha.item }) { Text("Candidatar-me") }
+                        }
                     }
                 } }
             }
@@ -114,3 +113,41 @@ internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit, repository: Pla
         }) { Text("Confirmar") } }, dismissButton = { TextButton(enabled = !carregando && !enviando, onClick = { selecionado = null; mensagem = "" }) { Text("Cancelar") } })
     }
 }
+
+/** Linha de tela imutável: item de origem + campos de exibição prontos. */
+internal sealed interface LinhaPlantoes {
+    val item: ItemPlantao
+
+    /** Candidatura vista pelo gestor (sem datas de plantão). */
+    data class Candidatura(
+        override val item: ItemPlantao,
+        val nomeMedico: String,
+        val crmStatus: String,
+        val mensagem: String?,
+    ) : LinhaPlantoes
+
+    /** Plantão (feed, minhas candidaturas ou lista gerenciada do gestor). */
+    data class Turno(
+        override val item: ItemPlantao,
+        val detalhes: String,
+        val periodo: String,
+    ) : LinhaPlantoes
+}
+
+/** Prepara as linhas da tela uma vez por lista/modo; pura e testável. */
+internal fun linhasPlantoes(itens: List<ItemPlantao>, modoCandidaturas: Boolean): List<LinhaPlantoes> =
+    if (modoCandidaturas) itens.map { item ->
+        LinhaPlantoes.Candidatura(
+            item = item,
+            nomeMedico = item.medico.ifBlank { "Médico" },
+            crmStatus = "CRM: ${item.crm}  •  ${item.status}",
+            mensagem = item.mensagem.takeIf { it.isNotBlank() },
+        )
+    }
+    else itens.map { item ->
+        LinhaPlantoes.Turno(
+            item = item,
+            detalhes = listOf(item.instituicao, item.especialidade, item.local).filter { it.isNotBlank() }.joinToString(" • "),
+            periodo = "${PlantoesApi.formatarDataHora(item.inicio)} — ${PlantoesApi.formatarDataHora(item.fim)}",
+        )
+    }
