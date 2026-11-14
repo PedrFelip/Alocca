@@ -538,7 +538,7 @@ private fun PrivacyScreen(onBack: () -> Unit, onTabSelected: ((String) -> Unit)?
                 PrivacyInfoCard(
                     icon = Icons.Default.AccessTime,
                     title = "Registro de ponto (check-in e check-out)",
-                    description = "Horário oficial registrado pelo servidor no momento da confirmação e, se você permitir, sua localização no instante do toque. Usados para comprovar sua presença no plantão.",
+                    description = "Horário oficial registrado pelo servidor no momento da confirmação e, se você permitir, sua localização no momento do toque. Usados para comprovar sua presença no plantão.",
                 )
 
                 Spacer(Modifier.height(22.dp))
@@ -547,7 +547,7 @@ private fun PrivacyScreen(onBack: () -> Unit, onTabSelected: ((String) -> Unit)?
                 PrivacyInfoCard(
                     icon = Icons.Default.LocationOn,
                     title = "Somente por toque explícito",
-                    description = "A localização é solicitada apenas quando você toca para confirmar o check-in ou o check-out, em uma leitura única.",
+                    description = "A localização é solicitada apenas quando você toca para confirmar o check-in ou o check-out: o app faz uma leitura nesse momento ou, se o GPS não responder, usa a última posição do aparelho de até 2 minutos atrás.",
                 )
                 Spacer(Modifier.height(8.dp))
                 PrivacyInfoCard(
