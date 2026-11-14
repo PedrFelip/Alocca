@@ -1243,7 +1243,8 @@ private fun InstitutionShiftsPreview(onNavigate: (InstitutionScreen) -> Unit) {
 
 @Composable
 private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScreen) -> Unit, onCandidaturas: (ItemPlantao) -> Unit) {
-    var selectedShift by remember { mutableStateOf<InstitutionShift?>(null) }
+    var plantaoEmAcao by remember { mutableStateOf<PlantaoGerenciado?>(null) }
+    var avisoAcao by remember { mutableStateOf("") }
     val tokenVigente by rememberUpdatedState(token)
     var selectedFilter by remember { mutableStateOf("Todos") }
     var shifts by remember { mutableStateOf<List<PlantaoGerenciado>>(emptyList()) }
@@ -1369,7 +1370,15 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
             } else if (visibleShifts.isEmpty()) {
                 Text(if (selectedFilter == "Todos") "Nenhum plantão publicado ainda.\nPublique o primeiro plantão da sua instituição." else "Nenhum plantão neste filtro.", color = Muted, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp))
             }
-            visibleShifts.forEachIndexed { index, shift -> InstitutionShiftCard(shift) { onCandidaturas(ItemPlantao(id = shifts[index].id, titulo = shifts[index].titulo)) }; Spacer(Modifier.height(9.dp)) }
+            if (avisoAcao.isNotBlank()) Text(avisoAcao, color = DeepTeal, modifier = Modifier.padding(vertical = 8.dp))
+            visibleShifts.forEachIndexed { index, shift ->
+                val plantao = shifts[index]
+                InstitutionShiftCard(shift) { onCandidaturas(ItemPlantao(id = plantao.id, titulo = plantao.titulo)) }
+                if (PlantoesApi.podeEditarOuCancelar(plantao) || PlantoesApi.podeConcluir(plantao)) {
+                    TextButton(onClick = { plantaoEmAcao = plantao }) { Text("Gerenciar plantão") }
+                }
+                Spacer(Modifier.height(9.dp))
+            }
             if (!loading && errorMessage.isBlank() && hasMore) {
                 Button(
                     onClick = {
@@ -1388,7 +1397,13 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
             Spacer(Modifier.height(8.dp)); Button(onClick = { onNavigate(InstitutionScreen.PublishShift) }, modifier = Modifier.fillMaxWidth().height(47.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3278B5))) { Text("Publicar plantão", fontWeight = FontWeight.Bold) }; Spacer(Modifier.height(14.dp))
         }
         ManagerBottomNavigation(InstitutionScreen.Shifts, onNavigate)
-        selectedShift?.let { InstitutionShiftDetailsDialog(it) { selectedShift = null } }
+        plantaoEmAcao?.let { plantao ->
+            GerenciarPlantaoDialog(plantao, token, onDismiss = { plantaoEmAcao = null }, onSuccess = { mensagem ->
+                plantaoEmAcao = null
+                avisoAcao = mensagem
+                rodadas++
+            })
+        }
     }
 }
 

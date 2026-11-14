@@ -29,6 +29,7 @@ internal data class PlantaoGerenciado(
     val vagasDisponiveis: Int,
     val status: String,
     val instituicaoNome: String,
+    val descricao: String = "",
 ) {
     val vagasPreenchidas: Int get() = (quantidadeVagas - vagasDisponiveis).coerceAtLeast(0)
 }
@@ -121,6 +122,7 @@ internal object PlantoesApi {
                 vagasDisponiveis = item.optInt("vagas_disponiveis"),
                 status = status,
                 instituicaoNome = instituicao.optString("nome").trim().ifBlank { "Instituição" },
+                descricao = item.stringOrNull("descricao").orEmpty(),
             )
         }
         return plantoes
@@ -139,6 +141,40 @@ internal object PlantoesApi {
         }
         return body.optString("message").trim()
     }
+
+    fun alterarPlantao(token: String, id: String, payload: JSONObject): String =
+        executarOperacao(token, "plantoes/$id", "PATCH", payload)
+
+    fun cancelarPlantao(token: String, id: String): String =
+        executarOperacao(token, "plantoes/$id/cancelar", "POST", JSONObject())
+
+    fun concluirPlantao(token: String, id: String): String =
+        executarOperacao(token, "plantoes/$id/concluir", "POST", JSONObject())
+
+    private fun executarOperacao(token: String, path: String, metodo: String, payload: JSONObject): String =
+        validarRespostaOperacao(ApiHttp.enviar(path, metodo, payload, token))
+
+    internal fun validarRespostaOperacao(resposta: ApiHttp.Resposta): String {
+        if (resposta.status == 0) throw ApiException(ApiHttp.CONNECTION_ERROR, 0)
+        if (resposta.status !in 200..299) throw ApiException(mensagemDeErro(resposta), resposta.status)
+        val body = runCatching { JSONObject(resposta.texto) }.getOrNull()
+            ?: throw ApiException(INVALID_RESPONSE, resposta.status)
+        if (body.optJSONObject("plantao")?.optString("id").isNullOrBlank() || body.optString("message").isBlank())
+            throw ApiException(INVALID_RESPONSE, resposta.status)
+        return body.optString("message").trim()
+    }
+
+    fun podeEditarOuCancelar(plantao: PlantaoGerenciado, agora: Long = System.currentTimeMillis()): Boolean =
+        plantao.status in setOf("ABERTO", "PREENCHIDO") &&
+            (parseIso(plantao.dataInicio)?.time?.let { agora < it } == true)
+
+    fun podeConcluir(plantao: PlantaoGerenciado, agora: Long = System.currentTimeMillis()): Boolean =
+        plantao.status in setOf("ABERTO", "PREENCHIDO") &&
+            (parseIso(plantao.dataFim)?.time?.let { agora >= it } == true)
+
+    fun dataLocal(iso: String): String = parseIso(iso)?.let {
+        SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(it)
+    }.orEmpty()
 
     /**
      * Converte os campos do formulário (dd/MM/aaaa + HH:mm) no formato ISO
@@ -168,7 +204,7 @@ internal object PlantoesApi {
      * O parser precisa consumir a data completa, incluindo milissegundos e o
      * sufixo "Z", para não tratar 10:00Z como hora local.
      */
-    private fun parseIso(iso: String): java.util.Date? {
+    fun parseIso(iso: String): java.util.Date? {
         val valor = iso.trim()
         if (valor.isEmpty()) return null
         val comUtc = valor.endsWith("Z") || valor.endsWith("z") ||
