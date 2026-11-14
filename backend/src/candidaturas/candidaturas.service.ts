@@ -56,8 +56,6 @@ export class CandidaturasService {
    * plantão após o commit do vencedor e só então decide.
    */
   async criar(plantaoId: string, usuarioId: string, dados: CriarCandidatura) {
-    const medicoId = await this.perfis.idDoUsuario(usuarioId)
-
     return this.db.transaction(async (tx) => {
       // 1ª trava: perfil do médico (também serializa com a aprovação RN16).
       const [medico] = await tx
@@ -68,7 +66,10 @@ export class CandidaturasService {
         })
         .from(medicosTable)
         .where(
-          and(eq(medicosTable.id, medicoId), isNull(medicosTable.deleted_at)),
+          and(
+            eq(medicosTable.usuario_id, usuarioId),
+            isNull(medicosTable.deleted_at),
+          ),
         )
         .for('update')
         .limit(1)

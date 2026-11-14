@@ -22,6 +22,16 @@
   import { clearSession, readSession, saveSession } from "./lib/session";
   import type { Decisao, MedicoPendente, Pagina, Usuario } from "./lib/types";
 
+  const longDateFormatter = new Intl.DateTimeFormat("pt-BR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+  const timeFormatter = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
   let usuario = $state<Usuario | null>(null);
   let token = $state("");
   let expiresAt = $state(0);
@@ -259,13 +269,7 @@
                 : "Confira cada cadastro e construa uma rede de profissionais verificados."}
             </p>
           </div>
-          <span class="page-date"
-            >{new Intl.DateTimeFormat("pt-BR", {
-              day: "numeric",
-              month: "long",
-              year: "numeric",
-            }).format(new Date())}</span
-          >
+          <span class="page-date">{longDateFormatter.format(new Date())}</span>
         </div>
         {#if pagina === "resumo"}
           <div class="stats-grid">
@@ -356,7 +360,7 @@
         <footer class="main-footer">
           <span>Alocca · Administração</span><span
             >{lastUpdated
-              ? `Fila atualizada às ${new Intl.DateTimeFormat("pt-BR", { hour: "2-digit", minute: "2-digit" }).format(lastUpdated)}`
+              ? `Fila atualizada às ${timeFormatter.format(lastUpdated)}`
               : "Acompanhamento de cadastros"}</span
           >
         </footer>

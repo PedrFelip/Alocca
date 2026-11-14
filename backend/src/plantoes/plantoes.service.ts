@@ -3,6 +3,7 @@ import { PerfilMedicoService } from '../medicos/perfil-medico.service.ts'
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -12,6 +13,7 @@ import {
   and,
   asc,
   eq,
+  inArray,
   gt,
   gte,
   ilike,
@@ -24,13 +26,19 @@ import { mensagensOficiais } from '../common/mensagens.ts'
 import { GestoresService } from '../gestores/gestores.service.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
+  alocacoesTable,
+  pagamentosTable,
+  registrosPontoTable,
+  notificacoesTable,
   candidaturasTable,
   gestoresInstituicoesTable,
   instituicoesTable,
+  medicosTable,
   plantoesTable,
 } from '../db/schemas/index.ts'
 import type {
   CriarPlantao,
+  EditarPlantao,
   ListarPlantoes,
   ListarPlantoesGerenciados,
 } from './plantoes.schemas.ts'
@@ -270,6 +278,307 @@ export class PlantoesService {
       .orderBy(asc(plantoesTable.data_inicio), asc(plantoesTable.id))
       .limit(filtros.limit)
       .offset(filtros.offset)
+  }
+
+  /** Todas as mutações serializam na mesma linha usada pela aprovação UC11. */
+  private async plantaoGerenciado(
+    tx: Parameters<Parameters<Database['transaction']>[0]>[0],
+    gestorId: string,
+    id: string,
+  ) {
+    const [plantao] = await tx
+      .select()
+      .from(plantoesTable)
+      .where(and(eq(plantoesTable.id, id), isNull(plantoesTable.deleted_at)))
+      .for('update')
+      .limit(1)
+    if (!plantao) throw new NotFoundException('Plantão não encontrado')
+    const [vinculo] = await tx
+      .select({ id: instituicoesTable.id })
+      .from(gestoresInstituicoesTable)
+      .innerJoin(
+        instituicoesTable,
+        eq(instituicoesTable.id, gestoresInstituicoesTable.instituicao_id),
+      )
+      .where(
+        and(
+          eq(gestoresInstituicoesTable.gestor_id, gestorId),
+          eq(instituicoesTable.id, plantao.instituicao_id),
+          isNull(instituicoesTable.deleted_at),
+        ),
+      )
+      .limit(1)
+    if (!vinculo)
+      throw new ForbiddenException('Você não administra este plantão')
+    return plantao
+  }
+
+  async editar(usuarioId: string, id: string, dados: EditarPlantao) {
+    const gestor = await this.perfilGestor(usuarioId)
+    return this.db.transaction(async (tx) => {
+      const atual = await this.plantaoGerenciado(tx, gestor.id, id)
+      if (
+        !['ABERTO', 'PREENCHIDO'].includes(atual.status) ||
+        atual.data_inicio.getTime() <= Date.now()
+      ) {
+        throw new ConflictException(
+          'Somente plantões ainda não iniciados podem ser editados',
+        )
+      }
+      const [ativa] = await tx
+        .select({ id: candidaturasTable.id })
+        .from(candidaturasTable)
+        .where(
+          and(
+            eq(candidaturasTable.plantao_id, id),
+            isNull(candidaturasTable.deleted_at),
+            inArray(candidaturasTable.status, ['PENDENTE', 'APROVADA']),
+          ),
+        )
+        .limit(1)
+      const mudouPeriodoOuValor =
+        (dados.data_inicio !== undefined &&
+          dados.data_inicio.getTime() !== atual.data_inicio.getTime()) ||
+        (dados.data_fim !== undefined &&
+          dados.data_fim.getTime() !== atual.data_fim.getTime()) ||
+        (dados.valor !== undefined && dados.valor.toFixed(2) !== atual.valor)
+      if (
+        ativa &&
+        (mudouPeriodoOuValor ||
+          (dados.especialidade !== undefined &&
+            dados.especialidade !== atual.especialidade) ||
+          (dados.local_unidade !== undefined &&
+            dados.local_unidade !== atual.local_unidade))
+      ) {
+        throw new ConflictException(
+          'Com candidaturas ativas, datas, horários, valor, especialidade e local não podem ser alterados',
+        )
+      }
+      const inicio = dados.data_inicio ?? atual.data_inicio
+      const fim = dados.data_fim ?? atual.data_fim
+      if (fim <= inicio)
+        throw new BadRequestException(mensagensOficiais['MSG-16'])
+      if (inicio.getTime() <= Date.now())
+        throw new ConflictException('O início deve estar no futuro')
+      const alocacoes = await tx
+        .select({ id: alocacoesTable.id })
+        .from(alocacoesTable)
+        .where(
+          and(
+            eq(alocacoesTable.plantao_id, id),
+            isNull(alocacoesTable.deleted_at),
+          ),
+        )
+      // Mesmo com candidatura inconsistente, não remarca um compromisso confirmado.
+      if (alocacoes.length && mudouPeriodoOuValor) {
+        throw new ConflictException(
+          'Plantão com alocações não permite alterar datas ou valor',
+        )
+      }
+      const quantidade = dados.quantidade_vagas ?? atual.quantidade_vagas
+      if (quantidade < alocacoes.length)
+        throw new ConflictException(
+          'A quantidade de vagas não pode ser menor que as alocações confirmadas',
+        )
+      const vagas = quantidade - alocacoes.length
+      const [plantao] = await tx
+        .update(plantoesTable)
+        .set({
+          ...dados,
+          valor: dados.valor?.toFixed(2) ?? atual.valor,
+          vagas_disponiveis: vagas,
+          status: vagas === 0 ? 'PREENCHIDO' : 'ABERTO',
+        })
+        .where(eq(plantoesTable.id, id))
+        .returning()
+      if (vagas === 0) {
+        // RN21 também vale quando a redução de capacidade esgota as vagas.
+        const rejeitadas = await tx
+          .update(candidaturasTable)
+          .set({
+            status: 'REJEITADA',
+            analisado_por_gestor_id: gestor.id,
+            analisado_at: new Date(),
+            observacao_gestor: 'Vagas preenchidas',
+          })
+          .where(
+            and(
+              eq(candidaturasTable.plantao_id, id),
+              eq(candidaturasTable.status, 'PENDENTE'),
+              isNull(candidaturasTable.deleted_at),
+            ),
+          )
+          .returning({ medico_id: candidaturasTable.medico_id })
+        if (rejeitadas.length) {
+          const destinos = await tx
+            .select({ usuario_id: medicosTable.usuario_id })
+            .from(medicosTable)
+            .where(
+              inArray(
+                medicosTable.id,
+                rejeitadas.map((c) => c.medico_id),
+              ),
+            )
+          await tx.insert(notificacoesTable).values(
+            destinos.map((d) => ({
+              usuario_destino_id: d.usuario_id,
+              plantao_id: id,
+              tipo: 'CANDIDATURA_REJEITADA',
+            })),
+          )
+        }
+      }
+      this.logger.log(
+        JSON.stringify({
+          evento: 'PLANTAO_EDITADO',
+          plantao_id: id,
+          gestor_id: gestor.id,
+        }),
+      )
+      return { message: 'Plantão atualizado com sucesso', plantao }
+    })
+  }
+
+  async encerrar(
+    usuarioId: string,
+    id: string,
+    status: 'CANCELADO' | 'CONCLUIDO',
+  ) {
+    const gestor = await this.perfilGestor(usuarioId)
+    return this.db.transaction(async (tx) => {
+      const atual = await this.plantaoGerenciado(tx, gestor.id, id)
+      if (!['ABERTO', 'PREENCHIDO'].includes(atual.status)) {
+        throw new ConflictException('Este plantão já foi encerrado')
+      }
+      const agora = new Date()
+      if (status === 'CANCELADO' && atual.data_inicio <= agora) {
+        throw new ConflictException(
+          'Plantões já iniciados não podem ser cancelados',
+        )
+      }
+      if (status === 'CONCLUIDO' && atual.data_fim > agora) {
+        throw new ConflictException(
+          'O plantão só pode ser concluído após o término',
+        )
+      }
+      if (status === 'CANCELADO') {
+        const [pago] = await tx
+          .select({ id: pagamentosTable.id })
+          .from(pagamentosTable)
+          .innerJoin(
+            alocacoesTable,
+            eq(pagamentosTable.alocacao_id, alocacoesTable.id),
+          )
+          .where(
+            and(
+              eq(alocacoesTable.plantao_id, id),
+              eq(pagamentosTable.status, 'PAGO'),
+            ),
+          )
+          .limit(1)
+        const [presenca] = await tx
+          .select({ id: registrosPontoTable.id })
+          .from(registrosPontoTable)
+          .innerJoin(
+            alocacoesTable,
+            eq(registrosPontoTable.alocacao_id, alocacoesTable.id),
+          )
+          .where(eq(alocacoesTable.plantao_id, id))
+          .limit(1)
+        if (pago || presenca)
+          throw new ConflictException(
+            'Plantão com pagamento realizado ou presença exige análise antes do cancelamento',
+          )
+      }
+      const participantes = await tx
+        .selectDistinct({ usuario_id: medicosTable.usuario_id })
+        .from(candidaturasTable)
+        .innerJoin(
+          medicosTable,
+          eq(candidaturasTable.medico_id, medicosTable.id),
+        )
+        .where(
+          and(
+            eq(candidaturasTable.plantao_id, id),
+            isNull(candidaturasTable.deleted_at),
+            inArray(candidaturasTable.status, ['PENDENTE', 'APROVADA']),
+          ),
+        )
+      await tx
+        .update(candidaturasTable)
+        .set({
+          status: 'REJEITADA',
+          analisado_por_gestor_id: gestor.id,
+          analisado_at: agora,
+          observacao_gestor:
+            status === 'CANCELADO' ? 'Plantão cancelado' : 'Plantão concluído',
+        })
+        .where(
+          and(
+            eq(candidaturasTable.plantao_id, id),
+            isNull(candidaturasTable.deleted_at),
+            eq(candidaturasTable.status, 'PENDENTE'),
+          ),
+        )
+      if (status === 'CANCELADO') {
+        // Preserva autor, instante e observação da aprovação original.
+        await tx
+          .update(candidaturasTable)
+          .set({ status: 'REJEITADA' })
+          .where(
+            and(
+              eq(candidaturasTable.plantao_id, id),
+              eq(candidaturasTable.status, 'APROVADA'),
+              isNull(candidaturasTable.deleted_at),
+            ),
+          )
+        await tx
+          .update(alocacoesTable)
+          .set({ deleted_at: agora })
+          .where(
+            and(
+              eq(alocacoesTable.plantao_id, id),
+              isNull(alocacoesTable.deleted_at),
+            ),
+          )
+      }
+      const [plantao] = await tx
+        .update(plantoesTable)
+        .set({
+          status,
+          permite_candidatura: false,
+          ...(status === 'CANCELADO'
+            ? { vagas_disponiveis: atual.quantidade_vagas }
+            : {}),
+        })
+        .where(eq(plantoesTable.id, id))
+        .returning()
+      if (participantes.length)
+        await tx.insert(notificacoesTable).values(
+          participantes.map((p) => ({
+            usuario_destino_id: p.usuario_id,
+            plantao_id: id,
+            tipo:
+              status === 'CANCELADO'
+                ? 'PLANTAO_CANCELADO'
+                : 'PLANTAO_CONCLUIDO',
+          })),
+        )
+      this.logger.log(
+        JSON.stringify({
+          evento: `PLANTAO_${status}`,
+          plantao_id: id,
+          gestor_id: gestor.id,
+        }),
+      )
+      return {
+        message:
+          status === 'CANCELADO'
+            ? 'Plantão cancelado com sucesso'
+            : 'Plantão concluído com sucesso',
+        plantao,
+      }
+    })
   }
 
   /** Perfil de gestor ativo (regra centralizada em GestoresService). */

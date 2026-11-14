@@ -30,11 +30,13 @@ function alocacaoAtivaDoMedico(medicoId: string) {
   ]
 }
 
+type TransacaoCheckin = Parameters<Parameters<Database['transaction']>[0]>[0]
+
 @Injectable()
 export class CheckinRepository {
   constructor(@Inject(DRIZZLE_DB) private readonly db: Database) {}
-  alocacaoDoMedico(medicoId: string, alocacaoId: string) {
-    return this.db
+  alocacaoDoMedico(tx: TransacaoCheckin, medicoId: string, alocacaoId: string) {
+    return tx
       .select({
         status_plantao: plantoesTable.status,
         exige_checkin: plantoesTable.exige_checkin,
@@ -56,10 +58,11 @@ export class CheckinRepository {
           ...alocacaoAtivaDoMedico(medicoId),
         ),
       )
+      .for('update', { of: plantoesTable })
       .limit(1)
   }
-  entrada(alocacaoId: string) {
-    return this.db
+  entrada(tx: TransacaoCheckin, alocacaoId: string) {
+    return tx
       .select({ id: registrosPontoTable.id })
       .from(registrosPontoTable)
       .where(
@@ -71,6 +74,7 @@ export class CheckinRepository {
       .limit(1)
   }
   inserir(
+    tx: TransacaoCheckin,
     dados: RegistrarPresenca,
     gps: {
       latitude: number | null
@@ -79,7 +83,7 @@ export class CheckinRepository {
       distancia: number | null
     },
   ) {
-    return this.db
+    return tx
       .insert(registrosPontoTable)
       .values({
         alocacao_id: dados.alocacao_id,

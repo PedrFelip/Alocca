@@ -5,6 +5,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -44,6 +45,7 @@ internal fun interface PlantoesTransport {
 
 internal class HttpPlantoesRepository(
     private val transport: PlantoesTransport,
+    private val parseDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : PlantoesRepository {
     constructor(token: String) : this(UrlConnectionPlantoesTransport(token))
     override suspend fun feed(pagina: Int) = listar("plantoes?limit=20&offset=${pagina * 20}")
@@ -60,13 +62,16 @@ internal class HttpPlantoesRepository(
 
     private suspend fun listar(path: String): Resultado<List<ItemPlantao>> = when (val result = transport.request(path, null)) {
         is Resultado.Erro -> result
-        is Resultado.Sucesso -> try {
-            val array = JSONArray(result.valor)
-            Resultado.Sucesso((0 until array.length()).map { parseItem(array.getJSONObject(it)) })
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            Resultado.Erro("O servidor retornou uma resposta inválida. Tente novamente.")
+        // Após o transporte, o parse roda em Default, fora do contexto da UI.
+        is Resultado.Sucesso -> withContext(parseDispatcher) {
+            try {
+                val array = JSONArray(result.valor)
+                Resultado.Sucesso((0 until array.length()).map { parseItem(array.getJSONObject(it)) })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                Resultado.Erro("O servidor retornou uma resposta inválida. Tente novamente.")
+            }
         }
     }
 

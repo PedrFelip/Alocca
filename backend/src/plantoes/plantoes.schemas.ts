@@ -43,19 +43,18 @@ export const statusGerenciadoSchema = z.enum([
   'CONCLUIDO',
 ])
 
-// z.coerce.date() aceitaria null/'', virando epoch, e strings inválidas como
-// Invalid Date. Exige primeiro uma string parseável; depois converte para Date.
-const dataHoraSchema = z
-  .string()
-  .refine((valor) => !Number.isNaN(new Date(valor).getTime()), {
-    message: 'Data e hora inválidas',
-  })
-  .transform((valor) => new Date(valor))
+// ISO com offset preserva o instante; clientes legados sem sufixo são UTC.
+// Nunca interpretar uma data sem fuso no timezone do processo Node.
+const dataHoraSchema = z.iso
+  .datetime({ offset: true, local: true })
+  .transform(
+    (valor) =>
+      new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(valor) ? valor : `${valor}Z`),
+  )
 
 // numeric(10,2): mínimo de um centavo (0.01) e teto do banco; rejeita mais de
 // duas casas decimais para não arredondar silenciosamente.
-const valorSchema = z
-  .coerce
+const valorSchema = z.coerce
   .number()
   .min(0.01)
   .max(99_999_999.99)
@@ -65,18 +64,17 @@ const valorSchema = z
 
 // Contrato atual do app (sem /api/v1, snake_case — ver docs/decisoes-pendentes.md D18).
 // Campos obrigatórios da RN24; `titulo` e `descricao` são extras do PR0 (D13).
-export const criarPlantaoSchema = z
-  .strictObject({
-    instituicao_id: z.uuid(),
-    titulo: z.string().trim().min(1).max(150).optional(),
-    descricao: z.string().trim().min(1).max(2000).optional(),
-    local_unidade: z.string().trim().min(1).max(150),
-    especialidade: z.string().trim().min(1).max(100),
-    data_inicio: dataHoraSchema,
-    data_fim: dataHoraSchema,
-    valor: valorSchema,
-    quantidade_vagas: z.coerce.number().int().min(1).max(10_000),
-  })
+export const criarPlantaoSchema = z.strictObject({
+  instituicao_id: z.uuid(),
+  titulo: z.string().trim().min(1).max(150).optional(),
+  descricao: z.string().trim().min(1).max(2000).optional(),
+  local_unidade: z.string().trim().min(1).max(150),
+  especialidade: z.string().trim().min(1).max(100),
+  data_inicio: dataHoraSchema,
+  data_fim: dataHoraSchema,
+  valor: valorSchema,
+  quantidade_vagas: z.coerce.number().int().min(1).max(10_000),
+})
 
 export type CriarPlantao = z.infer<typeof criarPlantaoSchema>
 
@@ -92,3 +90,12 @@ export const listarPlantoesGerenciadosSchema = z.strictObject({
 export type ListarPlantoesGerenciados = z.infer<
   typeof listarPlantoesGerenciadosSchema
 >
+
+// PATCH não permite trocar a instituição nem alterar status diretamente.
+export const editarPlantaoSchema = criarPlantaoSchema
+  .omit({ instituicao_id: true })
+  .partial()
+  .refine((dados) => Object.keys(dados).length > 0, {
+    message: 'Informe ao menos um campo para editar',
+  })
+export type EditarPlantao = z.infer<typeof editarPlantaoSchema>

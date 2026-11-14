@@ -201,3 +201,15 @@ UPDATE usuarios SET tipo = 'ADMIN' WHERE email = 'email-da-conta@example.com';
 A validação representa a conferência feita naquela data. Ainda não há módulos
 de candidatura ou alocação; quando forem implementados, deverão exigir médico
 com validação `APROVADO` para participar dos plantões.
+
+### Ciclo de plantões (gestor)
+
+- `PATCH /plantoes/:id`: campos parciais da publicação, exceto `instituicao_id`; corpo vazio e campos desconhecidos são rejeitados. Antes do início; RN27 protege datas e valor com candidaturas ativas. Especialidade e local também são protegidos.
+- `POST /plantoes/:id/cancelar`: antes do início, encerra candidaturas e desativa alocações; bloqueado com pagamento realizado ou presença. Não realiza estorno.
+- `POST /plantoes/:id/concluir`: transição explícita após o fim, preservando alocações, presença e financeiro.
+
+Retorno: `{ message, plantao }`. Exige gestor ativo vinculado à instituição. Estados finais não aceitam novas mutações (409). Efeitos e notificações na outbox são atômicos. Políticas provisórias de cancelamento aguardando produto estão em `docs/decisoes-pendentes.md`.
+
+Datas aceitam ISO 8601 com `Z` ou offset; formato legado sem sufixo é interpretado em UTC. As sessões PostgreSQL permanecem em UTC mesmo quando o banco usa outro fuso.
+
+`bun run test:e2e` inclui testes reais de ciclo e fuso. Requer PostgreSQL com `CREATEDB` em `E2E_PG_ADMIN` (padrão `postgresql://postgres:postgres@127.0.0.1:5432/postgres`); cria e remove bancos temporários, sem reutilizar dados da aplicação.

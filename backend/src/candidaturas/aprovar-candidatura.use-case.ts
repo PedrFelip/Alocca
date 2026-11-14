@@ -139,37 +139,36 @@ export class AprovarCandidaturaUseCase {
       const preenchido = atualizado.vagas_disponiveis === 0
 
       // 5. Notificações em outbox, na mesma transação (UC11; provedor: D10).
-      const destinatarios = await this.alocacoes.usuariosPorMedicoId(tx, [
-        alocacao.medico_id,
-      ])
       const eventos: Array<{
         usuario_destino_id: string
         plantao_id: string
         tipo: string
       }> = []
+      const medicosDestino = [alocacao.medico_id]
       if (preenchido) {
-        // 5a. Plantão esgotado: status 'PREENCHIDO' (RN20).
         await this.alocacoes.preencherPlantao(tx, plantaoId)
-        // 5b. RN21 — Rejeição em cascata dos demais candidatos pendentes.
         const rejeitadas = await this.alocacoes.rejeitarRestantes(
           tx,
           plantaoId,
           candidaturaId,
           gestor.id,
         )
-        if (rejeitadas.length > 0) {
-          const usuariosRejeitados = await this.alocacoes.usuariosPorMedicoId(
-            tx,
-            rejeitadas.map((c) => c.medico_id),
-          )
-          eventos.push(
-            ...usuariosRejeitados.map((destino) => ({
+        medicosDestino.push(...rejeitadas.map((c) => c.medico_id))
+      }
+      const destinatarios = await this.alocacoes.usuariosPorMedicoId(
+        tx,
+        medicosDestino,
+      )
+      if (preenchido) {
+        eventos.push(
+          ...destinatarios
+            .filter((d) => d.medico_id !== alocacao.medico_id)
+            .map((destino) => ({
               usuario_destino_id: destino.usuario_id,
               plantao_id: plantaoId,
               tipo: 'CANDIDATURA_REJEITADA',
             })),
-          )
-        }
+        )
       }
       const aprovado = destinatarios.find(
         (d) => d.medico_id === alocacao.medico_id,

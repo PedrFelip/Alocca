@@ -72,6 +72,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -100,6 +103,13 @@ class MainActivity : ComponentActivity() {
 
         setContent { MaterialTheme { AuthApp() } }
     }
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch(Dispatchers.IO) {
+            ComprovanteDownload.limparCacheLegado(cacheDir)
+        }
+    }
+
 }
 
 private enum class Screen { Login, Register, EsqueciSenha }
@@ -1040,16 +1050,7 @@ private fun InstitutionPaymentsScreen(onNavigate: (InstitutionScreen) -> Unit) {
     InstitutionPage(InstitutionScreen.Payments, onNavigate) {
         SimpleManagerTitle("Pagamentos", "Acompanhe os pagamentos dos plantões, visualize o histórico e\ngerencie os valores de forma prática e segura.")
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PaymentSummary("Total a pagar", "R$ 24.580,00", "12 plantões", Color(0xFFEAF5FF))
-                PaymentSummary("Pagamentos\nrealizados", "R$ 18.320,00", "8 plantões", Color(0xFFEAFBF3))
-                PaymentSummary("Aguardando\npagamento", "R$ 6.260,00", "4 plantões", Color(0xFFFFF4E4))
-            }
-            Spacer(Modifier.height(17.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) { Text("Pagamentos recentes", color = Navy, fontSize = 15.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("Ver todos", color = Color(0xFF1679C3), fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-            Spacer(Modifier.height(10.dp))
-            listOf("Dr. Carlos Mendes" to "R$ 1.800,00" to "Pago", "Dra. Ana Souza" to "R$ 1.200,00" to "Pago", "Dr. Rafael Lima" to "R$ 1.500,00" to "Aguardando", "Dra. Juliana Alves" to "R$ 1.300,00" to "Pago", "Dr. Bruno Costa" to "R$ 1.100,00" to "Aguardando").forEach { item -> PaymentCard(item.first.first, item.first.second, item.second) }
-            Spacer(Modifier.height(18.dp))
+            PagamentosGestorConteudo()
         }
         ManagerBottomNavigation(InstitutionScreen.Payments, onNavigate)
     }
@@ -1242,7 +1243,8 @@ private fun InstitutionShiftsPreview(onNavigate: (InstitutionScreen) -> Unit) {
 
 @Composable
 private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScreen) -> Unit, onCandidaturas: (ItemPlantao) -> Unit) {
-    var selectedShift by remember { mutableStateOf<InstitutionShift?>(null) }
+    var plantaoEmAcao by remember { mutableStateOf<PlantaoGerenciado?>(null) }
+    var avisoAcao by remember { mutableStateOf("") }
     val tokenVigente by rememberUpdatedState(token)
     var selectedFilter by remember { mutableStateOf("Todos") }
     var shifts by remember { mutableStateOf<List<PlantaoGerenciado>>(emptyList()) }
@@ -1312,7 +1314,10 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
         carregarPagina(token, 0, reset = true, rodada = rodadas, filtro = selectedFilter)
     }
 
-    val visibleShifts = shifts.map { plantao ->
+    // O mapeamento faz parse/format de datas (caro) e só depende da lista
+    // carregada; manter em remember evita repetir isso a cada recomposição
+    // (troca de filtro, "Carregar mais", painel de notificações, etc.).
+    val visibleShifts = remember(shifts) { shifts.map { plantao ->
             val (dia, mes, diaSemanaHora) = PlantoesApi.dataDoCard(plantao.dataInicio)
             InstitutionShift(
                 status = when (plantao.status) {
@@ -1329,7 +1334,7 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
                 value = PlantoesApi.formatarValor(plantao.valor),
                 day = dia, month = mes, weekdayTime = diaSemanaHora,
             )
-        }
+        } }
     InstitutionPage(InstitutionScreen.Shifts, onNavigate) {
         SimpleManagerTitle("Plantões", "")
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
@@ -1365,7 +1370,15 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
             } else if (visibleShifts.isEmpty()) {
                 Text(if (selectedFilter == "Todos") "Nenhum plantão publicado ainda.\nPublique o primeiro plantão da sua instituição." else "Nenhum plantão neste filtro.", color = Muted, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 18.dp))
             }
-            visibleShifts.forEachIndexed { index, shift -> InstitutionShiftCard(shift) { onCandidaturas(ItemPlantao(id = shifts[index].id, titulo = shifts[index].titulo)) }; Spacer(Modifier.height(9.dp)) }
+            if (avisoAcao.isNotBlank()) Text(avisoAcao, color = DeepTeal, modifier = Modifier.padding(vertical = 8.dp))
+            visibleShifts.forEachIndexed { index, shift ->
+                val plantao = shifts[index]
+                InstitutionShiftCard(shift) { onCandidaturas(ItemPlantao(id = plantao.id, titulo = plantao.titulo)) }
+                if (PlantoesApi.podeEditarOuCancelar(plantao) || PlantoesApi.podeConcluir(plantao)) {
+                    TextButton(onClick = { plantaoEmAcao = plantao }) { Text("Gerenciar plantão") }
+                }
+                Spacer(Modifier.height(9.dp))
+            }
             if (!loading && errorMessage.isBlank() && hasMore) {
                 Button(
                     onClick = {
@@ -1384,7 +1397,13 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
             Spacer(Modifier.height(8.dp)); Button(onClick = { onNavigate(InstitutionScreen.PublishShift) }, modifier = Modifier.fillMaxWidth().height(47.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3278B5))) { Text("Publicar plantão", fontWeight = FontWeight.Bold) }; Spacer(Modifier.height(14.dp))
         }
         ManagerBottomNavigation(InstitutionScreen.Shifts, onNavigate)
-        selectedShift?.let { InstitutionShiftDetailsDialog(it) { selectedShift = null } }
+        plantaoEmAcao?.let { plantao ->
+            GerenciarPlantaoDialog(plantao, token, onDismiss = { plantaoEmAcao = null }, onSuccess = { mensagem ->
+                plantaoEmAcao = null
+                avisoAcao = mensagem
+                rodadas++
+            })
+        }
     }
 }
 

@@ -9,6 +9,9 @@
     AlertCircle,
   } from "lucide-svelte";
   import type { Decisao, MedicoPendente } from "../lib/types";
+  const dateFormatter = new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "long",
+  });
   let {
     medico,
     onClose,
@@ -127,9 +130,7 @@
       <div>
         <dt>Cadastro recebido</dt>
         <dd>
-          {new Intl.DateTimeFormat("pt-BR", { dateStyle: "long" }).format(
-            new Date(medico.criado_at),
-          )}
+          {dateFormatter.format(new Date(medico.criado_at))}
         </dd>
       </div>
     </dl>

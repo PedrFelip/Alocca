@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "6a288465-f7e4-4e39-9154-7bd1249d7f30",
+  "id": "3e9657ce-0900-4a15-8178-e6303db4a047",
   "prevIds": [
     "0d963d14-3116-4910-b551-64a76a46c0ee"
   ],
@@ -153,12 +153,6 @@
     {
       "isRlsEnabled": false,
       "name": "notificacoes",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "emails_pendentes",
       "entityType": "tables",
       "schema": "public"
     },
@@ -1684,6 +1678,32 @@
       "table": "pagamentos"
     },
     {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "comprovante_chave",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pagamentos"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "comprovante_mime",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "pagamentos"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": false,
@@ -1825,71 +1845,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "notificacoes"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "gen_random_uuid()",
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "emails_pendentes"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "emails_pendentes"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "payload",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "emails_pendentes"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "tentativas",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "emails_pendentes"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "disponivel_em",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "emails_pendentes"
     },
     {
       "nameExplicit": true,
@@ -2156,27 +2111,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "notificacoes"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "disponivel_em",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "emails_pendentes_fila_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "emails_pendentes"
     },
     {
       "nameExplicit": false,
@@ -2540,23 +2474,6 @@
       "table": "notificacoes"
     },
     {
-      "nameExplicit": false,
-      "columns": [
-        "token_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "tokens_recuperacao_senha",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "emails_pendentes_token_id_tokens_recuperacao_senha_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "emails_pendentes"
-    },
-    {
       "columns": [
         "gestor_id",
         "instituicao_id"
@@ -2675,16 +2592,6 @@
       "name": "notificacoes_pkey",
       "schema": "public",
       "table": "notificacoes",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "emails_pendentes_pkey",
-      "schema": "public",
-      "table": "emails_pendentes",
       "entityType": "pks"
     },
     {
