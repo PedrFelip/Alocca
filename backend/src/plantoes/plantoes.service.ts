@@ -3,6 +3,8 @@ import {
   and,
   asc,
   eq,
+  exists,
+  or,
   gt,
   gte,
   ilike,
@@ -15,6 +17,8 @@ import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
   candidaturasTable,
   instituicoesTable,
+  gestoresTable,
+  gestoresInstituicoesTable,
   medicosTable,
   plantoesTable,
 } from '../db/schemas/index.ts'
@@ -27,6 +31,62 @@ function trecho(value: string): string {
 @Injectable()
 export class PlantoesService {
   constructor(@Inject(DRIZZLE_DB) private readonly db: Database) {}
+
+  async listarDoGestor(usuarioId: string) {
+    const [gestor] = await this.db
+      .select({ id: gestoresTable.id })
+      .from(gestoresTable)
+      .where(
+        and(
+          eq(gestoresTable.usuario_id, usuarioId),
+          eq(gestoresTable.ativa, true),
+          isNull(gestoresTable.deleted_at),
+        ),
+      )
+      .limit(1)
+    if (!gestor) throw new NotFoundException('Perfil de gestor não encontrado')
+    return this.db
+      .select({
+        id: plantoesTable.id,
+        titulo: plantoesTable.titulo,
+        especialidade: plantoesTable.especialidade,
+        data_inicio: plantoesTable.data_inicio,
+        data_fim: plantoesTable.data_fim,
+        status: plantoesTable.status,
+        vagas_disponiveis: plantoesTable.vagas_disponiveis,
+        instituicao: instituicoesTable.nome,
+      })
+      .from(plantoesTable)
+      .innerJoin(
+        instituicoesTable,
+        eq(plantoesTable.instituicao_id, instituicoesTable.id),
+      )
+      .where(
+        and(
+          isNull(plantoesTable.deleted_at),
+          isNull(instituicoesTable.deleted_at),
+          or(
+            eq(plantoesTable.gestor_criador_id, usuarioId),
+            eq(instituicoesTable.usuario_id, usuarioId),
+            exists(
+              this.db
+                .select({ um: sql`1` })
+                .from(gestoresInstituicoesTable)
+                .where(
+                  and(
+                    eq(gestoresInstituicoesTable.gestor_id, gestor.id),
+                    eq(
+                      gestoresInstituicoesTable.instituicao_id,
+                      plantoesTable.instituicao_id,
+                    ),
+                  ),
+                ),
+            ),
+          ),
+        ),
+      )
+      .orderBy(asc(plantoesTable.data_inicio), asc(plantoesTable.id))
+  }
 
   async listar(usuarioId: string, filtros: ListarPlantoes) {
     const [medico] = await this.db

@@ -558,7 +558,7 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
         when (screen) {
             InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, open) { notificationsOpen = !notificationsOpen }
-            InstitutionScreen.Shifts -> InstitutionShiftsScreen(open)
+            InstitutionScreen.Shifts -> PlantoesScreen(gestor = true, onBack = { screen = InstitutionScreen.Home })
             InstitutionScreen.Doctors -> InstitutionDoctorsScreen(open)
             InstitutionScreen.Payments -> InstitutionPaymentsScreen(open)
             InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(open)
