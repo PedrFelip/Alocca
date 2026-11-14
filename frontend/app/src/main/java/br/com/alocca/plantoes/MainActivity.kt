@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronRight
@@ -389,8 +390,12 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
         )
     }
 
-    BackHandler(enabled = quickActionScreen != null || activeTab != "Início") {
-        if (quickActionScreen != null) quickActionScreen = null else activeTab = "Início"
+    BackHandler(enabled = notificationsOpen || quickActionScreen != null || activeTab != "Início") {
+        when {
+            notificationsOpen -> notificationsOpen = false
+            quickActionScreen != null -> quickActionScreen = null
+            else -> activeTab = "Início"
+        }
     }
 
     val onQuickTabSelected: (String) -> Unit = { selected ->
@@ -721,7 +726,9 @@ internal fun QuickActionHeader(title: String, onBack: () -> Unit) {
         modifier = Modifier.fillMaxWidth().height(56.dp).border(1.dp, Color(0xFFE0E5E5)).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("‹", color = Navy, fontSize = 30.sp, modifier = Modifier.clickable(onClick = onBack).padding(end = 9.dp))
+        IconButton(onClick = onBack) {
+            Icon(Icons.Default.ArrowBack, contentDescription = "Voltar", tint = Navy)
+        }
         Text(title, color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold)
     }
 }
@@ -805,6 +812,14 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
     val context = LocalContext.current
     val token = remember { TokenStore.read(context) }
     var candidaturaPlantao by remember { mutableStateOf<ItemPlantao?>(null) }
+    BackHandler(enabled = notificationsOpen || candidaturaPlantao != null || screen != InstitutionScreen.Home) {
+        when {
+            notificationsOpen -> notificationsOpen = false
+            candidaturaPlantao != null -> candidaturaPlantao = null
+            screen == InstitutionScreen.PublishShift -> screen = InstitutionScreen.Shifts
+            else -> screen = InstitutionScreen.Home
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         when (screen) {
             InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, open, onLogout) { notificationsOpen = !notificationsOpen }
@@ -969,7 +984,7 @@ private fun InstitutionDoctorsScreen(onNavigate: (InstitutionScreen) -> Unit) {
             (specialty == "Todas" || doctor.second == specialty) && (status == "Todas" || doctor.third == status)
     }
     InstitutionPage(InstitutionScreen.Doctors, onNavigate) {
-        SimpleManagerTitle("Médicos", "Gerencie os médicos cadastrados na sua instituição e visualize seus perfis.")
+        SimpleManagerTitle("Médicos", "Gerencie os médicos cadastrados na sua instituição e visualize seus perfis.") { onNavigate(InstitutionScreen.Home) }
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             OutlinedTextField(value = query, onValueChange = { query = it }, placeholder = { Text("Buscar por nome, especialidade ou CRM...") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             Spacer(Modifier.height(10.dp))
@@ -1010,9 +1025,14 @@ private fun InstitutionDoctorsScreen(onNavigate: (InstitutionScreen) -> Unit) {
 }
 
 @Composable
-private fun SimpleManagerTitle(title: String, subtitle: String) {
+private fun SimpleManagerTitle(title: String, subtitle: String, onBack: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().background(Color.White).padding(horizontal = 17.dp, vertical = 14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) { Text("‹", color = Navy, fontSize = 29.sp); Spacer(Modifier.width(9.dp)); Text(title, color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Voltar", tint = Navy)
+            }
+            Text(title, color = Navy, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
         Spacer(Modifier.height(8.dp)); Text(subtitle, color = Color(0xFF5A718A), fontSize = 10.sp, lineHeight = 14.sp)
     }
 }
@@ -1048,7 +1068,7 @@ private fun DoctorListCard(name: String, specialty: String, status: String, onCl
 @Composable
 private fun InstitutionPaymentsScreen(onNavigate: (InstitutionScreen) -> Unit) {
     InstitutionPage(InstitutionScreen.Payments, onNavigate) {
-        SimpleManagerTitle("Pagamentos", "Acompanhe os pagamentos dos plantões, visualize o histórico e\ngerencie os valores de forma prática e segura.")
+        SimpleManagerTitle("Pagamentos", "Acompanhe os pagamentos dos plantões, visualize o histórico e\ngerencie os valores de forma prática e segura.") { onNavigate(InstitutionScreen.Home) }
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             PagamentosGestorConteudo()
         }
@@ -1336,7 +1356,7 @@ private fun InstitutionShiftsScreen(token: String?, onNavigate: (InstitutionScre
             )
         } }
     InstitutionPage(InstitutionScreen.Shifts, onNavigate) {
-        SimpleManagerTitle("Plantões", "")
+        SimpleManagerTitle("Plantões", "") { onNavigate(InstitutionScreen.Home) }
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).background(Color(0xFFE9F3FC))) {
                 listOf("Todos", "Abertos", "Preenchidos", "Concluídos", "Cancelados").forEach { label ->
@@ -1738,7 +1758,7 @@ private fun PublishTextInput(value: String, onChange: (String) -> Unit, placehol
 @Composable
 private fun InstitutionTimeRecordScreen(onNavigate: (InstitutionScreen) -> Unit) {
     InstitutionPage(InstitutionScreen.TimeRecord, onNavigate) {
-        SimpleManagerTitle("Registro de Ponto", "Registre sua entrada e saída do plantão com validação de\nhorário e geolocalização.")
+        SimpleManagerTitle("Registro de Ponto", "Registre sua entrada e saída do plantão com validação de\nhorário e geolocalização.") { onNavigate(InstitutionScreen.Home) }
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { TimeSummary("Plantão Atual", "19:00 - 07:00", "UTI Adulto - 12h", Color(0xFFEAF5FF)); TimeSummary("Check-in (Entrada)", "18:52", "No raio do hospital\n(GPS)", Color(0xFFEAFBF3)); TimeSummary("Check-out (Saída)", "Pendente", "Previsto: 07:00", Color(0xFFFFF5E7)) }
             Spacer(Modifier.height(13.dp))
