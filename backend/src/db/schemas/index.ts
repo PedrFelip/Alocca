@@ -11,3 +11,5 @@ export * from './registros-ponto.ts'
 export * from './pagamentos.ts'
 export * from './notificacoes.ts'
 export * from './emails-pendentes.ts'
+
+export * from './sessoes-mobile.ts'

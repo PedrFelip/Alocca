@@ -6,11 +6,11 @@ import {
   type ExecutionContext,
 } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, gt, isNull, sql } from 'drizzle-orm'
 import type { Request } from 'express'
 import { z } from 'zod'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
-import { usuariosTable } from '../db/schemas/index.ts'
+import { usuariosTable, sessoesMobileTable } from '../db/schemas/index.ts'
 
 export type AuthenticatedRequest = Request & {
   usuarioId: string
@@ -31,14 +31,17 @@ export class AuthGuard implements CanActivate {
     if (!match) throw new UnauthorizedException('Autenticação necessária')
     let usuarioId: string
     let versaoSessao: number
+    let sid: string | undefined
     try {
       const payload = await this.jwt.verifyAsync<{
         sub: string
         versao_sessao?: number
+        sid?: string
       }>(match[1], {
         algorithms: ['HS256'],
       })
       usuarioId = z.uuid().parse(payload.sub)
+      sid = payload.sid === undefined ? undefined : z.uuid().parse(payload.sid)
       versaoSessao = z
         .number()
         .int()
@@ -64,6 +67,21 @@ export class AuthGuard implements CanActivate {
       .limit(1)
     if (!usuario || usuario.versao !== versaoSessao)
       throw new UnauthorizedException('Usuário indisponível')
+    if (sid) {
+      const [sessao] = await this.db
+        .select({ id: sessoesMobileTable.id })
+        .from(sessoesMobileTable)
+        .where(
+          and(
+            eq(sessoesMobileTable.id, sid),
+            eq(sessoesMobileTable.usuario_id, usuarioId),
+            isNull(sessoesMobileTable.revoked_at),
+            gt(sessoesMobileTable.expires_at, sql`now()`),
+          ),
+        )
+        .limit(1)
+      if (!sessao) throw new UnauthorizedException('Sessão indisponível')
+    }
     request.versaoSessao = versaoSessao
     request.usuarioId = usuario.id
     request.tipoUsuario = usuario.tipo

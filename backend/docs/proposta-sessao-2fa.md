@@ -1,6 +1,6 @@
 # Proposta de sessão mobile e 2FA — D9
 
-Estado: **proposta aprovada pelo usuário em 14/11/2026; implementação em andamento**.
+Estado: **proposta aprovada pelo usuário em 14/11/2026; implementado; ver contrato-auth-app.md para detalhes e limitações**.
 A troca de senha autenticada é independente desta proposta. Mantêm-se as convenções
 atuais (snake_case, sem `/api/v1`, D18); não se migram todos os UCs nesta frente.
 
@@ -19,7 +19,7 @@ atuais (snake_case, sem `/api/v1`, D18); não se migram todos os UCs nesta frent
    emitir sessão nem simular sucesso. PIN: 5 erros invalidam desafio; 3 envios por
    conta em 15 minutos; reenvio invalida o anterior. Somar limite por IP.
 
-## Contrato aprovado (implementação em andamento)
+## Contrato aprovado
 
 - `POST /auth/login/medico` e `/auth/login/gestor`: `{email, senha}` →
   `{challenge_token, requer_2fa: true, expires_in}`; nenhum access token antes do PIN.

@@ -25,6 +25,12 @@ import {
   type RedefinirSenha,
 } from './auth.schemas.ts'
 import { AuthGuard, type AuthenticatedRequest } from './auth.guard.ts'
+import {
+  challengeSchema,
+  validarPinSchema,
+  refreshSchema,
+} from './auth.schemas.ts'
+import { SessaoMobileService } from './sessao-mobile.service.ts'
 import { AuthService } from './auth.service.ts'
 import { RecuperacaoSenhaService } from './recuperacao-senha.service.ts'
 
@@ -33,6 +39,7 @@ import { RecuperacaoSenhaService } from './recuperacao-senha.service.ts'
 export class AuthController {
   constructor(
     @Inject(AuthService) private readonly auth: AuthService,
+    @Inject(SessaoMobileService) private readonly mobile: SessaoMobileService,
     @Inject(UsuariosService) private readonly usuarios: UsuariosService,
     @Inject(RecuperacaoSenhaService)
     private readonly recuperacao: RecuperacaoSenhaService,
@@ -49,6 +56,52 @@ export class AuthController {
   @HttpCode(200)
   login(@Body(new ZodValidationPipe(loginSchema)) data: Login) {
     return this.auth.login(data)
+  }
+
+  @Post('login/medico')
+  @HttpCode(200)
+  loginMedico(@Body(new ZodValidationPipe(loginSchema)) data: Login) {
+    return this.mobile.login(data, 'MEDICO')
+  }
+  @Post('login/gestor')
+  @HttpCode(200)
+  loginGestor(@Body(new ZodValidationPipe(loginSchema)) data: Login) {
+    return this.mobile.login(data, 'GESTOR')
+  }
+  @Post('2fa/solicitar-pin')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  solicitarPin(
+    @Body(new ZodValidationPipe(challengeSchema)) data: {
+      challenge_token: string
+    },
+  ) {
+    return this.mobile.solicitar(data.challenge_token)
+  }
+  @Post('2fa/validar-pin')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  validarPin(
+    @Body(new ZodValidationPipe(validarPinSchema)) data: {
+      challenge_token: string
+      pin_code: string
+    },
+  ) {
+    return this.mobile.validar(data.challenge_token, data.pin_code)
+  }
+  @Post('refresh')
+  @HttpCode(200)
+  renovar(
+    @Body(new ZodValidationPipe(refreshSchema)) data: { refresh_token: string },
+  ) {
+    return this.mobile.renovar(data.refresh_token)
+  }
+  @Post('logout')
+  @HttpCode(200)
+  logout(
+    @Body(new ZodValidationPipe(refreshSchema)) data: { refresh_token: string },
+  ) {
+    return this.mobile.logout(data.refresh_token)
   }
 
   // UC04: limite menor pra ninguem ficar disparando e-mail

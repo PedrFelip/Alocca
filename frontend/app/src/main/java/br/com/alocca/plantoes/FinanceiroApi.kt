@@ -88,15 +88,19 @@ internal open class FinanceiroCliente(private val baseUrl: String) {
     }
 
     private fun <T> conectar(path: String, token: String, executar: (HttpURLConnection) -> Resposta<T>): Resposta<T> {
-        var c: HttpURLConnection? = null
-        return try {
-            c = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 10_000; readTimeout = 30_000; instanceFollowRedirects = false
-                setRequestProperty("Authorization", "Bearer $token")
-            }
-            executar(c)
-        } catch (_: Exception) { Resposta.Falha(ApiHttp.CONNECTION_ERROR, 0) }
-        finally { c?.disconnect() }
+        return ApiHttp.autenticado<Resposta<T>>(token, { status -> falha(status, "") }) { actual ->
+            var c: HttpURLConnection? = null
+            try {
+                c = (URL(baseUrl + path).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 10_000; readTimeout = 30_000; instanceFollowRedirects = false
+                    setRequestProperty("Authorization", "Bearer $actual")
+                }
+                val result = executar(c)
+                val status = c.responseCode
+                status to result
+            } catch (_: Exception) { 0 to Resposta.Falha(ApiHttp.CONNECTION_ERROR, 0) }
+            finally { c?.disconnect() }
+        }.second
     }
 
     private fun falha(status: Int, texto: String): Resposta.Falha {

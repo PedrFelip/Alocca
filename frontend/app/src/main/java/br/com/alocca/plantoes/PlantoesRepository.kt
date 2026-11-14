@@ -84,32 +84,13 @@ internal class HttpPlantoesRepository(
 
 internal class UrlConnectionPlantoesTransport(private val token: String) : PlantoesTransport {
     override suspend fun request(path: String, body: JSONObject?): Resultado<String> = withContext(Dispatchers.IO) {
-        var conexao: HttpURLConnection? = null
-        try {
-            conexao = URL(BuildConfig.API_BASE_URL + path).openConnection() as HttpURLConnection
-            conexao.requestMethod = if (body == null) "GET" else "POST"
-            conexao.connectTimeout = 10_000
-            conexao.readTimeout = 15_000
-            conexao.setRequestProperty("Authorization", "Bearer $token")
-            if (body != null) {
-                conexao.doOutput = true
-                conexao.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                conexao.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            }
-            val status = conexao.responseCode
-            val texto = (if (status in 200..299) conexao.inputStream else conexao.errorStream)
-                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (status in 200..299) Resultado.Sucesso(texto) else Resultado.Erro(
-                runCatching { JSONObject(texto).optString("message") }.getOrNull()
-                    ?.takeIf { it.isNotBlank() } ?: "Não foi possível concluir a operação (HTTP $status).",
-            )
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            Resultado.Erro("Não foi possível carregar os dados. Verifique sua conexão e tente novamente.")
-        } finally {
-            conexao?.disconnect()
-        }
+        val response = ApiHttp.enviar(path, if (body == null) "GET" else "POST", body, token)
+        if (response.status in 200..299) Resultado.Sucesso(response.texto)
+        else if (response.status == 0) Resultado.Erro("Não foi possível carregar os dados. Verifique sua conexão e tente novamente.")
+        else Resultado.Erro(
+            runCatching { JSONObject(response.texto).optString("message") }.getOrNull()
+                ?.takeIf { it.isNotBlank() } ?: "Não foi possível concluir a operação (HTTP ${response.status}).",
+        )
     }
 }
 

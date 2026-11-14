@@ -10,6 +10,10 @@ import { createHash, randomInt } from 'node:crypto'
 import { mensagensOficiais } from '../common/mensagens.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import { tokensRecuperacaoSenhaTable } from '../db/schemas/tokens-recuperacao-senha.ts'
+import {
+  desafiosMobileTable,
+  sessoesMobileTable,
+} from '../db/schemas/sessoes-mobile.ts'
 import { usuariosTable } from '../db/schemas/usuarios.ts'
 import { EmailPayloadService } from '../email/email-payload.service.ts'
 import { emailsPendentesTable } from '../db/schemas/emails-pendentes.ts'
@@ -164,6 +168,24 @@ export class RecuperacaoSenhaService {
             isNull(tokensRecuperacaoSenhaTable.used_at),
           ),
         )
+      await tx
+        .update(sessoesMobileTable)
+        .set({ revoked_at: sql`now()` })
+        .where(
+          and(
+            eq(sessoesMobileTable.usuario_id, usuarioId),
+            isNull(sessoesMobileTable.revoked_at),
+          ),
+        )
+      await tx
+        .update(desafiosMobileTable)
+        .set({ used_at: sql`now()`, pin_hash: null })
+        .where(
+          and(
+            eq(desafiosMobileTable.usuario_id, usuarioId),
+            isNull(desafiosMobileTable.used_at),
+          ),
+        )
       return 'ok'
     })
     if (resultado === 'limite')
@@ -226,6 +248,24 @@ export class RecuperacaoSenhaService {
           and(
             eq(tokensRecuperacaoSenhaTable.usuario_id, usuario.id),
             isNull(tokensRecuperacaoSenhaTable.used_at),
+          ),
+        )
+      await tx
+        .update(sessoesMobileTable)
+        .set({ revoked_at: sql`now()` })
+        .where(
+          and(
+            eq(sessoesMobileTable.usuario_id, usuario.id),
+            isNull(sessoesMobileTable.revoked_at),
+          ),
+        )
+      await tx
+        .update(desafiosMobileTable)
+        .set({ used_at: sql`now()`, pin_hash: null })
+        .where(
+          and(
+            eq(desafiosMobileTable.usuario_id, usuario.id),
+            isNull(desafiosMobileTable.used_at),
           ),
         )
       return true

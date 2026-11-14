@@ -1,3 +1,4 @@
+import { SessaoMobileService } from '../src/auth/sessao-mobile.service.ts'
 import { PGlite } from '@electric-sql/pglite'
 import { Logger, type INestApplication } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
@@ -13,6 +14,7 @@ import { ConfigService } from '@nestjs/config'
 import type { Env } from '../src/config/env.ts'
 import { AdminBootstrapService } from '../src/auth/admin-bootstrap.service.ts'
 import { AuthService } from '../src/auth/auth.service.ts'
+import { EmailService } from '../src/email/email.service.ts'
 import { PasswordService } from '../src/auth/password.service.ts'
 
 const cadastro = {
@@ -65,7 +67,16 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
       ),
     )
     await database.exec(
-      await readFile('drizzle/20261114231753_pretty_cardiac/migration.sql', 'utf8'),
+      await readFile(
+        'drizzle/20261114231753_pretty_cardiac/migration.sql',
+        'utf8',
+      ),
+    )
+    await database.exec(
+      await readFile(
+        'drizzle/20261114232625_peaceful_wolfpack/migration.sql',
+        'utf8',
+      ),
     )
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(DRIZZLE_DB)
@@ -373,6 +384,114 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
       if (status === 429) break
     }
     expect(status).toBe(429)
+  })
+
+  it('emite sessão após PIN, revoga replay e logout imediatamente', async () => {
+    const senha = 'Senha-Mobile-123'
+    const senhaHash = await app.get(PasswordService).hash(senha)
+    await database.query(
+      "INSERT INTO usuarios (nome, email, senha_hash, tipo) VALUES ('Mobile', 'mobile@example.com', $1, 'MEDICO')",
+      [senhaHash],
+    )
+    const config = app.get(ConfigService)
+    config.set('SMTP_HOST', 'smtp.test')
+    const enviar = vi.spyOn(app.get(EmailService), 'enviar').mockResolvedValue()
+    const loginMobile = async () => {
+      const login = await request(app.getHttpServer())
+        .post('/auth/login/medico')
+        .send({ email: 'mobile@example.com', senha })
+        .expect(200)
+      expect(login.body.access_token).toBeUndefined()
+      await request(app.getHttpServer())
+        .post('/auth/2fa/solicitar-pin')
+        .send({ challenge_token: login.body.challenge_token })
+        .expect(200)
+      const texto = enviar.mock.calls.at(-1)![0].texto
+      const pin = texto.match(/\b\d{6}\b/)![0]
+      return (
+        await request(app.getHttpServer())
+          .post('/auth/2fa/validar-pin')
+          .send({ challenge_token: login.body.challenge_token, pin_code: pin })
+          .expect(200)
+      ).body
+    }
+    const first = await loginMobile()
+    await app.listen(0)
+    const results = await Promise.all([
+      request(app.getHttpServer())
+        .post('/auth/refresh')
+        .send({ refresh_token: first.refresh_token }),
+      request(app.getHttpServer())
+        .post('/auth/refresh')
+        .send({ refresh_token: first.refresh_token }),
+    ])
+    expect(results.map((r) => r.status).sort((a, b) => a - b)).toEqual([
+      200, 401,
+    ])
+    const successor = results.find((r) => r.status === 200)!.body
+    await request(app.getHttpServer())
+      .get('/usuarios/me')
+      .set('Authorization', `Bearer ${successor.access_token}`)
+      .expect(401)
+    const second = await loginMobile()
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .send({ refresh_token: second.refresh_token })
+      .expect(200)
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .send({ refresh_token: second.refresh_token })
+      .expect(200)
+    await request(app.getHttpServer())
+      .get('/usuarios/me')
+      .set('Authorization', `Bearer ${second.access_token}`)
+      .expect(401)
+    enviar.mockRestore()
+    config.set('SMTP_HOST', undefined)
+  })
+
+  it('limita erros e envios de PIN e rejeita desafio expirado ou SMTP ausente', async () => {
+    const mobile = app.get(SessaoMobileService)
+    const config = app.get(ConfigService)
+    const senha = 'Senha-Limites-123'
+    const senhaHash = await app.get(PasswordService).hash(senha)
+    await database.query(
+      "INSERT INTO usuarios (nome,email,senha_hash,tipo) VALUES ('Limites','limites@example.com',$1,'GESTOR')",
+      [senhaHash],
+    )
+    const data = { email: 'limites@example.com', senha }
+    await expect(mobile.login(data, 'MEDICO')).rejects.toThrow()
+    const { challenge_token: challenge } = await mobile.login(data, 'GESTOR')
+    config.set('SMTP_HOST', undefined)
+    await expect(mobile.solicitar(challenge)).rejects.toThrow('indisponível')
+    config.set('SMTP_HOST', 'smtp.test')
+    const enviar = vi.spyOn(app.get(EmailService), 'enviar').mockResolvedValue()
+    try {
+      await mobile.solicitar(challenge)
+      const primeiro = enviar.mock.calls.at(-1)![0].texto.match(/\b\d{6}\b/)![0]
+      await mobile.solicitar(challenge)
+      const segundo = enviar.mock.calls.at(-1)![0].texto.match(/\b\d{6}\b/)![0]
+      const errado = segundo === '000000' ? '999999' : '000000'
+      if (primeiro !== segundo)
+        await expect(mobile.validar(challenge, primeiro)).rejects.toThrow()
+      for (let n = 0; n < 5; n++)
+        await expect(mobile.validar(challenge, errado)).rejects.toThrow()
+      await expect(mobile.validar(challenge, segundo)).rejects.toThrow()
+      const novo = await mobile.login(data, 'GESTOR')
+      await mobile.solicitar(novo.challenge_token)
+      await expect(mobile.solicitar(novo.challenge_token)).rejects.toThrow(
+        'Limite',
+      )
+      await database.exec(
+        "UPDATE desafios_mobile SET expires_at = now() - interval '1 minute'",
+      )
+      await expect(
+        mobile.validar(novo.challenge_token, segundo),
+      ).rejects.toThrow()
+    } finally {
+      enviar.mockRestore()
+      config.set('SMTP_HOST', undefined)
+    }
   })
 
   it('cria admin inicial sem duplicar, redefinir senha ou promover outra conta', async () => {

@@ -120,10 +120,39 @@ aplica a mesma revogação. JWT sem `versao_sessao` equivale à versão zero, pr
 sessões legadas até a primeira troca/recuperação. Campos internos não entram no perfil.
 Aplicar a migração `20261114231753_pretty_cardiac` antes de iniciar o backend atualizado.
 
-## 2FA, refresh e logout
+## 2FA, refresh e logout — mobile (D9)
 
-Ainda pendentes de alinhamento D9; ver `proposta-sessao-2fa.md`. Nenhum endpoint
-2FA/refresh/logout remoto foi habilitado. Logout atual apaga apenas o token local:
-uma cópia do token continua válida até expirar ou ocorrer troca/recuperação de senha.
-O armazenamento Android existente cifra tokens com AES-GCM e chave Android Keystore;
-não guarda senha/PIN. A autenticação biométrica não está implementada.
+Todas as rotas retornam 200 no sucesso e usam snake_case, sem `/api/v1`.
+
+- `POST /auth/login/medico` ou `/auth/login/gestor`: `{email,senha}` →
+  `{challenge_token,requer_2fa:true,expires_in:300}`. Nenhuma sessão antes do PIN.
+- `POST /auth/2fa/solicitar-pin`: `{challenge_token}` → `{message}`. PIN numérico
+  de 6 dígitos, 5 minutos; reenvio substitui PIN anterior. Até 3 envios/conta/15 min
+  e 5 requisições/IP/min. SMTP ausente/falho retorna 503, sem simular entrega.
+- `POST /auth/2fa/validar-pin`: `{challenge_token,pin_code}` →
+  `{access_token,token_type:"Bearer",expires_in,refresh_token,refresh_expires_in,usuario}`.
+  Challenge é de uso único, expira em 5 minutos e fica inválido após 5 erros.
+- `POST /auth/refresh`: `{refresh_token}` → mesmo shape de sessão. Refresh gira
+  atomicamente; prazo absoluto da família é 30 dias, sem extensão. Replay revoga
+  a família inteira. Guard consulta sessão ativa em cada uso do access mobile.
+- `POST /auth/logout`: `{refresh_token}` → `{message}`, idempotente; revoga família
+  atual inclusive access. Alteração/recuperação revoga todas as famílias e desafios.
+
+Challenge/refresh são aleatórios de 256 bits e só persistem como SHA-256; PIN é
+HMAC-SHA256 com segredo do servidor. PIN é enviado diretamente por SMTP dentro da
+transação (não usa outbox de recuperação); falha de commit após envio pode exigir
+novo pedido. Respostas inválidas/expiradas usam 401; limites usam 429.
+
+Android usa as rotas mobile por papel, tela PIN e restauração via perfil. Guarda
+par e expirações atomicamente cifrados AES-GCM/Keystore, com backup desativado.
+Renovação é serializada e cada operação autenticada repete no máximo uma vez,
+inclusive upload/download. Rede/5xx preserva credenciais; refresh 400/401 encerra
+sessão. Logout limpa local imediatamente e tenta revogação remota em background:
+sem rede não garante revogação remota. Se resposta de rotação se perder após commit,
+um retry pode disparar proteção de replay e exigir login; não existe janela de graça.
+
+Biometria é opcional e local: CryptoObject com chave Keystore autenticada decifra
+marcador antes de restaurar sessão, sem declaração biométrica ao servidor. Hardware
+indisponível/chave invalidada permite voltar ao login PIN. Validação física pendente.
+Login legado `/auth/login` continua sem 2FA nesta transição; migração dos demais
+consumidores é futura. Aplicar também migração `20261114232625_peaceful_wolfpack`.

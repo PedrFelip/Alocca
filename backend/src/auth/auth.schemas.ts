@@ -26,3 +26,10 @@ export const alterarSenhaSchema = z.strictObject({
 })
 
 export type AlterarSenha = z.infer<typeof alterarSenhaSchema>
+
+const opaqueToken = z.string().min(1).max(255)
+export const challengeSchema = z.strictObject({ challenge_token: opaqueToken })
+export const validarPinSchema = challengeSchema.extend({
+  pin_code: z.string().regex(/^\d{6}$/),
+})
+export const refreshSchema = z.strictObject({ refresh_token: opaqueToken })

@@ -1,3 +1,7 @@
+import { ConfigService } from '@nestjs/config'
+import { JwtService } from '@nestjs/jwt'
+import { createHash } from 'node:crypto'
+import { SessaoMobileService } from '../src/auth/sessao-mobile.service.ts'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
@@ -64,6 +68,42 @@ try {
         await banco`INSERT INTO usuarios (nome, email, senha_hash, tipo) VALUES ('Teste', 'teste@example.com', ${hash}, 'ADMIN') RETURNING id`
       usuarioId = usuario.id
       await banco`INSERT INTO tokens_recuperacao_senha (usuario_id, token, expires_at) VALUES (${usuarioId}, ${hashDoToken('CODIGO')}, now() + interval '15 minutes')`
+    })
+    it('refresh concorrente em conexões independentes revoga a família por replay', async () => {
+      const raw = 'refresh-test-only'
+      const tokenHash = createHash('sha256').update(raw).digest('hex')
+      const [sessao] =
+        await banco`INSERT INTO sessoes_mobile (usuario_id, expires_at) VALUES (${usuarioId}, now() + interval '30 days') RETURNING id`
+      await banco`INSERT INTO refresh_mobile (sessao_id, token_hash) VALUES (${sessao.id}, ${tokenHash})`
+      function mobile() {
+        const conexao = postgres(url, { max: 1 })
+        conexoes.push(conexao)
+        return new SessaoMobileService(
+          drizzle({ client: conexao as never }),
+          undefined as never,
+          { perfil: async () => ({ id: usuarioId }) } as never,
+          new JwtService({
+            secret: 'concurrency-test-only-secret-32-characters',
+            signOptions: { expiresIn: 900 },
+          }),
+          new ConfigService({ JWT_EXPIRES: 900 }) as never,
+          undefined as never,
+        )
+      }
+      const resultados = await Promise.allSettled([
+        mobile().renovar(raw),
+        mobile().renovar(raw),
+      ])
+      expect(resultados.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+      const [estado] =
+        await banco`SELECT revoked_at FROM sessoes_mobile WHERE id = ${sessao.id}`
+      expect(estado.revoked_at).not.toBeNull()
+      const vencedor = resultados.find((r) => r.status === 'fulfilled')!
+      if (vencedor.status === 'fulfilled') {
+        await expect(
+          mobile().renovar(vencedor.value.refresh_token),
+        ).rejects.toThrow()
+      }
     })
     it('serializa alteração e recuperação, permitindo somente uma troca', async () => {
       const resultados = await Promise.allSettled([
