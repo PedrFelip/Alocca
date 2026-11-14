@@ -1302,7 +1302,6 @@ private fun PublishShiftScreen(
     var instituicaoSelecionada by remember { mutableStateOf<InstituicaoVinculada?>(null) }
     var instituicoesErro by remember { mutableStateOf("") }
     var instituicoesCarregando by remember { mutableStateOf(token != null) }
-    var menuInstituicaoAberto by remember { mutableStateOf(false) }
     var tentativasInstituicoes by remember { mutableStateOf(0) }
     var desmontada = remember { mutableStateOf(false) }
     DisposableEffect(Unit) {
@@ -1463,35 +1462,24 @@ private fun PublishShiftScreen(
                 Spacer(Modifier.height(18.dp))
                 Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).border(1.dp, Color(0xFFD5D0DA), RoundedCornerShape(8.dp)).padding(10.dp)) {
                     PublishFormField(Icons.Default.Groups, Color(0xFFE1F4FB), "Instituição") {
-                        Box {
-                            PublishTextInput(
-                                value = instituicaoSelecionada?.nomeFantasia ?: instituicaoSelecionada?.nome.orEmpty(),
-                                onChange = {},
-                                placeholder = if (instituicoesCarregando) "Carregando instituições..." else "Selecione a instituição",
-                                readOnly = true,
-                            )
-                            Box(modifier = Modifier.matchParentSize().clickable { menuInstituicaoAberto = !menuInstituicaoAberto })
-                            DropdownMenu(expanded = menuInstituicaoAberto, onDismissRequest = { menuInstituicaoAberto = false }) {
-                                if (instituicoes.isEmpty()) {
-                                    DropdownMenuItem(text = { Text(if (instituicoesCarregando) "Carregando..." else "Nenhuma instituição vinculada") }, onClick = { menuInstituicaoAberto = false })
-                                }
-                                instituicoes.forEach { instituicao ->
-                                    DropdownMenuItem(text = { Text(instituicao.nomeFantasia ?: instituicao.nome) }, onClick = {
-                                        instituicaoSelecionada = instituicao
-                                        menuInstituicaoAberto = false
-                                    })
-                                }
-                            }
-                        }
+                        InstitutionPicker(
+                            value = instituicaoSelecionada?.nomeFantasia ?: instituicaoSelecionada?.nome.orEmpty(),
+                            options = instituicoes,
+                            loading = instituicoesCarregando,
+                            onSelect = { instituicaoSelecionada = it },
+                        )
                     }
-                    PublishFormField(Icons.Default.PersonOutline, Color(0xFFE1F4FB), "Especialidade médica") { PublishTextInput(specialty, { specialty = it }, "Selecione a especialidade") }
-                    PublishFormField(Icons.Default.CalendarMonth, Color(0xFFE5F4FA), "Data do plantão") { PublishTextInput(date, { date = it }, "dd/mm/aaaa") }
+                    PublishFormField(Icons.Default.PersonOutline, Color(0xFFE1F4FB), "Especialidade médica") { PublishTextInput(specialty, { specialty = it }, "Digite a especialidade") }
+                    PublishFormField(Icons.Default.CalendarMonth, Color(0xFFE5F4FA), "Data do plantão") { DateTimePickerField("Data", date, { date = it }) }
                     PublishFormField(Icons.Default.AccessTime, Color(0xFFE5F4FA), "Horário") {
                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                            Box(Modifier.weight(1f)) { PublishTextInput(hours, { hours = it }, "Início (hh:mm)") }
+                            Box(Modifier.weight(1f)) { DateTimePickerField("Início", hours, { hours = it }, time = true) }
                             Text("até", color = Navy, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterVertically))
-                            Box(Modifier.weight(1f)) { PublishTextInput(endTime, { endTime = it }, "Fim (hh:mm)") }
+                            Box(Modifier.weight(1f)) { DateTimePickerField("Término", endTime, { endTime = it }, time = true) }
                         }
+                    }
+                    if (hours.isNotBlank() && endTime.isNotBlank() && endTime <= hours) {
+                        Text("O plantão termina no dia seguinte.", color = Navy, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
                     }
                     PublishFormField(Icons.Default.LocationOn, Color(0xFFE5F4FA), "Local de atuação") { PublishTextInput(location, { location = it }, "Digite o nome ou endereço da unidade") }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1571,7 +1559,7 @@ private fun PublishFormField(icon: androidx.compose.ui.graphics.vector.ImageVect
 
 @Composable
 private fun PublishTextInput(value: String, onChange: (String) -> Unit, placeholder: String, readOnly: Boolean = false) {
-    OutlinedTextField(value = value, onValueChange = onChange, readOnly = readOnly, placeholder = { Text(placeholder, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }, singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Navy), modifier = Modifier.fillMaxWidth().height(38.dp), shape = RoundedCornerShape(7.dp))
+    OutlinedTextField(value = value, onValueChange = onChange, readOnly = readOnly, placeholder = { Text(placeholder, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }, singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp, color = Navy), modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(7.dp))
 }
 
 @Composable
