@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -20,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -938,6 +940,9 @@ private fun AttendanceScreen(presenca: PresencaProxima, tipoEvento: String, onBa
     var resultado by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
     var concluido by remember { mutableStateOf(false) }
     val plantao = presenca.plantao
+    BackHandler {
+        if (!enviando) onBack()
+    }
 
     fun registrar(local: Location?) {
         executor.executar({
@@ -967,7 +972,9 @@ private fun AttendanceScreen(presenca: PresencaProxima, tipoEvento: String, onBa
             Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
                 Spacer(Modifier.height(17.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("‹", color = Navy, fontSize = 30.sp, modifier = Modifier.clickable(enabled = !enviando, onClick = onBack).padding(end = 9.dp))
+                    IconButton(enabled = !enviando, onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Voltar", tint = Navy)
+                    }
                     Column {
                         Text(if (isCheckIn) "Check-in" else "Check-out", color = Navy, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                         Text(if (isCheckIn) "Registre sua entrada no plantão" else "Registre sua saída do plantão", color = Color(0xFF6281AC), fontSize = 12.sp)

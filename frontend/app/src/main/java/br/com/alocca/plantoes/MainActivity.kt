@@ -390,8 +390,12 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
         )
     }
 
-    BackHandler(enabled = quickActionScreen != null || activeTab != "Início") {
-        if (quickActionScreen != null) quickActionScreen = null else activeTab = "Início"
+    BackHandler(enabled = notificationsOpen || quickActionScreen != null || activeTab != "Início") {
+        when {
+            notificationsOpen -> notificationsOpen = false
+            quickActionScreen != null -> quickActionScreen = null
+            else -> activeTab = "Início"
+        }
     }
 
     val onQuickTabSelected: (String) -> Unit = { selected ->
@@ -722,7 +726,9 @@ internal fun QuickActionHeader(title: String, onBack: () -> Unit) {
         modifier = Modifier.fillMaxWidth().height(56.dp).border(1.dp, Color(0xFFE0E5E5)).padding(horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("‹", color = Navy, fontSize = 30.sp, modifier = Modifier.clickable(onClick = onBack).padding(end = 9.dp))
+        IconButton(onClick = onBack) {
+            Icon(Icons.Default.ArrowBack, contentDescription = "Voltar", tint = Navy)
+        }
         Text(title, color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold)
     }
 }
