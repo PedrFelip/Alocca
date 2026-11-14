@@ -184,7 +184,7 @@ Usuario "1" *-- "0..*" Token2FA
 | **RN10** | Fallback 2FA via PIN | PIN numérico de 6 dígitos com validade de 5 minutos, enviado ao e-mail do usuário. |
 | **RN11** | Validade de Token de Recuperação | Expira em 15 minutos e é invalidado no primeiro uso. |
 | **RN12** | Obfuscação na Recuperação | E-mail inexistente → mesmo `200 OK` genérico (anti-enumeração de contas). |
-| **RN13** | Visibilidade do Feed Global | Feed lista plantões com `status = 'Aberto'` **e** `vagasDisponiveis > 0`; global multi-instituição. |
+| **RN13** | Visibilidade do Feed Global | Feed lista plantões com `status = 'Aberto'`, `vagasDisponiveis > 0` e início futuro; global multi-instituição. Novas candidaturas são bloqueadas a partir da data e hora de início, inclusive. |
 | **RN14** | Vínculo Transacional | Vínculo médico↔instituição só existe via `Alocacao`. |
 | **RN15** | Filtros de Descoberta | Feed filtra por `especialidade`, `localizacao` (cidade/UF) e faixa de `valor` (expansível depois). |
 | **RN16** | Prevenção de Double-Booking | Rejeita candidatura (`409`) se o médico tem `Alocacao` com intervalo sobreposto. Só um booking por horário. |
@@ -343,7 +343,7 @@ Usuario "1" *-- "0..*" Token2FA
 - **Listar Candidatos:** `GET /api/v1/plantoes/{idPlantao}/candidaturas`
 - **Aprovar Candidato:** `POST /api/v1/plantoes/{idPlantao}/candidaturas/{idCandidatura}/aprovar`
   - **Lógica Transacional Crítica:**
-    1. Registra nova linha em `Alocacao` (`candidaturaId`, `plantaoId`, `medicoId`).
+    1. Exige que o plantão ainda não tenha começado. Registra nova linha em `Alocacao` (`candidaturaId`, `plantaoId`, `medicoId`).
     2. Altera status da candidatura para `'Aprovada'`.
     3. Cria registro inicial de `Pagamento` com status `'Pendente'`.
     4. Subtrai 1 vaga das vagas remanescentes.

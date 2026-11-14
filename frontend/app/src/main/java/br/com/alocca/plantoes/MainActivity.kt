@@ -807,7 +807,7 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
     var candidaturaPlantao by remember { mutableStateOf<ItemPlantao?>(null) }
     Box(Modifier.fillMaxSize()) {
         when (screen) {
-            InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, open) { notificationsOpen = !notificationsOpen }
+            InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, open, onLogout) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.Shifts -> if (candidaturaPlantao != null) PlantoesScreen(gestor = true, onBack = { candidaturaPlantao = null }, inicial = candidaturaPlantao) else InstitutionShiftsScreen(token, open) { candidaturaPlantao = it }
             InstitutionScreen.Doctors -> InstitutionDoctorsScreen(open)
             InstitutionScreen.Payments -> InstitutionPaymentsScreen(open)
@@ -830,11 +830,11 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
 }
 
 @Composable
-private fun InstitutionHomeScreen(name: String, onNavigate: (InstitutionScreen) -> Unit, onNotification: () -> Unit) {
+private fun InstitutionHomeScreen(name: String, onNavigate: (InstitutionScreen) -> Unit, onLogout: () -> Unit, onNotification: () -> Unit) {
     var selectedShift by remember { mutableStateOf<InstitutionShift?>(null) }
     InstitutionPage(InstitutionScreen.Home, onNavigate) {
         // Reutiliza exatamente o cabeçalho do fluxo médico: menu, marca e sino.
-        HomeHeader(onNotification = onNotification, onLogout = {})
+        HomeHeader(onNotification = onNotification, onLogout = onLogout)
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             Spacer(Modifier.height(15.dp))
             Text("Olá, Gestor!", color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)

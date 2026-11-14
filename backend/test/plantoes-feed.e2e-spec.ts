@@ -184,6 +184,12 @@ describe('Feed de plantões do médico', () => {
         titulo: 'Já encerrado',
         inicioDias: -2,
       }),
+      await criarPlantao({
+        instituicaoId: instituicaoDf,
+        titulo: 'Em andamento',
+        inicioDias: -0.1,
+        fim: timestamp(0.5),
+      }),
     )
     const plantaoJaCandidatado = await criarPlantao({
       instituicaoId: instituicaoDf,
