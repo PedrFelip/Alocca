@@ -42,6 +42,9 @@ const MSG_SEM_ESPECIALIDADE =
 const MSG_CANDIDATURA_ENVIADA = mensagensOficiais['MSG-09']
 const MSG_ALOCACAO = mensagensOficiais['MSG-17']
 const MSG_DOUBLE_BOOKING = mensagensOficiais['MSG-10']
+const MSG_PLANTAO_ENCERRADO = 'Este plantão já terminou e não pode receber alocação.'
+const MSG_INSTITUICAO_INATIVA = 'A instituição deste plantão está inativa.'
+const MSG_MEDICO_INATIVO = 'A conta deste médico não está ativa.'
 
 @Injectable()
 export class CandidaturasService {
@@ -318,6 +321,7 @@ export class CandidaturasService {
           data_inicio: plantoesTable.data_inicio,
           data_fim: plantoesTable.data_fim,
           valor: plantoesTable.valor,
+          instituicao_id: plantoesTable.instituicao_id,
         })
         .from(plantoesTable)
         .where(
@@ -334,6 +338,34 @@ export class CandidaturasService {
       }
       if (plantao.status !== 'ABERTO' || plantao.vagas_disponiveis <= 0) {
         throw new ConflictException('Este plantão não está aberto para alocação')
+      }
+      // plantao que ja acabou nao recebe medico
+      if (plantao.data_fim <= new Date()) {
+        throw new ConflictException(MSG_PLANTAO_ENCERRADO)
+      }
+
+      const [instituicao] = await tx
+        .select({ id: instituicoesTable.id })
+        .from(instituicoesTable)
+        .where(
+          and(
+            eq(instituicoesTable.id, plantao.instituicao_id),
+            eq(instituicoesTable.ativa, true),
+            isNull(instituicoesTable.deleted_at),
+          ),
+        )
+        .limit(1)
+      if (!instituicao) throw new ConflictException(MSG_INSTITUICAO_INATIVA)
+
+      // conta do medico desativada ou bloqueada pelo admin nao e alocada
+      const [contaMedico] = await tx
+        .select({ status: usuariosTable.status })
+        .from(medicosTable)
+        .innerJoin(usuariosTable, eq(medicosTable.usuario_id, usuariosTable.id))
+        .where(eq(medicosTable.id, medico.id))
+        .limit(1)
+      if (contaMedico?.status !== 'ATIVO') {
+        throw new ConflictException(MSG_MEDICO_INATIVO)
       }
 
       // 3ª trava: reconfirma estado da candidatura sob lock.
@@ -640,6 +672,8 @@ export class CandidaturasService {
           ne(alocacoesTable.plantao_id, plantaoId),
           isNull(alocacoesTable.deleted_at),
           isNull(plantaoConflito.deleted_at),
+          // plantao cancelado nao ocupa mais a agenda
+          ne(plantaoConflito.status, 'CANCELADO'),
           // Intervalos semi-abertos: toca nas bordas não é sobreposição.
           lt(plantaoConflito.data_inicio, plantao.data_fim),
           gt(plantaoConflito.data_fim, plantao.data_inicio),
