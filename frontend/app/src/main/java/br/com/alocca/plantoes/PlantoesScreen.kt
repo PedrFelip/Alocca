@@ -71,9 +71,17 @@ internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit, repository: Pla
         if (carregando || enviando) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (erro.isNotBlank()) { Text(erro, color = MaterialTheme.colorScheme.error); TextButton(onClick = { revisao++ }) { Text("Tentar novamente") } }
         if (aviso.isNotBlank()) Text(aviso, color = MaterialTheme.colorScheme.primary)
+        // formatarDataHora faz parse de ISO (caro); só depende da lista carregada,
+        // então calcula uma vez por lista em vez de a cada recomposição (ex.:
+        // cada tecla digitada na mensagem do diálogo recompõe a tela). A lista
+        // de candidaturas (gestor com plantão aberto) não exibe datas.
+        val datas = remember(itens, gestor, plantao?.id) {
+            if (gestor && plantao != null) emptyList()
+            else itens.map { PlantoesApi.formatarDataHora(it.inicio) to PlantoesApi.formatarDataHora(it.fim) }
+        }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             if (!carregando && erro.isEmpty() && itens.isEmpty()) Text("Nenhum resultado encontrado.")
-            itens.forEach { item ->
+            itens.forEachIndexed { indice, item ->
                 Card(Modifier.fillMaxWidth().padding(vertical = 6.dp)) { Column(Modifier.padding(14.dp)) {
                     if (gestor && plantao != null) {
                         Text(item.medico.ifBlank { "Médico" }, style = MaterialTheme.typography.titleMedium)
@@ -83,7 +91,7 @@ internal fun PlantoesScreen(gestor: Boolean, onBack: () -> Unit, repository: Pla
                     } else {
                         Text(item.titulo, style = MaterialTheme.typography.titleMedium)
                         Text(listOf(item.instituicao, item.especialidade, item.local).filter { it.isNotBlank() }.joinToString(" • "))
-                        Text("${PlantoesApi.formatarDataHora(item.inicio)} — ${PlantoesApi.formatarDataHora(item.fim)}", color = Navy)
+                        Text("${datas[indice].first} — ${datas[indice].second}", color = Navy)
                         item.valor?.let { Text("Valor: R$ $it") }
                         if (!gestor && aba == 1) Text("Status: ${item.status}")
                         if (gestor) TextButton(enabled = !enviando, onClick = { plantao = item; aviso = "" }) { Text("Ver candidaturas") }
