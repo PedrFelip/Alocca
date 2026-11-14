@@ -13,12 +13,30 @@ const envSchema = z
     JWT_SECRET: z
       .string()
       .min(32, 'JWT_SECRET deve ter pelo menos 32 caracteres'),
+    REFRESH_TOKEN_TTL_SECONDS: z.coerce
+      .number()
+      .int()
+      .min(3600)
+      .max(7776000)
+      .default(2592000),
     JWT_EXPIRES: z.coerce.number().int().min(60).max(86400).default(900),
     ADMIN_WEB_ORIGIN: z.url().default('http://localhost:5173'),
     ADMIN_EMAIL: z.email().trim().toLowerCase().optional(),
     ADMIN_PASSWORD: z.string().min(8).max(128).optional(),
     SEAWEEDFS_FILER_URL: z.url().default('http://127.0.0.1:8888'),
     DATABASE_URL: z.string().url('DATABASE_URL deve ser uma URL válida'),
+    NOTIFICATIONS_CONCURRENCY: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(32)
+      .default(8),
+    NOTIFICATIONS_POLL_MS: z.coerce
+      .number()
+      .int()
+      .min(250)
+      .max(60_000)
+      .default(2000),
     // sem smtp o back sobe, so nao manda e-mail
     SMTP_HOST: z.preprocess(vazioViraNada, z.string().trim().min(1).optional()),
     SMTP_PORT: z.preprocess(

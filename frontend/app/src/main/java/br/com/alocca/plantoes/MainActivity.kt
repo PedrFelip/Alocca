@@ -91,6 +91,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         TokenStore.discardLegacyPlaintext(this)
+        NotificadorLocal.criarCanal(this)
+        // Worker periódico (15 min + rede): único por app; KEEP não reinicia
+        // agenda existente. Sem sessão, o worker sai cedo sem fazer nada.
+        NotificacoesAgenda.agendar(this)
+        // Deep link de notificação nativa (tap): o extra só navega se for um
+        // UUID válido (DestinoPlantao.validar via DeepLink).
+        DestinoPlantao.definir(intent?.getStringExtra(NotificadorLocal.EXTRA_PLANTAO_ID).orEmpty())
 
         // Permite que o fundo chegue até as bordas, atrás da barra de status e navegação.
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -103,10 +110,19 @@ class MainActivity : ComponentActivity() {
 
         setContent { MaterialTheme { AuthApp() } }
     }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // App já aberto: novo tap de notificação chega aqui.
+        DestinoPlantao.definir(intent.getStringExtra(NotificadorLocal.EXTRA_PLANTAO_ID).orEmpty())
+    }
+
     override fun onResume() {
         super.onResume()
         lifecycleScope.launch(Dispatchers.IO) {
             ComprovanteDownload.limparCacheLegado(cacheDir)
+            // Sync ao abrir o app: badge atual e publicação de novos não lidos
+            // (sem polling em foreground; o worker cobre o resto do tempo).
+            NotificacoesSincronizador.sincronizar(applicationContext)
         }
     }
 
@@ -126,13 +142,21 @@ private fun AuthApp() {
     var perfil by remember { mutableStateOf<PerfilUsuario?>(null) }
     var restoring by remember { mutableStateOf(true) }
     var podeTentarRestaurar by remember { mutableStateOf(false) }
+    var geracaoSessao by remember { mutableIntStateOf(0) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     fun restaurarSessao() {
+        val geracao = geracaoSessao
         Thread {
-            val token = TokenStore.read(context)
+            val token = Sessao.tokenVigente(context)
             if (token == null) {
-                Handler(Looper.getMainLooper()).post { restoring = false }
+                Handler(Looper.getMainLooper()).post {
+                    if (geracao != geracaoSessao) return@post
+                    perfil = null
+                    restoring = false
+                    feedback = if (TokenStore.read(context) == null) "Entre para continuar." else "Não foi possível renovar a sessão. Tente novamente."
+                    podeTentarRestaurar = TokenStore.read(context) != null
+                }
             } else {
                 val result = AuthApi.getProfile(token)
                 val autenticado = if (result.successful) PerfilUsuario.fromJson(result.body) else null
@@ -143,15 +167,28 @@ private fun AuthApp() {
                     TokenStore.clearIfMatches(context, token)
                 }
                 Handler(Looper.getMainLooper()).post {
+                    if (geracao != geracaoSessao) return@post
+                    if (!Sessao.mesmaSessao(token, TokenStore.read(context)) && autenticado != null) {
+                        restoring = false
+                        return@post
+                    }
                     when {
                         autenticado != null -> {
                             perfil = autenticado
                             podeTentarRestaurar = false
                             feedback = ""
+                            // Sessão restaurada: conta conhecida, agenda do
+                            // worker garantida e sync imediata do badge.
+                            NotificacoesAgenda.agendar(context)
+                            Thread { NotificacoesSincronizador.sincronizar(context) }.start()
                         }
                         sessionExpired -> {
                             feedback = "Sua sessão expirou. Entre novamente."
                             podeTentarRestaurar = false
+                            // Sessão anterior não pode deixar rastro no aparelho.
+                            NotificacoesAgenda.cancelar(context)
+                            NotificacoesCentral.aoSair()
+                            DestinoPlantao.consumir()
                         }
                         else -> {
                             feedback = result.message.ifBlank {
@@ -193,16 +230,24 @@ private fun AuthApp() {
     }
 
     fun logout() {
-        if (!TokenStore.clear(context)) {
-            // Exclusão em disco falhou: avisar em vez de dizer que a sessão encerrou.
-            feedback = "Não foi possível encerrar a sessão. Tente novamente."
-            feedbackSuccess = false
-            return
-        }
-        perfil = null
-        screen = Screen.Login
-        feedback = "Sessão encerrada."
-        feedbackSuccess = true
+        geracaoSessao++
+        restoring = true
+        Thread {
+            val resultado = runCatching { Sessao.encerrar(context) }.getOrDefault(Sessao.Encerramento(false, false))
+            Handler(Looper.getMainLooper()).post {
+                restoring = false
+                if (!resultado.local) {
+                    feedback = "Não foi possível encerrar a sessão neste aparelho. Tente novamente."
+                } else {
+                    NotificacoesCentral.aoSair()
+                    DestinoPlantao.consumir()
+                    perfil = null
+                    screen = Screen.Login
+                    feedback = if (resultado.remoto) "Sessão encerrada." else "Sessão encerrada neste aparelho. A saída no servidor não pôde ser confirmada."
+                    feedbackSuccess = resultado.remoto
+                }
+            }
+        }.start()
     }
 
     // voltar do celular na tela de esqueci a senha volta pro login em vez de fechar o app
@@ -212,11 +257,11 @@ private fun AuthApp() {
     }
 
     fun expirarSessao() {
-        TokenStore.clear(context)
+        geracaoSessao++
+        // Desmontar telas que retiveram o access antigo; restaurar renova com refresh.
         perfil = null
-        screen = Screen.Login
-        feedback = "Sua sessão expirou. Entre novamente."
-        feedbackSuccess = false
+        restoring = true
+        restaurarSessao()
     }
 
     if (restoring) {
@@ -237,7 +282,10 @@ private fun AuthApp() {
             DecorativeCorners()
 
             val currentPerfil = perfil
-            if (currentPerfil != null) {
+            val plantaoNotificado by DestinoPlantao.plantaoId.collectAsState()
+            if (currentPerfil != null && plantaoNotificado != null) {
+                DetalhePlantaoNotificadoTela(plantaoNotificado!!, onBack = { DestinoPlantao.consumir() })
+            } else if (currentPerfil != null) {
                 if (currentPerfil.tipo == "GESTOR") {
                     InstitutionApp(currentPerfil, onLogout = ::logout)
                 } else {
@@ -303,7 +351,17 @@ private fun AuthApp() {
                                         feedbackSuccess = false
                                     } else {
                                         try {
-                                            TokenStore.save(context, token)
+                                            // Refresh rotativo vem no login (mesmo formato
+                                            // do refresh); sem ele, nada de refresh velho.
+                                            val refreshToken = response?.optString("refresh_token")?.trim().orEmpty()
+                                            if (refreshToken.isBlank()) error("Sessão sem renovação")
+                                            geracaoSessao++
+                                            synchronized(TokenStore) {
+                                                NotificadorLocal.limpar(context)
+                                                TokenStore.salvarSessao(context, token, refreshToken)
+                                            }
+                                            NotificacoesAgenda.agendar(context)
+                                            Thread { NotificacoesSincronizador.sincronizar(context) }.start()
                                             perfil = autenticado
                                             feedback = ""
                                             feedbackSuccess = false
@@ -377,7 +435,8 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
     var confirmandoSaida by remember { mutableStateOf(false) }
     val primeiroNome = perfil.nome.trim().split(" ").firstOrNull { it.isNotBlank() && !it.endsWith(".") } ?: "Doutor(a)"
     val pedirSaida = { confirmandoSaida = true }
-
+    // Badge de não lidas (contagem autenticada) e deep link pendente de push.
+    val naoLidas by NotificacoesCentral.naoLidas.collectAsState()
     // Diálogo antes de qualquer retorno antecipado: vale para todas as abas.
     if (confirmandoSaida) {
         AlertDialog(
@@ -422,6 +481,7 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
                 HomeHeader(
                     onNotification = { notificationsOpen = !notificationsOpen },
                     onLogout = pedirSaida,
+                    badgeNaoLidas = naoLidas,
                 )
                 // Cada aba tem seu próprio scroll (key), para não herdar a posição da anterior.
                 if (activeTab == "Plantões") {
@@ -475,7 +535,10 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
                 enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
                 exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
             ) {
-                NotificationsPanel(onClose = { notificationsOpen = false })
+                NotificationsPanel(
+                    onClose = { notificationsOpen = false },
+                    onAbrirPlantao = DestinoPlantao::definir,
+                )
             }
         }
     }
@@ -805,14 +868,16 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
     val context = LocalContext.current
     val token = remember { TokenStore.read(context) }
     var candidaturaPlantao by remember { mutableStateOf<ItemPlantao?>(null) }
+    // Badge real e deep link de plantão (push/inbox) para o fluxo do gestor.
+    val naoLidas by NotificacoesCentral.naoLidas.collectAsState()
     Box(Modifier.fillMaxSize()) {
         when (screen) {
-            InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, open) { notificationsOpen = !notificationsOpen }
+            InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, naoLidas, open) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.Shifts -> if (candidaturaPlantao != null) PlantoesScreen(gestor = true, onBack = { candidaturaPlantao = null }, inicial = candidaturaPlantao) else InstitutionShiftsScreen(token, open) { candidaturaPlantao = it }
             InstitutionScreen.Doctors -> InstitutionDoctorsScreen(open)
             InstitutionScreen.Payments -> InstitutionPaymentsScreen(open)
             InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(open)
-            InstitutionScreen.Settings -> InstitutionSettingsScreen(perfil, open, onLogout) { notificationsOpen = !notificationsOpen }
+            InstitutionScreen.Settings -> InstitutionSettingsScreen(perfil, naoLidas, open, onLogout) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.PublishShift -> PublishShiftScreen(
                 token,
                 onBack = { screen = InstitutionScreen.Shifts },
@@ -825,16 +890,21 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
             modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 52.dp, end = 15.dp),
             enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
             exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
-        ) { NotificationsPanel(onClose = { notificationsOpen = false }) }
+        ) {
+            NotificationsPanel(
+                onClose = { notificationsOpen = false },
+                onAbrirPlantao = DestinoPlantao::definir,
+            )
+        }
     }
 }
 
 @Composable
-private fun InstitutionHomeScreen(name: String, onNavigate: (InstitutionScreen) -> Unit, onNotification: () -> Unit) {
+private fun InstitutionHomeScreen(name: String, badgeNaoLidas: Int?, onNavigate: (InstitutionScreen) -> Unit, onNotification: () -> Unit) {
     var selectedShift by remember { mutableStateOf<InstitutionShift?>(null) }
     InstitutionPage(InstitutionScreen.Home, onNavigate) {
         // Reutiliza exatamente o cabeçalho do fluxo médico: menu, marca e sino.
-        HomeHeader(onNotification = onNotification, onLogout = {})
+        HomeHeader(onNotification = onNotification, onLogout = {}, badgeNaoLidas = badgeNaoLidas)
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
             Spacer(Modifier.height(15.dp))
             Text("Olá, Gestor!", color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -1090,13 +1160,11 @@ private fun PaymentCard(name: String, value: String, status: String) {
 @Composable
 private fun InstitutionSettingsScreen(
     perfil: PerfilUsuario,
+    badgeNaoLidas: Int?,
     onNavigate: (InstitutionScreen) -> Unit,
     onLogout: () -> Unit,
     onNotification: () -> Unit,
 ) {
-    var appNotifications by remember { mutableStateOf(true) }
-    var calendarNotifications by remember { mutableStateOf(false) }
-    var emailNotifications by remember { mutableStateOf(true) }
     var selectedOption by remember { mutableStateOf<String?>(null) }
     val displayName = perfil.nome.ifBlank { "Gestor" }
 
@@ -1108,7 +1176,16 @@ private fun InstitutionSettingsScreen(
                 Spacer(Modifier.weight(1f))
                 Box(modifier = Modifier.size(30.dp).clickable(onClick = onNotification), contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.NotificationsNone, contentDescription = "Notificações", tint = Navy, modifier = Modifier.size(25.dp))
-                    Text("3", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopEnd).clip(androidx.compose.foundation.shape.CircleShape).background(Cyan).padding(horizontal = 4.dp, vertical = 1.dp))
+                    // Badge real do inbox autenticado (antes era "3" fixo).
+                    if (badgeNaoLidas != null && badgeNaoLidas > 0) {
+                        Text(
+                            if (badgeNaoLidas > 99) "99+" else badgeNaoLidas.toString(),
+                            color = Color.White,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.align(Alignment.TopEnd).clip(androidx.compose.foundation.shape.CircleShape).background(Cyan).padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -1135,12 +1212,11 @@ private fun InstitutionSettingsScreen(
             }
             Spacer(Modifier.height(18.dp))
             SettingsSectionTitle("Preferências do aplicativo")
+            Spacer(Modifier.height(7.dp))
             SettingsGroup {
-                SettingsToggleRow(Icons.Default.NotificationsNone, Color(0xFFE1F3FA), Color(0xFF176FAD), "Notificações", "Gerencie caso queira receber alertas.", appNotifications) { appNotifications = it }
-                SettingsDivider()
-                SettingsToggleRow(Icons.Default.CalendarMonth, Color(0xFFE8F7EF), Color(0xFF15A268), "Calendário", "Alertas sobre os seus plantões.", calendarNotifications) { calendarNotifications = it }
-                SettingsDivider()
-                SettingsToggleRow(Icons.Default.Email, Color(0xFFF2EBFC), Color(0xFF7741C4), "Notificações por e-mail", "Receba alertas também por e-mail.", emailNotifications) { emailNotifications = it }
+                // Preferências reais por canal (push/e-mail) com persistência;
+                // substitui os toggles locais que não salvavam nada.
+                PreferenciasNotificacaoSecao()
             }
             Spacer(Modifier.height(18.dp))
             SettingsSectionTitle("Informações do sistema")
@@ -1183,16 +1259,6 @@ private fun SettingsRow(icon: androidx.compose.ui.graphics.vector.ImageVector, b
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) { Text(title, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold); Text(detail, color = Navy, fontSize = 9.sp) }
         Icon(Icons.Default.ChevronRight, null, tint = Navy, modifier = Modifier.size(20.dp))
-    }
-}
-
-@Composable
-private fun SettingsToggleRow(icon: androidx.compose.ui.graphics.vector.ImageVector, background: Color, tint: Color, title: String, detail: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(38.dp).clip(RoundedCornerShape(8.dp)).background(background), contentAlignment = Alignment.Center) { Icon(icon, null, tint = tint, modifier = Modifier.size(21.dp)) }
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) { Text(title, color = Navy, fontSize = 11.sp, fontWeight = FontWeight.Bold); Text(detail, color = Navy, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = Modifier.height(28.dp), colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF82F38A), uncheckedThumbColor = Color.White, uncheckedTrackColor = Color(0xFFE7E7ED)))
     }
 }
 
@@ -1863,7 +1929,8 @@ private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Uni
                     MainSettingsSectionTitle("Preferências do aplicativo")
                     Spacer(Modifier.height(7.dp))
                     SettingsCard {
-                        Text("Preferências de notificações indisponíveis no momento.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
+                        // Preferências reais por canal (push/e-mail) com persistência.
+                        PreferenciasNotificacaoSecao()
                     }
                     Spacer(Modifier.height(19.dp))
                     SettingsCard { SettingsNavigationRow(Icons.Default.Logout, "Sair da conta", "", Color(0xFFFFE6E8), Color(0xFFFF4A53), showDescription = false, onClick = onLogout) }
@@ -1877,7 +1944,12 @@ private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Uni
                 modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 46.dp, end = 16.dp),
                 enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
                 exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
-            ) { NotificationsPanel(onClose = { notificationsOpen = false }) }
+            ) {
+                NotificationsPanel(
+                    onClose = { notificationsOpen = false },
+                    onAbrirPlantao = DestinoPlantao::definir,
+                )
+            }
         }
     }
 }
@@ -1979,7 +2051,7 @@ private fun InstitutionHomeScreenPreview() {
 }
 
 @Composable
-internal fun HomeHeader(onNotification: () -> Unit, onLogout: () -> Unit) {
+internal fun HomeHeader(onNotification: () -> Unit, onLogout: () -> Unit, badgeNaoLidas: Int? = null) {
     var menuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
@@ -2024,7 +2096,20 @@ internal fun HomeHeader(onNotification: () -> Unit, onLogout: () -> Unit) {
                 tint = Navy,
                 modifier = Modifier.size(27.dp),
             )
-
+            // Badge real: contagem de não lidas do inbox autenticado.
+            if (badgeNaoLidas != null && badgeNaoLidas > 0) {
+                Text(
+                    if (badgeNaoLidas > 99) "99+" else badgeNaoLidas.toString(),
+                    color = Color.White,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(Cyan)
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                )
+            }
         }
     }
 }

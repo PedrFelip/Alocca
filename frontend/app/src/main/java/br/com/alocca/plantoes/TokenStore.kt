@@ -16,6 +16,8 @@ internal object TokenStore {
     private const val PREFS_NAME = "alocca_secure"
     private const val IV_KEY = "access_token_iv"
     private const val CIPHERTEXT_KEY = "access_token_ciphertext"
+    private const val REFRESH_IV_KEY = "refresh_token_iv"
+    private const val REFRESH_CIPHERTEXT_KEY = "refresh_token_ciphertext"
     private const val LEGACY_PREFS_NAME = "alocca"
     private const val LEGACY_TOKEN_KEY = "access_token"
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
@@ -28,16 +30,70 @@ internal object TokenStore {
         // Remove tokens written by the previous plaintext implementation. Never read them.
         check(discardLegacyPlaintext(context)) { "Could not remove legacy token" }
 
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
-        val ciphertext = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        guardar(prefs, IV_KEY, CIPHERTEXT_KEY, token)
+    }
+
+    /** Refresh token rotativo, no mesmo cofre do Keystore que o access token. */
+    @Synchronized
+    fun salvarRefresh(context: Context, token: String) {
+        require(token.isNotBlank()) { "Refresh token must not be blank" }
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        guardar(prefs, REFRESH_IV_KEY, REFRESH_CIPHERTEXT_KEY, token)
+    }
+
+    /**
+     * Grava o PAR (access, refresh) em UMA transação: um commit só cobre os
+     * quatro valores, então nunca fica em disco um access novo com refresh
+     * velho (ou o contrário) — o intervalo entre gravações separadas deixaria
+     * um refresh rotativo já consumido apontando para a sessão anterior.
+     * CAS com `esperadoAnterior`: só grava se o access em disco ainda for o
+     * que pediu a renovação (logout/troca de conta no intervalo ganha).
+     */
+    @Synchronized
+    fun salvarSessao(
+        context: Context,
+        access: String,
+        refresh: String,
+        esperadoAnterior: String? = null,
+    ): Boolean {
+        require(access.isNotBlank() && refresh.isNotBlank()) { "Tokens must not be blank" }
+        if (esperadoAnterior != null && read(context) != esperadoAnterior) return false
+
+        // Cifra os dois ANTES do commit: nada parcial fica em disco.
+        val accessCifrado = cifrar(access)
+        val refreshCifrado = cifrar(refresh)
+        check(discardLegacyPlaintext(context)) { "Could not remove legacy token" }
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val saved = prefs.edit()
-            .putString(IV_KEY, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .putString(CIPHERTEXT_KEY, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
+            .putString(IV_KEY, accessCifrado.first)
+            .putString(CIPHERTEXT_KEY, accessCifrado.second)
+            .putString(REFRESH_IV_KEY, refreshCifrado.first)
+            .putString(REFRESH_CIPHERTEXT_KEY, refreshCifrado.second)
             .commit()
-        check(saved) { "Could not persist encrypted token" }
+        check(saved) { "Could not persist session" }
+        return true
     }
+
+    /** Cifra `valor`; devolve (iv, ciphertext) em Base64. Falha de disco/keystore lança. */
+    private fun cifrar(valor: String): Pair<String, String> {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        val ciphertext = cipher.doFinal(valor.toByteArray(Charsets.UTF_8))
+        return Base64.encodeToString(cipher.iv, Base64.NO_WRAP) to
+            Base64.encodeToString(ciphertext, Base64.NO_WRAP)
+    }
+
+    @Synchronized
+    fun lerRefresh(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return recuperar(prefs, REFRESH_IV_KEY, REFRESH_CIPHERTEXT_KEY)
+    }
+
+    @Synchronized
+    fun limparRefresh(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().remove(REFRESH_IV_KEY).remove(REFRESH_CIPHERTEXT_KEY).commit()
 
     @Synchronized
     fun discardLegacyPlaintext(context: Context): Boolean =
@@ -47,8 +103,11 @@ internal object TokenStore {
     /** Remove a sessão local. Retorna `false` se a exclusão em disco falhar. */
     @Synchronized
     fun clear(context: Context): Boolean {
-        val removido = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .edit().remove(IV_KEY).remove(CIPHERTEXT_KEY).commit()
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val removido = prefs.edit()
+            .remove(IV_KEY).remove(CIPHERTEXT_KEY)
+            .remove(REFRESH_IV_KEY).remove(REFRESH_CIPHERTEXT_KEY)
+            .commit()
         return removido && discardLegacyPlaintext(context)
     }
 
@@ -68,11 +127,28 @@ internal object TokenStore {
     @Synchronized
     fun read(context: Context): String? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val ivText = prefs.getString(IV_KEY, null)
-        val ciphertextText = prefs.getString(CIPHERTEXT_KEY, null)
+        return recuperar(prefs, IV_KEY, CIPHERTEXT_KEY)
+    }
+
+    /** Grava `valor` cifrado (AES-GCM, chave do Keystore); falha de disco lança. */
+    private fun guardar(prefs: android.content.SharedPreferences, ivKey: String, cipherKey: String, valor: String) {
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
+        val ciphertext = cipher.doFinal(valor.toByteArray(Charsets.UTF_8))
+        val saved = prefs.edit()
+            .putString(ivKey, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .putString(cipherKey, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
+            .commit()
+        check(saved) { "Could not persist encrypted token" }
+    }
+
+    /** Lê e decifra; valor corrompido é apagado e tratado como ausente. */
+    private fun recuperar(prefs: android.content.SharedPreferences, ivKey: String, cipherKey: String): String? {
+        val ivText = prefs.getString(ivKey, null)
+        val ciphertextText = prefs.getString(cipherKey, null)
         if (ivText == null && ciphertextText == null) return null
         if (ivText == null || ciphertextText == null) {
-            clearEncryptedToken(prefs)
+            apagar(prefs, ivKey, cipherKey)
             return null
         }
 
@@ -82,16 +158,16 @@ internal object TokenStore {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(GCM_TAG_BITS, iv))
             cipher.doFinal(ciphertext).toString(Charsets.UTF_8).takeIf(String::isNotBlank)
-                ?: run { clearEncryptedToken(prefs); null }
+                ?: run { apagar(prefs, ivKey, cipherKey); null }
         } catch (_: Exception) {
             // Includes key invalidation and authentication-tag failure. Do not fall back to plaintext.
-            clearEncryptedToken(prefs)
+            apagar(prefs, ivKey, cipherKey)
             null
         }
     }
 
-    private fun clearEncryptedToken(prefs: android.content.SharedPreferences) {
-        prefs.edit().remove(IV_KEY).remove(CIPHERTEXT_KEY).apply()
+    private fun apagar(prefs: android.content.SharedPreferences, ivKey: String, cipherKey: String) {
+        prefs.edit().remove(ivKey).remove(cipherKey).apply()
     }
 
     private fun getOrCreateKey(): SecretKey {

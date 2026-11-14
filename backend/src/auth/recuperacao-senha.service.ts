@@ -4,6 +4,7 @@ import { createHash, randomInt } from 'node:crypto'
 import { mensagensOficiais } from '../common/mensagens.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import { tokensRecuperacaoSenhaTable } from '../db/schemas/tokens-recuperacao-senha.ts'
+import { sessoesAuthTable } from '../db/schemas/sessoes-auth.ts'
 import { usuariosTable } from '../db/schemas/usuarios.ts'
 import { EmailService } from '../email/email.service.ts'
 import { UsuariosService, type Usuario } from '../usuarios/usuarios.service.ts'
@@ -129,7 +130,12 @@ export class RecuperacaoSenhaService {
       const [usuario] = await tx
         .update(usuariosTable)
         // tira o bloqueio de login tb
-        .set({ senha_hash, tentativas_falhas: 0, bloqueado_ate: null })
+        .set({
+          senha_hash,
+          tentativas_falhas: 0,
+          bloqueado_ate: null,
+          tokens_revogados_at: new Date(),
+        })
         .where(
           and(
             eq(usuariosTable.id, token.usuario_id),
@@ -138,6 +144,11 @@ export class RecuperacaoSenhaService {
           ),
         )
         .returning({ id: usuariosTable.id })
+      if (usuario)
+        await tx
+          .update(sessoesAuthTable)
+          .set({ revogado_at: new Date() })
+          .where(eq(sessoesAuthTable.usuario_id, usuario.id))
       // conta desativada nao troca
       return Boolean(usuario)
     })

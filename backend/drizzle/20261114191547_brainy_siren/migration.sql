@@ -1,0 +1,1 @@
+ALTER TABLE "usuarios" ADD COLUMN "tokens_revogados_at" timestamp with time zone;

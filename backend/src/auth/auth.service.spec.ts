@@ -2,6 +2,7 @@ import { HttpException, Logger, UnauthorizedException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { JwtService } from '@nestjs/jwt'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Database } from '../db/db.provider.ts'
 import type { Env } from '../config/env.ts'
 import type { Usuario, UsuariosService } from '../usuarios/usuarios.service.ts'
 import { AuthService } from './auth.service.ts'
@@ -20,6 +21,7 @@ function criarUsuarioBase(overrides: Partial<Usuario> = {}): Usuario {
     tentativas_falhas: 0,
     bloqueado_ate: null,
     ultimo_login_at: null,
+    tokens_revogados_at: null,
     created_at: new Date(),
     updated_at: new Date(),
     deleted_at: null,
@@ -41,7 +43,9 @@ describe('AuthService (logs de login falho)', () => {
         bloqueado_ate: null,
       }),
       registrarLogin: vi.fn().mockResolvedValue(true),
-      perfil: vi.fn().mockResolvedValue({ id: '11111111-1111-4111-8111-111111111111' }),
+      perfil: vi
+        .fn()
+        .mockResolvedValue({ id: '11111111-1111-4111-8111-111111111111' }),
       ...usuariosOverrides,
     } as unknown as UsuariosService
 
@@ -54,7 +58,27 @@ describe('AuthService (logs de login falho)', () => {
     })
 
     return {
-      auth: new AuthService(usuarios, passwords, jwt, config),
+      auth: new AuthService(usuarios, passwords, jwt, config, {
+        transaction: async (executar: (tx: unknown) => Promise<unknown>) =>
+          executar({
+            update: () => ({
+              set: () => ({
+                where: () => ({
+                  returning: async () => [
+                    { id: '11111111-1111-4111-8111-111111111111' },
+                  ],
+                }),
+              }),
+            }),
+            insert: () => ({
+              values: () => ({
+                returning: async () => [
+                  { id: '11111111-1111-4111-8111-111111111111' },
+                ],
+              }),
+            }),
+          }),
+      } as unknown as Database),
       passwords,
       usuarios,
     }

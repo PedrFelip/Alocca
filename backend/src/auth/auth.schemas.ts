@@ -19,3 +19,8 @@ export const redefinirSenhaSchema = z.strictObject({
 })
 
 export type RedefinirSenha = z.infer<typeof redefinirSenhaSchema>
+
+export const refreshSchema = z.strictObject({
+  refresh_token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+})
+export type Refresh = z.infer<typeof refreshSchema>

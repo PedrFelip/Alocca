@@ -10,3 +10,7 @@ export * from './alocacoes.ts'
 export * from './registros-ponto.ts'
 export * from './pagamentos.ts'
 export * from './notificacoes.ts'
+export * from './notificacoes-preferencias.ts'
+
+export * from './notificacoes-entregas.ts'
+export * from './sessoes-auth.ts'

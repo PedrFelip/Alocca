@@ -1,18 +1,24 @@
 import {
   Inject,
   Injectable,
+  InternalServerErrorException,
   UnauthorizedException,
   type CanActivate,
   type ExecutionContext,
 } from '@nestjs/common'
+import { createHash } from 'node:crypto'
 import { JwtService } from '@nestjs/jwt'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { Request } from 'express'
 import { z } from 'zod'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
-import { usuariosTable } from '../db/schemas/index.ts'
+import { usuariosTable } from '../db/schemas/usuarios.ts'
+import { sessoesAuthTable } from '../db/schemas/sessoes-auth.ts'
 
 export type AuthenticatedRequest = Request & {
+  sessaoHash: string
+  sessaoExpiraEm: Date
+  sessaoId?: string
   usuarioId: string
   tipoUsuario: 'MEDICO' | 'GESTOR' | 'ADMIN'
 }
@@ -29,11 +35,22 @@ export class AuthGuard implements CanActivate {
     const match = /^Bearer ([^\s]+)$/i.exec(request.headers.authorization ?? '')
     if (!match) throw new UnauthorizedException('Autenticação necessária')
     let usuarioId: string
+    let sessaoId: string | undefined
     try {
-      const payload = await this.jwt.verifyAsync<{ sub: string }>(match[1], {
+      const payload = await this.jwt.verifyAsync<{
+        sub: string
+        exp: number
+        sid?: string
+      }>(match[1], {
         algorithms: ['HS256'],
       })
       usuarioId = z.uuid().parse(payload.sub)
+      sessaoId =
+        payload.sid === undefined ? undefined : z.uuid().parse(payload.sid)
+      request.sessaoHash = createHash('sha256').update(match[1]).digest('hex')
+      request.sessaoExpiraEm = new Date(
+        z.number().int().positive().parse(payload.exp) * 1000,
+      )
     } catch {
       throw new UnauthorizedException('Token inválido ou expirado')
     }
@@ -45,10 +62,17 @@ export class AuthGuard implements CanActivate {
           eq(usuariosTable.id, usuarioId),
           eq(usuariosTable.status, 'ATIVO'),
           isNull(usuariosTable.deleted_at),
+          sessaoId
+            ? sql`EXISTS (SELECT 1 FROM ${sessoesAuthTable} s WHERE s.id = ${sessaoId} AND s.usuario_id = ${usuarioId} AND s.revogado_at IS NULL)`
+            : sql`${usuariosTable.tokens_revogados_at} IS NULL AND NOT EXISTS (SELECT 1 FROM ${sessoesAuthTable} s WHERE s.token_hash = ${request.sessaoHash} AND s.revogado_at IS NOT NULL)`,
         ),
       )
       .limit(1)
+      .catch(() => {
+        throw new InternalServerErrorException()
+      })
     if (!usuario) throw new UnauthorizedException('Usuário indisponível')
+    request.sessaoId = sessaoId
     request.usuarioId = usuario.id
     request.tipoUsuario = usuario.tipo
     return true

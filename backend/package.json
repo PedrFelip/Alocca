@@ -23,7 +23,10 @@
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
     "seed": "bun run src/db/seed.ts",
-    "studio": "drizzle-kit studio"
+    "studio": "drizzle-kit studio",
+    "worker:notificacoes": "bun run src/notificacoes/worker-main.ts",
+    "worker:notificacoes:prod": "node dist/notificacoes/worker-main.js",
+    "notificacoes:reprocessar": "bun run src/notificacoes/reprocessar.ts"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
