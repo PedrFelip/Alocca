@@ -2,7 +2,7 @@ import 'dotenv/config'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
-import postgres from 'postgres'
+import { criarClientePostgres } from './cliente-postgres.ts'
 import { PasswordService } from '../auth/password.service.ts'
 import { validateEnv } from '../config/env.ts'
 import {
@@ -24,7 +24,7 @@ const env = validateEnv(process.env)
 if (env.NODE_ENV === 'production') {
   throw new Error('Seed bloqueado em produção (NODE_ENV=production)')
 }
-const client = postgres(env.DATABASE_URL)
+const client = criarClientePostgres(env.DATABASE_URL)
 const db = drizzle({ client })
 const passwords = new PasswordService()
 
