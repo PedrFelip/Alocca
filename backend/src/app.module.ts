@@ -13,8 +13,10 @@ import { FiltroMensagens } from './common/mensagens.filter.ts'
 import { HealthModule } from './health/health.module.ts'
 import { MedicosModule } from './medicos/medicos.module.ts'
 import { CandidaturasModule } from './candidaturas/candidaturas.module.ts'
+import { GestoresModule } from './gestores/gestores.module.ts'
 import { CheckinModule } from './checkin/checkin.module.ts'
 import { PlantoesModule } from './plantoes/plantoes.module.ts'
+import { InstituicoesModule } from './instituicoes/instituicoes.module.ts'
 
 @Module({
   imports: [
@@ -32,7 +34,9 @@ import { PlantoesModule } from './plantoes/plantoes.module.ts'
     HealthModule,
     MedicosModule,
     PlantoesModule,
+    InstituicoesModule,
     CandidaturasModule,
+    GestoresModule,
     CheckinModule,
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
   ],

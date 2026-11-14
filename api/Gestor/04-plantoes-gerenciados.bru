@@ -1,0 +1,27 @@
+meta {
+  name: Plantoes gerenciados
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/plantoes/gerenciados
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{gestorToken}}
+}
+
+tests {
+  test("HTTP 200", function () {
+    expect(res.getStatus()).to.equal(200);
+  });
+  test("Lista com instituicao aninhada", function () {
+    expect(res.getBody()).to.be.an("array");
+    if (res.getBody().length > 0) {
+      expect(res.getBody()[0].instituicao).to.have.property("nome");
+    }
+  });
+}
