@@ -1,6 +1,7 @@
 package br.com.alocca.plantoes
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -40,6 +41,9 @@ internal object NotificadorLocal {
      * Publica na bandeja com o id estável derivado do id remoto: como a entrega
      * é at-least-once, a mesma notificação substitui a cópia em vez de duplicar.
      */
+    // O lint não acompanha o guard indireto: semPermissao(context) já checa
+    // Manifest.permission.POST_NOTIFICATIONS no início desta função.
+    @SuppressLint("MissingPermission")
     fun publicar(context: Context, idRemoto: String, titulo: String, texto: String, plantaoId: String?): Boolean {
         if (semPermissao(context) || !NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
         val intent = Intent(context, MainActivity::class.java).apply {
