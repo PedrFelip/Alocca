@@ -1,5 +1,7 @@
 package br.com.alocca.plantoes
 
+import android.app.DatePickerDialog
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -30,7 +32,7 @@ internal object ConsultaFiltros {
     private val uuid = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
     private val ufs = "AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO".split(" ")
 
-    fun parametros(f: FiltrosConsulta, ponto: Boolean, zone: TimeZone = TimeZone.getDefault()): Map<String, String> {
+    fun parametros(f: FiltrosConsulta, ponto: Boolean, zone: TimeZone = Datas.fuso): Map<String, String> {
         val result = linkedMapOf<String, String>()
         fun add(key: String, value: String) { if (value.isNotBlank()) result[key] = value.trim() }
         val instituicao = f.instituicao.trim()
@@ -104,7 +106,7 @@ internal object GestorConsultasApi {
         val medico = json.getJSONObject("medico")
         val instant = Datas.parseIso(json.getString("timestamp_servidor"))
             ?: throw IllegalArgumentException("Data inválida")
-        val data = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(instant)
+        val data = Datas.dataHora(instant)
         val evento = when (json.getString("tipo_evento")) {
             "ENTRADA" -> "Entrada"
             "SAIDA" -> "Saída"
@@ -127,6 +129,7 @@ internal fun ColumnScope.GestorConsultaConteudo(token: String?, ponto: Boolean, 
     var draft by remember(token, ponto) { mutableStateOf(FiltrosConsulta()) }
     var filtros by remember(token, ponto) { mutableStateOf<Map<String, String>>(emptyMap()) }
     var erroFiltro by remember(token, ponto) { mutableStateOf("") }
+    var filtrosAbertos by remember(token, ponto) { mutableStateOf(false) }
     val sessaoExpirada by rememberUpdatedState(onSessaoExpirada)
     LaunchedEffect(token, ponto, request) {
         val geracao = request
@@ -155,10 +158,12 @@ internal fun ColumnScope.GestorConsultaConteudo(token: String?, ponto: Boolean, 
         }
     }
     Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        OutlinedButton(onClick = { filtrosAbertos = !filtrosAbertos }) { Text(if (filtrosAbertos) "Ocultar filtros" else "Filtros") }
+        if (filtrosAbertos) {
         if (ponto) {
-            SeletorMedico(token, draft.medico, sessaoExpirada) { draft = draft.copy(medico = it) }
-            OutlinedTextField(draft.inicio, { draft = draft.copy(inicio = it) }, label = { Text("Data inicial (AAAA-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-            OutlinedTextField(draft.fim, { draft = draft.copy(fim = it) }, label = { Text("Data final inclusiva (AAAA-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+            SeletorMedico(token, draft.medico, draft.instituicao, sessaoExpirada) { draft = draft.copy(medico = it) }
+            SeletorDataConsulta("Data inicial", draft.inicio) { draft = draft.copy(inicio = it) }
+            SeletorDataConsulta("Data final inclusiva", draft.fim) { draft = draft.copy(fim = it) }
             OpcaoConsulta("Evento", draft.evento, listOf("" to "Todos", "ENTRADA" to "Entrada", "SAIDA" to "Saída")) { draft = draft.copy(evento = it) }
         } else {
             OutlinedTextField(draft.q, { draft = draft.copy(q = it) }, label = { Text("Nome, CRM ou especialidade") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
@@ -167,7 +172,7 @@ internal fun ColumnScope.GestorConsultaConteudo(token: String?, ponto: Boolean, 
             OpcaoConsulta("Conta", draft.status, listOf("" to "Todas", "ATIVO" to "Ativa", "INATIVO" to "Inativa", "BLOQUEADO" to "Bloqueada")) { draft = draft.copy(status = it) }
             OpcaoConsulta("Validação", draft.validacao, listOf("" to "Todas", "PENDENTE" to "Pendente", "APROVADO" to "Aprovada", "REJEITADO" to "Rejeitada")) { draft = draft.copy(validacao = it) }
         }
-        SeletorInstituicao(token, draft.instituicao, sessaoExpirada) { draft = draft.copy(instituicao = it) }
+        SeletorInstituicao(token, draft.instituicao, sessaoExpirada) { draft = draft.copy(instituicao = it, medico = "") }
         if (erroFiltro.isNotBlank()) Text(erroFiltro, color = MaterialTheme.colorScheme.error)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = {
@@ -180,6 +185,7 @@ internal fun ColumnScope.GestorConsultaConteudo(token: String?, ponto: Boolean, 
                 draft = FiltrosConsulta(); filtros = emptyMap(); erroFiltro = ""
                 items = emptyList(); offset = 0; more = false; request++
             }) { Text("Limpar") }
+        }
         }
         TextButton(enabled = !loading, onClick = { offset = 0; items = emptyList(); request++ }) { Text("Atualizar") }
         items.forEach { item ->
@@ -200,6 +206,22 @@ internal fun ColumnScope.GestorConsultaConteudo(token: String?, ponto: Boolean, 
             more -> TextButton(onClick = { request++ }) { Text("Carregar mais") }
         }
     }
+}
+
+@Composable
+private fun SeletorDataConsulta(rotulo: String, valor: String, onSelect: (String) -> Unit) {
+    val contexto = LocalContext.current
+    val calendario = Calendar.getInstance(Datas.fuso)
+    val parser = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { isLenient = false; timeZone = Datas.fuso }
+    runCatching { parser.parse(valor) }.getOrNull()?.let { calendario.time = it }
+    val exibicao = runCatching { parser.parse(valor) }.getOrNull()?.let {
+        SimpleDateFormat("dd/MM/yyyy", Locale.US).apply { timeZone = Datas.fuso }.format(it)
+    } ?: "Selecionar"
+    OutlinedButton(onClick = {
+        DatePickerDialog(contexto, { _, ano, mes, dia ->
+            onSelect(String.format(Locale.US, "%04d-%02d-%02d", ano, mes + 1, dia))
+        }, calendario.get(Calendar.YEAR), calendario.get(Calendar.MONTH), calendario.get(Calendar.DAY_OF_MONTH)).show()
+    }) { Text("$rotulo: $exibicao") }
 }
 
 @Composable
@@ -240,10 +262,10 @@ private fun SeletorInstituicao(token: String?, selecionado: String, onSessao: ()
 }
 
 @Composable
-private fun SeletorMedico(token: String?, selecionado: String, onSessao: () -> Unit, onSelect: (String) -> Unit) {
-    var aberto by remember { mutableStateOf(false) }
-    var busca by remember { mutableStateOf("") }
-    var consulta by remember { mutableStateOf("") }
+private fun SeletorMedico(token: String?, selecionado: String, instituicao: String, onSessao: () -> Unit, onSelect: (String) -> Unit) {
+    var aberto by remember(instituicao) { mutableStateOf(false) }
+    var busca by remember(instituicao) { mutableStateOf("") }
+    var consulta by remember(instituicao) { mutableStateOf("") }
     var itens by remember(token) { mutableStateOf<List<ConsultaGestorItem>>(emptyList()) }
     var escolhido by remember(token) { mutableStateOf<ConsultaGestorItem?>(null) }
     var offset by remember(token) { mutableIntStateOf(0) }
@@ -251,14 +273,17 @@ private fun SeletorMedico(token: String?, selecionado: String, onSessao: () -> U
     var carregando by remember(token) { mutableStateOf(false) }
     var erro by remember(token) { mutableStateOf("") }
     var geracao by remember(token) { mutableIntStateOf(0) }
-    LaunchedEffect(token, geracao) {
+    LaunchedEffect(selecionado) {
+        if (selecionado.isEmpty()) { aberto = false; busca = ""; consulta = "" }
+    }
+    LaunchedEffect(token, geracao, instituicao) {
         if (geracao == 0) return@LaunchedEffect
         val atual = geracao; val pagina = offset; val q = consulta
         carregando = true; erro = ""
         try {
             if (token == null) { onSessao(); return@LaunchedEffect }
             val resultado = withContext(Dispatchers.IO) {
-                GestorConsultasApi.listar(token, false, pagina, if (q.isBlank()) emptyMap() else mapOf("q" to q))
+                GestorConsultasApi.listar(token, false, pagina, buildMap { if (q.isNotBlank()) put("q", q); if (instituicao.isNotBlank()) put("instituicao_id", instituicao) })
             }
             if (atual != geracao) return@LaunchedEffect
             itens = if (pagina == 0) resultado else (itens + resultado).distinctBy { it.id }
