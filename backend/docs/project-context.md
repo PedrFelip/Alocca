@@ -190,7 +190,7 @@ Usuario "1" *-- "0..*" Token2FA
 | **RN16** | Prevenção de Double-Booking | Rejeita candidatura (`409`) se o médico tem `Alocacao` com intervalo sobreposto. Só um booking por horário. |
 | **RN17** | Completude de Perfil | Pesos: Especialidade 40%, Formação 20%, Vínculo 20%, Tempo de atuação 20%. Sem Especialidade, não aplica para vagas específicas. Sem distinção de UTI — só plantões diretos. |
 | **RN18** | Acesso a Comprovantes | Médico só baixa o comprovante se `statusPagamento = 'Pago'`. |
-| **RN19** | Check-in Pontual (LGPD) | Toque explícito, sem tracking em background. GPS negado → `latitude/longitude = null`, valida só pelo `timestampServidor`. |
+| **RN19** | Check-in Pontual (LGPD) | Toque explícito, sem tracking em background. GPS negado → `latitude/longitude = null`, valida só pelo `timestampServidor`. Com GPS e hospital com coordenadas, só aceita a até 500 m do hospital (mais longe → `409`). |
 | **RN20** | Múltiplas Vagas por Plantão | `quantidadeVagas >= 1`; vira `Preenchido` quando `vagasDisponiveis == 0`. |
 | **RN21** | Alocação Exclusiva e Rejeição em Cascata | Na última vaga: `Preenchido`, rejeita concorrentes restantes e notifica todos. |
 | **RN22** | Baixa com Comprovante | Ir para `'Pago'` exige anexo válido (PDF/JPG/PNG). Sem gateway bancário no MVP. |
@@ -303,7 +303,7 @@ Usuario "1" *-- "0..*" Token2FA
       "precisaoMetros": 12.5   // null se recusado
     }
     ```
-  - Regra: RN19. Se GPS for null, salva apenas com o timestamp do servidor (MSG-12); se com GPS, calcula distância (MSG-11).
+  - Regra: RN19. Se GPS for null, salva apenas com o timestamp do servidor (MSG-12); se com GPS, calcula distância (MSG-11). Se o hospital tiver coordenadas e a distância passar de 500 m, recusa com `409 Conflict` ("Você está a X m do hospital. O check-in só pode ser feito a até 500 m.").
 
 ### UC07 — Gerenciar Conta e Perfil
 - **Obter Perfil:** `GET /api/v1/perfil/medico`

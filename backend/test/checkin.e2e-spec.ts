@@ -11,6 +11,8 @@ import { DRIZZLE_DB } from '../src/db/db.provider.ts'
 // hospital do teste e um ponto a uns 100 m dele
 const HOSPITAL = { latitude: -15.8011, longitude: -47.8838 }
 const PERTO = { latitude: -15.8002, longitude: -47.8838 }
+// uns 2 km do hospital, passa do limite de 500 m
+const LONGE = { latitude: -15.7831, longitude: -47.8838 }
 
 const MINUTO = 60 * 1000
 const daqui = (minutos: number) => new Date(Date.now() + minutos * MINUTO)
@@ -223,6 +225,46 @@ describe('Check-in e check-out (UC06)', () => {
       expect((await registroSalvo(alocacao, 'ENTRADA')).precisao_metros).toBe(
         12.5,
       )
+    })
+
+    it('recusa check-in longe do hospital e não salva nada', async () => {
+      const resposta = await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+        ...LONGE,
+      }).expect(409)
+
+      expect(resposta.body.message).toMatch(
+        /^Você está a \d+ m do hospital\. O check-in só pode ser feito a até 500 m\.$/,
+      )
+      expect(await registroSalvo(alocacao, 'ENTRADA')).toBeUndefined()
+    })
+
+    it('recusa check-out longe do hospital', async () => {
+      await checkinDireto(alocacao)
+      const resposta = await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'SAIDA',
+        ...LONGE,
+      }).expect(409)
+
+      expect(resposta.body.message).toContain('O check-out só pode ser feito')
+      expect(await registroSalvo(alocacao, 'SAIDA')).toBeUndefined()
+    })
+
+    it('aceita longe quando o hospital não tem localização ou o plantão não usa GPS', async () => {
+      await presenca(medicoToken, {
+        alocacao_id: alocacaoSemCoordenadas,
+        tipo_evento: 'ENTRADA',
+        ...LONGE,
+      }).expect(201)
+
+      await mudarPlantao(alocacao, 'permite_geolocalizacao = false')
+      await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+        ...LONGE,
+      }).expect(201)
     })
 
     it('faz check-in sem GPS só com o horário do servidor (MSG-12)', async () => {

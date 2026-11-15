@@ -8,7 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import type { RegistrarPresenca } from './checkin.schemas.ts'
-import { distanciaEmMetros } from './distancia.ts'
+import { DISTANCIA_MAXIMA_METROS, distanciaEmMetros } from './distancia.ts'
 import {
   checkinLiberadoEm,
   checkoutAte,
@@ -86,7 +86,8 @@ export class CheckinService {
         }
       }
 
-      // RN19: so salva o gps se o plantão aceitar e se ele for valido
+      // RN19: so salva o gps se o plantão aceitar e se ele for valido.
+      // GPS negado continua passando (LGPD), mas fica marcado sem localização
       let latitude: number | null = null
       let longitude: number | null = null
       let precisao: number | null = null
@@ -108,6 +109,14 @@ export class CheckinService {
             alocacao.hospital_lat,
             alocacao.hospital_lon,
           )
+          // longe do hospital nao deixa registrar, assim a localizacao vale de verdade
+          if (distancia > DISTANCIA_MAXIMA_METROS) {
+            const acao =
+              dados.tipo_evento === 'ENTRADA' ? 'check-in' : 'check-out'
+            throw new ConflictException(
+              `Você está a ${Math.round(distancia)} m do hospital. O ${acao} só pode ser feito a até ${DISTANCIA_MAXIMA_METROS} m.`,
+            )
+          }
         }
       }
 
