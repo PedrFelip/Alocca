@@ -60,11 +60,20 @@ describe('UC10 — Publicação de plantões pelo gestor', () => {
     const medicoUsuarioId = await criarUsuario('medico@example.com', 'MEDICO')
     gestorUsuarioId = await criarUsuario('gestor@example.com', 'GESTOR')
     // GESTOR sem linha na tabela `gestores` (perfil incompleto).
-    const gestorSemPerfilId = await criarUsuario('gestor-vazio@example.com', 'GESTOR')
+    const gestorSemPerfilId = await criarUsuario(
+      'gestor-vazio@example.com',
+      'GESTOR',
+    )
     // GESTOR com perfil marcado como inativo.
-    const gestorInativoId = await criarUsuario('gestor-inativo@example.com', 'GESTOR')
+    const gestorInativoId = await criarUsuario(
+      'gestor-inativo@example.com',
+      'GESTOR',
+    )
     const adminUsuarioId = await criarUsuario('admin@example.com', 'ADMIN')
-    const gestorAlheioId = await criarUsuario('gestor-alheio@example.com', 'GESTOR')
+    const gestorAlheioId = await criarUsuario(
+      'gestor-alheio@example.com',
+      'GESTOR',
+    )
 
     await database.query(
       'INSERT INTO gestores (usuario_id) VALUES ($1), ($2)',
@@ -87,11 +96,24 @@ describe('UC10 — Publicação de plantões pelo gestor', () => {
       return result.rows[0].id
     }
 
-    instituicaoAtiva = await criarInstituicao('Hospital Ativo', '11111111000111')
-    instituicaoInativa = await criarInstituicao('Hospital Fechado', '22222222000122', false)
-    instituicaoAlheia = await criarInstituicao('Hospital Alheio', '33333333000133')
+    instituicaoAtiva = await criarInstituicao(
+      'Hospital Ativo',
+      '11111111000111',
+    )
+    instituicaoInativa = await criarInstituicao(
+      'Hospital Fechado',
+      '22222222000122',
+      false,
+    )
+    instituicaoAlheia = await criarInstituicao(
+      'Hospital Alheio',
+      '33333333000133',
+    )
     // Instituição com soft-delete (deleted_at), vinculada ao gestor logado.
-    instituicaoExcluida = await criarInstituicao('Hospital Excluído', '44444444000144')
+    instituicaoExcluida = await criarInstituicao(
+      'Hospital Excluído',
+      '44444444000144',
+    )
     await database.query(
       'UPDATE instituicoes SET deleted_at = now() WHERE id = $1',
       [instituicaoExcluida],
@@ -111,35 +133,20 @@ describe('UC10 — Publicação de plantões pelo gestor', () => {
       `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade, especialidade,
         data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status)
        VALUES ($1, $2, 'Preenchido existente', 'UTI', 'Clínica Médica', $3, $4, '1000.00', 1, 0, 'PREENCHIDO')`,
-      [
-        instituicaoAtiva,
-        gestorUsuarioId,
-        timestamp(-1),
-        timestamp(-0.5),
-      ],
+      [instituicaoAtiva, gestorUsuarioId, timestamp(-1), timestamp(-0.5)],
     )
     await database.query(
       `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade, especialidade,
         data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status)
        VALUES ($1, $2, 'Do gestor alheio', 'UTI', 'Clínica Médica', $3, $4, '1000.00', 1, 1, 'ABERTO')`,
-      [
-        instituicaoAlheia,
-        gestorAlheioId,
-        timestamp(1),
-        timestamp(1.5),
-      ],
+      [instituicaoAlheia, gestorAlheioId, timestamp(1), timestamp(1.5)],
     )
     // Plantão com soft-delete na instituição ativa: não pode aparecer no gerenciados.
     await database.query(
       `INSERT INTO plantoes (instituicao_id, gestor_criador_id, titulo, local_unidade, especialidade,
         data_inicio, data_fim, valor, quantidade_vagas, vagas_disponiveis, status, deleted_at)
        VALUES ($1, $2, 'Plantão excluído', 'UTI', 'Clínica Médica', $3, $4, '1000.00', 1, 1, 'ABERTO', now())`,
-      [
-        instituicaoAtiva,
-        gestorUsuarioId,
-        timestamp(1),
-        timestamp(1.5),
-      ],
+      [instituicaoAtiva, gestorUsuarioId, timestamp(1), timestamp(1.5)],
     )
 
     const jwt = app.get(JwtService)
@@ -174,9 +181,119 @@ describe('UC10 — Publicação de plantões pelo gestor', () => {
     }
   }
 
+  async function medicoConvidavel() {
+    const { rows } = await database.query<{ id: string }>(
+      `INSERT INTO medicos (usuario_id, crm, uf_crm, especialidade, status_validacao)
+       SELECT id, '123456', 'DF', 'Clínica Médica', 'APROVADO' FROM usuarios
+       WHERE email = 'medico@example.com' RETURNING id`,
+    )
+    return rows[0].id
+  }
+
+  it('lista médicos aprovados para convite e exige vínculo institucional', async () => {
+    const medicoId = await medicoConvidavel()
+    const resposta = await request(app.getHttpServer())
+      .get(`/plantoes/medicos-convidaveis?instituicao_id=${instituicaoAtiva}`)
+      .set('Authorization', gestorToken)
+      .expect(200)
+    expect(resposta.body).toEqual([
+      expect.objectContaining({ id: medicoId, crm: '123456' }),
+    ])
+    expect(resposta.body[0]).not.toHaveProperty('email')
+    await request(app.getHttpServer())
+      .get(`/plantoes/medicos-convidaveis?instituicao_id=${instituicaoAlheia}`)
+      .set('Authorization', gestorToken)
+      .expect(403)
+    await request(app.getHttpServer())
+      .get(`/plantoes/medicos-convidaveis?instituicao_id=${instituicaoAtiva}`)
+      .set('Authorization', medicoToken)
+      .expect(403)
+  })
+
+  it('aceita o convite pela notificação e persiste o status da candidatura sem alocar', async () => {
+    const medicoId = await medicoConvidavel()
+    const publicada = await criarPlantao({
+      ...corpoValido(),
+      medicos_convidados: [medicoId],
+    }).expect(201)
+    const plantaoId = publicada.body.plantao.id
+    const antes = await request(app.getHttpServer())
+      .get('/notificacoes')
+      .set('Authorization', medicoToken)
+      .expect(200)
+    expect(antes.body.dados[0]).toMatchObject({
+      tipo: 'CONVITE_PLANTAO',
+      plantao_id: plantaoId,
+      candidatura_status: null,
+    })
+    await request(app.getHttpServer())
+      .post(`/plantoes/${plantaoId}/candidaturas`)
+      .set('Authorization', medicoToken)
+      .send({})
+      .expect(201)
+    const depois = await request(app.getHttpServer())
+      .get('/notificacoes')
+      .set('Authorization', medicoToken)
+      .expect(200)
+    expect(depois.body.dados[0].candidatura_status).toBe('PENDENTE')
+    await request(app.getHttpServer())
+      .post(`/plantoes/${plantaoId}/candidaturas`)
+      .set('Authorization', medicoToken)
+      .send({})
+      .expect(409)
+    expect(
+      (await database.query('SELECT id FROM candidaturas')).rows,
+    ).toHaveLength(1)
+    expect(
+      (await database.query('SELECT id FROM alocacoes')).rows,
+    ).toHaveLength(0)
+  })
+
+  it('publica e notifica cada convidado uma vez sem alocar nem reservar vagas', async () => {
+    const medicoId = await medicoConvidavel()
+    const resposta = await criarPlantao({
+      ...corpoValido(),
+      medicos_convidados: [medicoId, medicoId],
+    }).expect(201)
+    const notificacoes = await database.query<{
+      tipo: string
+      plantao_id: string
+    }>('SELECT tipo, plantao_id FROM notificacoes')
+    expect(notificacoes.rows).toEqual([
+      { tipo: 'CONVITE_PLANTAO', plantao_id: resposta.body.plantao.id },
+    ])
+    expect(resposta.body.plantao.vagas_disponiveis).toBe(
+      resposta.body.plantao.quantidade_vagas,
+    )
+    const alocacoes = await database.query('SELECT id FROM alocacoes')
+    expect(alocacoes.rows).toHaveLength(0)
+    const candidaturas = await database.query('SELECT id FROM candidaturas')
+    expect(candidaturas.rows).toHaveLength(0)
+  })
+
+  it('não publica nem envia convites quando um médico não está mais aprovado', async () => {
+    const medicoId = await medicoConvidavel()
+    await database.query(
+      "UPDATE medicos SET status_validacao = 'PENDENTE' WHERE id = $1",
+      [medicoId],
+    )
+    const antes = await database.query('SELECT id FROM plantoes')
+    await criarPlantao({
+      ...corpoValido(),
+      medicos_convidados: [medicoId],
+    }).expect(400)
+    const depois = await database.query('SELECT id FROM plantoes')
+    expect(depois.rows).toHaveLength(antes.rows.length)
+    expect(
+      (await database.query('SELECT id FROM notificacoes')).rows,
+    ).toHaveLength(0)
+  })
+
   describe('GET /instituicoes/vinculadas', () => {
     it('exige autenticação e papel de gestor', async () => {
-      await request(app.getHttpServer()).get('/instituicoes/vinculadas').expect(401)
+      await request(app.getHttpServer())
+        .get('/instituicoes/vinculadas')
+        .expect(401)
       for (const token of [medicoToken, adminToken]) {
         await request(app.getHttpServer())
           .get('/instituicoes/vinculadas')
@@ -210,7 +327,10 @@ describe('UC10 — Publicação de plantões pelo gestor', () => {
 
   describe('POST /plantoes', () => {
     it('exige autenticação e papel de gestor', async () => {
-      await request(app.getHttpServer()).post('/plantoes').send(corpoValido()).expect(401)
+      await request(app.getHttpServer())
+        .post('/plantoes')
+        .send(corpoValido())
+        .expect(401)
       for (const token of [medicoToken, adminToken]) {
         await request(app.getHttpServer())
           .post('/plantoes')
@@ -308,13 +428,18 @@ describe('UC10 — Publicação de plantões pelo gestor', () => {
       for (const campo of ['data_inicio', 'data_fim']) {
         await criarPlantao({ ...corpoValido(), [campo]: null }).expect(400)
         await criarPlantao({ ...corpoValido(), [campo]: '' }).expect(400)
-        await criarPlantao({ ...corpoValido(), [campo]: 'não é uma data' }).expect(400)
+        await criarPlantao({
+          ...corpoValido(),
+          [campo]: 'não é uma data',
+        }).expect(400)
       }
     })
 
     it('rejeita quantidade de vagas menor que 1 (RN20)', async () => {
       await criarPlantao({ ...corpoValido(), quantidade_vagas: 0 }).expect(400)
-      await criarPlantao({ ...corpoValido(), quantidade_vagas: 1.5 }).expect(400)
+      await criarPlantao({ ...corpoValido(), quantidade_vagas: 1.5 }).expect(
+        400,
+      )
     })
 
     it('rejeita valor negativo, zero ou com mais de 2 casas decimais', async () => {
@@ -350,7 +475,9 @@ describe('UC10 — Publicação de plantões pelo gestor', () => {
 
   describe('GET /plantoes/gerenciados', () => {
     it('exige autenticação e papel de gestor', async () => {
-      await request(app.getHttpServer()).get('/plantoes/gerenciados').expect(401)
+      await request(app.getHttpServer())
+        .get('/plantoes/gerenciados')
+        .expect(401)
       for (const token of [medicoToken, adminToken]) {
         await request(app.getHttpServer())
           .get('/plantoes/gerenciados')

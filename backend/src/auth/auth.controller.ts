@@ -18,6 +18,8 @@ import {
   alterarSenhaSchema,
   type AlterarSenha,
   loginSchema,
+  loginMobileSchema,
+  type LoginMobile,
   recuperarSenhaSchema,
   redefinirSenhaSchema,
   type Login,
@@ -62,6 +64,13 @@ export class AuthController {
   @HttpCode(200)
   loginMedico(@Body(new ZodValidationPipe(loginSchema)) data: Login) {
     return this.mobile.login(data, 'MEDICO')
+  }
+  @Post('login/mobile')
+  @HttpCode(200)
+  loginMobile(
+    @Body(new ZodValidationPipe(loginMobileSchema)) data: LoginMobile,
+  ) {
+    return this.mobile.login(data)
   }
   @Post('login/gestor')
   @HttpCode(200)

@@ -4,12 +4,15 @@ set -Eeuo pipefail
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 usage() {
   cat <<'HELP'
-Uso: ./scripts/dev-android.sh [--ip IP_DA_MAQUINA] [--device SERIAL] [--port PORTA] [--usb]
+Uso: ./scripts/dev-android.sh [--ip IP_DA_MAQUINA] [--device SERIAL] [--port PORTA] [--usb|--lan]
 
-Inicia PostgreSQL, SeaweedFS e API; compila, instala e abre o Android via ADB.
+Inicia PostgreSQL, SeaweedFS e API; renova o seed e abre o Android via ADB.
+Os dados demo são recriados com datas atuais; alterações neles serão removidas.
+E-mails e PINs ficam na caixa local: http://127.0.0.1:8025 (não são enviados).
 Conecte o celular por USB (depuração USB autorizada) ou previamente via adb connect.
-Use --usb para conectar o app pelo ADB sem depender da rede local.
-Sem --usb, celular e computador precisam estar na mesma rede. Ctrl+C encerra a API;
+Por padrão, conecta o app pelo ADB sem depender da rede local.
+Use --lan ou --ip para acessar pela rede local (mesma rede e firewall liberado).
+--usb força o túnel ADB, inclusive com ALOCCA_LAN_IP definido. Ctrl+C encerra a API;
 os containers e seus dados permanecem disponíveis.
 HELP
 }
@@ -17,16 +20,18 @@ fail() { echo "Erro: $*" >&2; exit 1; }
 LAN_IP=${ALOCCA_LAN_IP:-}
 SERIAL=${ANDROID_SERIAL:-}
 PORT=${ALOCCA_PORT:-3000}
-USB=false
+USB=true
+[[ -z $LAN_IP ]] || USB=false
 while (($#)); do
   case "$1" in
     --ip|--device|--port)
       (($# >= 2)) || fail "Falta valor para $1"
       case "$1" in
-        --ip) LAN_IP=$2 ;; --device) SERIAL=$2 ;; --port) PORT=$2 ;;
+        --ip) LAN_IP=$2; USB=false ;; --device) SERIAL=$2 ;; --port) PORT=$2 ;;
       esac
       shift 2 ;;
     --usb) USB=true; shift ;;
+    --lan) USB=false; shift ;;
     -h|--help) usage; exit 0 ;;
     *) fail "Opção desconhecida: $1" ;;
   esac
@@ -70,21 +75,35 @@ if [[ -z $SERIAL ]]; then
   SERIAL=${DEVICES[0]}
 fi
 [[ $(adb -s "$SERIAL" get-state) == device ]] || fail "Dispositivo $SERIAL indisponível."
-if [[ -z $LAN_IP ]]; then
+if [[ $USB == false && -z $LAN_IP ]]; then
   command -v ip >/dev/null || fail 'Informe o IP local com --ip.'
   LAN_IP=$(ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src") {print $(i+1); exit}}')
 fi
-[[ -n $LAN_IP ]] || fail 'Não foi possível detectar o IP. Use --ip IP_DA_MAQUINA.'
+[[ $USB == true || -n $LAN_IP ]] || fail 'Não foi possível detectar o IP. Use --ip IP_DA_MAQUINA.'
 python3 - "$LAN_IP" "$PORT" <<'PY'
-import ipaddress, socket, sys
-ipaddress.IPv4Address(sys.argv[1])
-with socket.socket() as sock:
-    sock.bind(('0.0.0.0', int(sys.argv[2])))
+import errno, ipaddress, socket, sys
+try:
+    if sys.argv[1]:
+        ipaddress.IPv4Address(sys.argv[1])
+    with socket.socket() as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('0.0.0.0', int(sys.argv[2])))
+except ValueError:
+    sys.exit('Erro: IP inválido. Use --ip IP_DA_MAQUINA.')
+except OSError as error:
+    if error.errno == errno.EADDRINUSE:
+        sys.exit(
+            f'Erro: a porta {sys.argv[2]} está em uso. Encerre a API anterior com Ctrl+C '
+            f'ou execute ./scripts/dev-android.sh --usb --port {int(sys.argv[2]) + 1 if int(sys.argv[2]) < 65535 else 3000}. '
+            f"Para identificar o processo: ss -ltnp 'sport = :{sys.argv[2]}'."
+        )
+    sys.exit(f'Erro: não foi possível abrir a porta {sys.argv[2]}: {error}')
 PY
-API_URL="http://$LAN_IP:$PORT/"
+API_URL="http://127.0.0.1:$PORT/"
 if [[ $USB == true ]]; then
   adb -s "$SERIAL" reverse "tcp:$PORT" "tcp:$PORT"
-  API_URL="http://127.0.0.1:$PORT/"
+else
+  API_URL="http://$LAN_IP:$PORT/"
 fi
 cd "$ROOT"
 # Não carrega .env como shell: preserva configurações e gera segredos locais.
@@ -105,8 +124,9 @@ for key in ('JWT_SECRET', 'ADMIN_PASSWORD'):
 path.write_text(content)
 path.chmod(0o600)
 PY
-"${DOCKER[@]}" compose up -d --wait db seaweedfs
-(cd backend && bun install --frozen-lockfile && bun run migrate)
+"${DOCKER[@]}" compose up -d --wait db seaweedfs mailpit
+echo 'Preparando o banco e recriando os dados demo com datas atuais...'
+(cd backend && bun install --frozen-lockfile && bun run migrate && bun run seed --reset-demo)
 API_PID=
 cleanup() {
   if [[ -n $API_PID ]]; then
@@ -117,7 +137,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-(cd backend && exec setsid env HOST=0.0.0.0 PORT="$PORT" bun run dev) &
+(cd backend && exec setsid env HOST=0.0.0.0 PORT="$PORT" SMTP_HOST=127.0.0.1 SMTP_PORT=1025 SMTP_USER= SMTP_PASS= SMTP_FROM=nao-responda@alocca.local bun run dev) &
 API_PID=$!
 ready=false
 for ((attempt=0; attempt<120; attempt++)); do
@@ -129,10 +149,16 @@ for ((attempt=0; attempt<120; attempt++)); do
   sleep 1
 done
 [[ $ready == true ]] || fail 'A API não ficou pronta em 120 tentativas.'
-echo "API na rede: http://$LAN_IP:$PORT/ (permita TCP $PORT no firewall da rede local)."
+if [[ $USB == true ]]; then
+  echo "Conexão pelo túnel ADB ($SERIAL); mantenha o dispositivo conectado."
+else
+  echo "API na rede: http://$LAN_IP:$PORT/ (permita TCP $PORT no firewall da rede local)."
+fi
 echo "URL usada pelo app: $API_URL"
+echo 'E-mails de desenvolvimento (PIN de login): http://127.0.0.1:8025'
 (cd frontend && ./gradlew --console=plain assembleDebug "-PAloccaApiBaseUrl=$API_URL")
 adb -s "$SERIAL" install -r "$ROOT/frontend/app/build/outputs/apk/debug/app-debug.apk"
+adb -s "$SERIAL" shell am force-stop br.com.alocca.plantoes
 adb -s "$SERIAL" shell am start -n br.com.alocca.plantoes/.MainActivity
 echo 'App aberto. Mantenha este terminal ativo; Ctrl+C encerra a API.'
 wait "$API_PID"

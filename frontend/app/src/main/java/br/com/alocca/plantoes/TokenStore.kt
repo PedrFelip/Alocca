@@ -51,7 +51,17 @@ internal object TokenStore {
         saveValue(context, token)
     }
 
-    private fun saveValue(context: Context, token: String) {
+    @Synchronized
+    fun deviceToken(context: Context): String {
+        val prefsName = "alocca_trusted_device"
+        readValue(context, prefsName)?.let { return it }
+        val bytes = ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+        val token = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
+        saveValue(context, token, prefsName)
+        return token
+    }
+
+    private fun saveValue(context: Context, token: String, prefsName: String = PREFS_NAME) {
         require(token.isNotBlank()) { "Token must not be blank" }
 
         // Remove tokens written by the previous plaintext implementation. Never read them.
@@ -60,7 +70,7 @@ internal object TokenStore {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
         val ciphertext = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
         val saved = prefs.edit()
             .putString(IV_KEY, Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
             .putString(CIPHERTEXT_KEY, Base64.encodeToString(ciphertext, Base64.NO_WRAP))
@@ -100,8 +110,8 @@ internal object TokenStore {
         return if (value.startsWith("{")) runCatching { org.json.JSONObject(value).getString("access") }.getOrNull() else value
     }
 
-    private fun readValue(context: Context): String? {
-        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private fun readValue(context: Context, prefsName: String = PREFS_NAME): String? {
+        val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
         val ivText = prefs.getString(IV_KEY, null)
         val ciphertextText = prefs.getString(CIPHERTEXT_KEY, null)
         if (ivText == null && ciphertextText == null) return null

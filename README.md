@@ -70,13 +70,13 @@ Alocca/
 
 ### Iniciar backend e app no celular com um comando
 
-Com **Bun**, **Docker Compose**, **Python 3**, **curl**, **ADB**, **Android SDK 37** e **JDK 25** instalados, conecte o celular com depuração USB ativada e autorize o computador. Deixe celular e computador na mesma rede e execute:
+Com **Bun**, **Docker Compose**, **Python 3**, **curl**, **ADB**, **Android SDK 37** e **JDK 25** instalados, conecte o celular com depuração USB ativada e autorize o computador. Execute:
 
 ```sh
 ./scripts/dev-android.sh
 ```
 
-O script inicia PostgreSQL e SeaweedFS, instala as dependências do backend, aplica as migrações, expõe a API em `0.0.0.0:3000` e compila, instala e abre o app com o IP local detectado. Cria `backend/.env` quando necessário e gera um JWT e uma senha administrativa se estiverem vazios ou com a senha de exemplo; consulte a senha em `backend/.env`. O banco e o armazenamento continuam acessíveis apenas pela máquina.
+O script inicia PostgreSQL e SeaweedFS, instala as dependências do backend, aplica as migrações, expõe a API em `0.0.0.0:3000` e compila, instala e abre o app usando `adb reverse` e `http://127.0.0.1:3000/`. O túnel evita bloqueios de firewall ou isolamento da rede Wi-Fi. Cria `backend/.env` quando necessário e gera um JWT e uma senha administrativa se estiverem vazios ou com a senha de exemplo; consulte a senha em `backend/.env`. O banco e o armazenamento continuam acessíveis apenas pela máquina.
 
 Para escolher o IP da interface de rede, o celular ou a porta:
 
@@ -84,11 +84,19 @@ Para escolher o IP da interface de rede, o celular ou a porta:
 ./scripts/dev-android.sh --ip 192.168.1.100 --device SERIAL_DO_ADB --port 3000
 ```
 
-Se o acesso pela rede falhar, use `./scripts/dev-android.sh --usb` para encaminhar a conexão do app pelo ADB. O backend continua exposto na rede; mantenha o celular conectado.
+Para usar a rede local com IP detectado automaticamente, execute `./scripts/dev-android.sh --lan`. `--ip` ou `ALOCCA_LAN_IP` também selecionam a rede local. Se o acesso pela rede falhar, use `./scripts/dev-android.sh --usb` para forçar o túnel ADB. O backend continua exposto na rede; mantenha o celular conectado.
 
-Use `adb devices` para consultar o serial. Também funciona com um celular já conectado por ADB sem fio. Libere a porta TCP escolhida no firewall da rede local. Mantenha o terminal aberto; `Ctrl+C` encerra a API e mantém os containers e dados. O script não executa o seed nem inicia o painel administrativo.
+O script executa `bun run seed --reset-demo` após as migrações em toda inicialização. Recria o médico e os plantões demo com datas relativas ao momento da execução: plantão em andamento, futuros e histórico recente. **Alterações feitas nos dados demo e seus registros relacionados são removidas nessa renovação.** Login do médico: `medico.demo@alocca.local` / `SenhaSegura123`.
+
+O login solicita um PIN por e-mail. O script inicia o Mailpit e configura a API para usar seu SMTP local, substituindo as configurações SMTP somente nesse processo. Abra **http://127.0.0.1:8025** no computador para ler o código enviado ao médico ou gestor demo. Os e-mails são capturados localmente, não enviados para a internet; a verificação do PIN continua obrigatória.
+
+Use `adb devices` para consultar o serial. Também funciona com um celular já conectado por ADB sem fio. Libere a porta TCP escolhida no firewall da rede local. Mantenha o terminal aberto; `Ctrl+C` encerra a API e mantém os containers e dados. O script não inicia o painel administrativo.
 
 ### 1. Prepare o ambiente
+
+Nas notificações do médico, **Aceitar convite** envia a candidatura diretamente, sem precisar buscar o plantão. A vaga ainda depende de aprovação do gestor. Após o envio, a notificação passa a exibir o status da candidatura, inclusive ao reabrir o app; indisponibilidade, conflito de horário ou perfil não aprovado são informados sem confirmar a vaga.
+
+No formulário **Publicar plantão**, selecione a instituição e toque em **Convidar médicos**. Busque por nome, CRM ou especialidade, marque até 100 profissionais aprovados e confirme a seleção. Ao publicar, o plantão e os convites são salvos juntos. O convite aparece nas notificações do médico e não reserva vaga nem cria candidatura ou alocação: o profissional ainda deve se candidatar, e o gestor aprovar. E-mail adicional depende das preferências do destinatário e de `NOTIFICACOES_EMAIL_HABILITADO=true`.
 
 Tenha **Bun**, **Docker com Compose** e, para o aplicativo, **Android Studio, Android SDK 37 e JDK 25**. Execute os comandos abaixo a partir da raiz do repositório, salvo indicação contrária.
 

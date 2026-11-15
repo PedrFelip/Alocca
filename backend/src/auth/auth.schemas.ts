@@ -7,6 +7,13 @@ export const loginSchema = z.strictObject({
 })
 
 export type Login = z.infer<typeof loginSchema>
+export const loginMobileSchema = loginSchema.extend({
+  dispositivo_token: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+})
+export type LoginMobile = z.infer<typeof loginMobileSchema>
 
 // UC04
 export const recuperarSenhaSchema = z.strictObject({ email: emailSchema })

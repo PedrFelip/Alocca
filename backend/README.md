@@ -50,7 +50,7 @@ bun run dev
 ```
 
 O seed cria um gestor, três hospitais e um médico
-demo aprovado. Credenciais: gestor `gestor.seed@alocca.local` / `senha-segura-123`
+demo aprovado. Credenciais: gestor `gestor.demo@alocca.local` / `SenhaSegura123`
 e médico `medico.demo@alocca.local` / `SenhaSegura123`.
 O médico já tem plantões passados (com ponto e pagamento), um plantão em andamento
 com check-in liberado, plantões futuros confirmados e candidaturas pendente e
@@ -78,6 +78,10 @@ Os módulos da aplicação usam `src/db/schemas/index.ts`. Os schemas Zod de
 entrada HTTP permanecem nos módulos de auth e usuários.
 
 ## Autenticação e usuários
+
+O app usa `POST /auth/login/mobile` com `email`, `senha` e um `dispositivo_token` aleatório, tanto para médicos quanto para gestores. No primeiro acesso de cada conta no aparelho, retorna um desafio de PIN. Somente após validar esse PIN o servidor registra o hash do segredo como dispositivo confiável. Nos próximos logins, senha correta e prova do dispositivo permitem receber a sessão diretamente (`requer_2fa=false`). Sem a prova, o PIN continua obrigatório. Após autenticar, o app abre a área correspondente ao perfil retornado. As rotas mobile anteriores continuam disponíveis por compatibilidade; o login administrativo não muda.
+
+O segredo do dispositivo é criptografado com Android Keystore e mantido ao sair da conta, sem IMEI ou identificadores de hardware. Reinstalar, limpar dados, perder a chave ou trocar/redefinir a senha exige novo PIN. A confiança é por conta: validar uma não libera outras contas no mesmo aparelho. O seed `--reset-demo` também remove a confiança do médico demo ao recriar essa conta.
 
 - `POST /auth/register/medico`: cria usuário `MEDICO`/`ATIVO` e perfil médico na
   mesma transação. E-mail e CRM/UF são únicos, inclusive para registros excluídos.

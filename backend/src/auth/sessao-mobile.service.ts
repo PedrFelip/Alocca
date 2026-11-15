@@ -27,11 +27,12 @@ import {
   sessoesMobileTable as sessoes,
   refreshMobileTable as refresh,
   usuariosTable as usuarios,
+  dispositivosConfiaveisTable as dispositivos,
 } from '../db/schemas/index.ts'
 import { EmailService } from '../email/email.service.ts'
 import { UsuariosService } from '../usuarios/usuarios.service.ts'
 import { AuthService } from './auth.service.ts'
-import type { Login } from './auth.schemas.ts'
+import type { LoginMobile } from './auth.schemas.ts'
 
 const token = () => randomBytes(32).toString('base64url')
 const hash = (value: string) => createHash('sha256').update(value).digest('hex')
@@ -103,9 +104,25 @@ export class SessaoMobileService implements OnModuleInit, OnModuleDestroy {
     )
     return createHmac('sha256', chave).update(`pin:${id}:${pin}`).digest('hex')
   }
-  async login(data: Login, tipo: 'MEDICO' | 'GESTOR') {
+  async login(
+    data: LoginMobile,
+    tipo: 'MEDICO' | 'GESTOR',
+  ): Promise<{ challenge_token: string; requer_2fa: true; expires_in: number }>
+  async login(
+    data: LoginMobile,
+  ): Promise<
+    | { challenge_token: string; requer_2fa: true; expires_in: number }
+    | (Awaited<ReturnType<SessaoMobileService['validar']>> & {
+        requer_2fa: false
+      })
+  >
+  async login(data: LoginMobile, tipo?: 'MEDICO' | 'GESTOR') {
     const usuario = await this.auth.autenticar(data)
-    if (usuario.tipo !== tipo) throw invalido()
+    if (
+      (usuario.tipo !== 'MEDICO' && usuario.tipo !== 'GESTOR') ||
+      (tipo !== undefined && usuario.tipo !== tipo)
+    )
+      throw invalido()
     const raw = token()
     const criado = await this.db.transaction(async (tx) => {
       const [u] = await tx
@@ -119,16 +136,56 @@ export class SessaoMobileService implements OnModuleInit, OnModuleDestroy {
         u.deleted_at ||
         u.versao_sessao !== usuario.versao_sessao
       )
-        return false
+        return null
+      const dispositivoHash =
+        !tipo && data.dispositivo_token ? hash(data.dispositivo_token) : null
+      if (dispositivoHash) {
+        const [confiavel] = await tx
+          .select({ id: dispositivos.id })
+          .from(dispositivos)
+          .where(
+            and(
+              eq(dispositivos.usuario_id, u.id),
+              eq(dispositivos.token_hash, dispositivoHash),
+              eq(dispositivos.versao_sessao, u.versao_sessao),
+            ),
+          )
+          .limit(1)
+        if (confiavel) {
+          const expires = new Date(Date.now() + 30 * 86400000)
+          const [sessao] = await tx
+            .insert(sessoes)
+            .values({ usuario_id: u.id, expires_at: expires })
+            .returning()
+          const next = token()
+          await tx
+            .insert(refresh)
+            .values({ sessao_id: sessao.id, token_hash: hash(next) })
+          return { challenge: false as const, u, sessao, next }
+        }
+      }
       await tx.insert(desafios).values({
         usuario_id: u.id,
         token_hash: hash(raw),
+        dispositivo_hash: dispositivoHash,
         expires_at: new Date(Date.now() + 300000),
       })
-      return true
+      return { challenge: true as const }
     })
     if (!criado) throw invalido()
-    return { challenge_token: raw, requer_2fa: true, expires_in: 300 }
+    if (!criado.challenge)
+      return {
+        ...(await this.par(
+          criado.u.id,
+          criado.u.versao_sessao,
+          criado.sessao.id,
+          criado.sessao.expires_at,
+          criado.next,
+          true,
+        )),
+        requer_2fa: false as const,
+      }
+    return { challenge_token: raw, requer_2fa: true as const, expires_in: 300 }
   }
   async solicitar(raw: string) {
     if (!this.config.get('SMTP_HOST', { infer: true }))
@@ -273,6 +330,21 @@ export class SessaoMobileService implements OnModuleInit, OnModuleDestroy {
         .set({ used_at: new Date(), pin_hash: null })
         .where(eq(desafios.id, d.id))
       const expires = new Date(Date.now() + 30 * 86400000)
+      if (d.dispositivo_hash) {
+        await tx
+          .delete(dispositivos)
+          .where(
+            and(
+              eq(dispositivos.usuario_id, u.id),
+              eq(dispositivos.token_hash, d.dispositivo_hash),
+            ),
+          )
+        await tx.insert(dispositivos).values({
+          usuario_id: u.id,
+          token_hash: d.dispositivo_hash,
+          versao_sessao: u.versao_sessao,
+        })
+      }
       const [s] = await tx
         .insert(sessoes)
         .values({ usuario_id: u.id, expires_at: expires })

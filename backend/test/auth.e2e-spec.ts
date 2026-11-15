@@ -389,6 +389,93 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
     expect(status).toBe(429)
   })
 
+  it.each(['MEDICO', 'GESTOR', 'ADMIN'])(
+    'login mobile unificado identifica %s sem receber tipo',
+    async (tipo) => {
+      const senha = 'Senha-Mobile-123'
+      const senhaHash = await app.get(PasswordService).hash(senha)
+      await database.query(
+        'INSERT INTO usuarios (nome, email, senha_hash, tipo) VALUES ($1, $2, $3, $4)',
+        [tipo, `unificado-${tipo.toLowerCase()}@example.com`, senhaHash, tipo],
+      )
+      const resposta = await request(app.getHttpServer())
+        .post('/auth/login/mobile')
+        .send({ email: `unificado-${tipo.toLowerCase()}@example.com`, senha })
+        .expect(tipo === 'ADMIN' ? 401 : 200)
+      expect(resposta.body.access_token).toBeUndefined()
+      expect(resposta.body.refresh_token).toBeUndefined()
+      if (tipo !== 'ADMIN') {
+        expect(resposta.body.challenge_token).toEqual(expect.any(String))
+        expect(resposta.body.requer_2fa).toBe(true)
+      }
+    },
+  )
+
+  it('confia no dispositivo somente após PIN e mantém senha, isolamento e revogação', async () => {
+    const senha = 'Senha-Dispositivo-123'
+    const senhaHash = await app.get(PasswordService).hash(senha)
+    await database.query(
+      "INSERT INTO usuarios (nome, email, senha_hash, tipo) VALUES ('Dispositivo', 'dispositivo@example.com', $1, 'GESTOR'), ('Outra', 'outra-conta@example.com', $1, 'MEDICO')",
+      [senhaHash],
+    )
+    app.get(ConfigService).set('SMTP_HOST', 'smtp.test')
+    const enviar = vi.spyOn(app.get(EmailService), 'enviar').mockResolvedValue()
+    const credenciais = {
+      email: 'dispositivo@example.com',
+      senha,
+      dispositivo_token: 'a'.repeat(64),
+    }
+    const login = (dados = credenciais) =>
+      app.get(SessaoMobileService).login(dados)
+    const primeiro = await login()
+    expect(primeiro.requer_2fa).toBe(true)
+    if (!primeiro.requer_2fa) throw new Error('Primeiro acesso deve exigir PIN')
+    expect(primeiro).not.toHaveProperty('access_token')
+    expect((await login()).requer_2fa).toBe(true)
+    await request(app.getHttpServer())
+      .post('/auth/2fa/solicitar-pin')
+      .send({ challenge_token: primeiro.challenge_token })
+      .expect(200)
+    const pin = enviar.mock.calls.at(-1)![0].texto.match(/\b\d{6}\b/)![0]
+    await request(app.getHttpServer())
+      .post('/auth/2fa/validar-pin')
+      .send({ challenge_token: primeiro.challenge_token, pin_code: pin })
+      .expect(200)
+    const segundo = await login()
+    expect(segundo.requer_2fa).toBe(false)
+    if (segundo.requer_2fa) throw new Error('Dispositivo não foi reconhecido')
+    expect(segundo.usuario?.tipo).toBe('GESTOR')
+    expect(segundo.access_token).toEqual(expect.any(String))
+    expect(segundo.refresh_token).toEqual(expect.any(String))
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .send({ refresh_token: segundo.refresh_token })
+      .expect(200)
+    expect((await login()).requer_2fa).toBe(false)
+    expect(
+      (await login({ ...credenciais, dispositivo_token: 'b'.repeat(64) }))
+        .requer_2fa,
+    ).toBe(true)
+    expect(
+      (await login({ ...credenciais, email: 'outra-conta@example.com' }))
+        .requer_2fa,
+    ).toBe(true)
+    await expect(
+      login({ ...credenciais, senha: 'incorreta' }),
+    ).rejects.toMatchObject({ status: 401 })
+    await database.query(
+      "UPDATE usuarios SET versao_sessao = versao_sessao + 1 WHERE email = 'dispositivo@example.com'",
+    )
+    expect((await login()).requer_2fa).toBe(true)
+    const confiaveis = await database.query<{ token_hash: string }>(
+      'SELECT token_hash FROM dispositivos_confiaveis',
+    )
+    expect(confiaveis.rows[0].token_hash).not.toBe(
+      credenciais.dispositivo_token,
+    )
+    enviar.mockRestore()
+  })
+
   it('emite sessão após PIN, revoga replay e logout imediatamente', async () => {
     const senha = 'Senha-Mobile-123'
     const senhaHash = await app.get(PasswordService).hash(senha)
@@ -401,7 +488,7 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
     const enviar = vi.spyOn(app.get(EmailService), 'enviar').mockResolvedValue()
     const loginMobile = async () => {
       const login = await request(app.getHttpServer())
-        .post('/auth/login/medico')
+        .post('/auth/login/mobile')
         .send({ email: 'mobile@example.com', senha })
         .expect(200)
       expect(login.body.access_token).toBeUndefined()

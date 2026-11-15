@@ -107,6 +107,8 @@ internal fun PublishShiftScreen(
     // Instituições vinculadas (UC10): base do campo de autoria institucional.
     var instituicoes by remember { mutableStateOf<List<InstituicaoVinculada>>(emptyList()) }
     var instituicaoSelecionada by remember { mutableStateOf<InstituicaoVinculada?>(null) }
+    var medicosConvidados by remember(instituicaoSelecionada?.id) { mutableStateOf(emptySet<String>()) }
+    var convitesAbertos by remember(instituicaoSelecionada?.id) { mutableStateOf(false) }
     var instituicoesErro by remember { mutableStateOf("") }
     var instituicoesCarregando by remember { mutableStateOf(token != null) }
     var tentativasInstituicoes by remember { mutableStateOf(0) }
@@ -235,17 +237,20 @@ internal fun PublishShiftScreen(
             put("data_fim", fimIso)
             put("valor", valorNumerico)
             put("quantidade_vagas", quantidade)
+            if (medicosConvidados.isNotEmpty()) put("medicos_convidados", org.json.JSONArray(medicosConvidados.toList()))
             if (note.isNotBlank()) put("descricao", note.trim())
         }
         validationMessage = ""
         publishing = true
+        val quantidadeConvites = medicosConvidados.size
         Thread {
             val resultado = runCatching { PlantoesApi.publicarPlantao(tokenAtual, payload) }
             Handler(Looper.getMainLooper()).post {
                 publishing = false
                 resultado.fold(
                     onSuccess = { mensagem ->
-                        successMessage = mensagem.ifBlank { "Plantão publicado com sucesso!" }
+                        successMessage = mensagem.ifBlank { "Plantão publicado com sucesso!" } +
+                            if (quantidadeConvites > 0) " Convites enviados: $quantidadeConvites." else ""
                         published = true
                     },
                     onFailure = { falha ->
@@ -293,7 +298,7 @@ internal fun PublishShiftScreen(
                         loading = instituicoesCarregando,
                         onSelect = { instituicaoSelecionada = it },
                     )
-                    CampoPlantaoTexto("Especialidade médica", specialty, { specialty = it }, "Digite a especialidade")
+                    SpecialtyPicker(value = specialty, onValueChange = { specialty = it })
                 }
                 SecaoPlantao(Icons.Default.CalendarMonth, "Quando e onde") {
                     DateTimePickerField("Data do plantão", date, { date = it })
@@ -388,19 +393,34 @@ internal fun PublishShiftScreen(
                         .clip(RoundedCornerShape(16.dp))
                         .background(Color.White)
                         .border(1.dp, PlantaoBorda, RoundedCornerShape(16.dp))
-                        .clickable(role = Role.Button) { onNavigate(InstitutionScreen.Doctors) }
+                        .clickable(enabled = !publishing && !published, role = Role.Button) {
+                            if (instituicaoSelecionada == null) {
+                                validationMessage = "Selecione a instituição antes de convidar médicos."
+                            } else {
+                                convitesAbertos = true
+                            }
+                        }
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconeSecao(Icons.Default.PersonAdd)
                     Spacer(Modifier.width(12.dp))
-                    Text("Convidar médicos", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text(if (medicosConvidados.isEmpty()) "Convidar médicos" else "Médicos selecionados: ${medicosConvidados.size}", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Muted)
                 }
                 Spacer(Modifier.height(8.dp))
             }
             ManagerBottomNavigation(InstitutionScreen.Shifts, onNavigate)
         }
+    }
+    if (convitesAbertos) instituicaoSelecionada?.let { instituicao ->
+        ConvitesPlantaoDialog(
+            token = token,
+            instituicaoId = instituicao.id,
+            selecionados = medicosConvidados,
+            onConfirm = { medicosConvidados = it; convitesAbertos = false },
+            onDismiss = { convitesAbertos = false },
+        )
     }
 }
 
