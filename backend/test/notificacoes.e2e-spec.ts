@@ -307,7 +307,10 @@ describe('notificações', () => {
     )
     const trabalho = app.get(NotificacoesWorker).processar()
     await comecou
-    await db.query('UPDATE usuarios SET nome=nome WHERE id=$1', [medico])
+    await db.query(
+      'UPDATE notificacoes SET lida_em=coalesce(lida_em, now()) WHERE id=$1',
+      [notificacao],
+    )
     liberar()
     await trabalho
     const row = (

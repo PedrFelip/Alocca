@@ -40,7 +40,7 @@ Marque `[x]` e mova para o spec quando decidir.
 - [x] **D7b — Semântica dos totais financeiros (confirmada pelo produto em 14/11/2026):** `total_recebido` = `PAGO`; `total_a_receber` = `PENDENTE` não vencido (`vencimento_em` nulo ou futuro); `total_pendente` = `PENDENTE` vencido. Confirmado pelo usuário: manter vencimento explícito; sem data fica em “A receber”. Não inferir prazo pelo fim do plantão. Igualdade ao instante atual ainda está no prazo.
 - [ ] **D8 — Validação de CNPJ (RN30):** "CNPJ válido e ativo + ramo de saúde" — como? API da Receita na hora do vínculo, validação só de formato + dígito, ou manual? Impacto: UC de vínculo de instituição (ainda sem endpoint no spec).
 - [ ] **D9 — Fluxo 2FA completo:** não implementado no contrato atual do app Android. Permanecem pendentes o formato/expiração do `challengeToken`, expiração do refresh token (RNF05) e quem envia o e-mail do PIN (provedor SMTP?). Não adicionar 2FA até definir e alinhar o contrato de UC02/UC03 com o app.
-- [ ] **D10 — Notificações da cascata (UC11), pendente de confirmação da equipe:** caixa de entrada sempre disponível e email SMTP opcional por ambiente e preferência, com worker, retry e entrega pelo menos uma vez. Push depende de infraestrutura ainda não definida. Contrato e operação em `contrato-notificacoes.md`; emails de segurança são independentes.
+- [x] **D10 — Notificações da cascata (UC11), aprovada em 15/11/2026:** caixa de entrada sempre disponível e email SMTP opcional por ambiente e preferência, com worker, retry e entrega pelo menos uma vez. Push depende de infraestrutura ainda não definida. Contrato e operação em `contrato-notificacoes.md`; emails de segurança são independentes.
 
 ## Infra
 
