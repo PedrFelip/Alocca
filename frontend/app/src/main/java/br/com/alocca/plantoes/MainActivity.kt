@@ -912,12 +912,14 @@ private fun ManagerBottomNavigation(active: InstitutionScreen, onNavigate: (Inst
     Row(modifier = Modifier.fillMaxWidth().height(65.dp).background(Color.White).border(1.dp, Color(0xFFE0E7ED)), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
         items.forEach { (label, icon, destination) ->
             val selected = active == destination
+            // o item do meio continua maior, mas so fica azul quando e a aba atual
+            // (antes ficava sempre azul e parecia que tinha duas abas marcadas)
             val centralItem = label == "Médicos"
             Column(modifier = Modifier.width(65.dp).clickable { onNavigate(destination) }, horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(modifier = Modifier.size(if (centralItem) 38.dp else if (selected) 37.dp else 29.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (centralItem || selected) Color(0xFF1475D1) else Color.Transparent), contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = if (centralItem || selected) Color.White else Color(0xFF152226), modifier = Modifier.size(if (centralItem) 23.dp else 21.dp))
+                Box(modifier = Modifier.size(if (centralItem) 38.dp else if (selected) 37.dp else 29.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (selected) Color(0xFF1475D1) else Color.Transparent), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = if (selected) Color.White else Color(0xFF152226), modifier = Modifier.size(if (centralItem) 23.dp else 21.dp))
                 }
-                Text(label, color = if (selected || centralItem) Color(0xFF1475D1) else Color(0xFF152226), fontSize = 8.sp, fontWeight = if (selected || centralItem) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
+                Text(label, color = if (selected) Color(0xFF1475D1) else Color(0xFF152226), fontSize = 8.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
             }
         }
     }
@@ -1470,12 +1472,12 @@ private fun PublishShiftScreen(
                         )
                     }
                     PublishFormField(Icons.Default.PersonOutline, Color(0xFFE1F4FB), "Especialidade médica") { PublishTextInput(specialty, { specialty = it }, "Digite a especialidade") }
-                    PublishFormField(Icons.Default.CalendarMonth, Color(0xFFE5F4FA), "Data do plantão") { DateTimePickerField("Data", date, { date = it }) }
+                    PublishFormField(Icons.Default.CalendarMonth, Color(0xFFE5F4FA), "Data do plantão") { DateTimePickerField("Data do plantão", date, { date = it }, mostrarRotulo = false) }
                     PublishFormField(Icons.Default.AccessTime, Color(0xFFE5F4FA), "Horário") {
                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                             Box(Modifier.weight(1f)) { DateTimePickerField("Início", hours, { hours = it }, time = true) }
                             Text("até", color = Navy, fontSize = 10.sp, modifier = Modifier.align(Alignment.CenterVertically))
-                            Box(Modifier.weight(1f)) { DateTimePickerField("Término", endTime, { endTime = it }, time = true) }
+                            Box(Modifier.weight(1f)) { DateTimePickerField("Fim", endTime, { endTime = it }, time = true) }
                         }
                     }
                     if (hours.isNotBlank() && endTime.isNotBlank() && endTime <= hours) {
