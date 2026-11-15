@@ -25,6 +25,13 @@ celular na rede local, habilite o acesso explicitamente com `HOST=0.0.0.0` e
 use o IP da máquina que executa o backend. Antes de expor a API à rede, troque
 as credenciais admin de exemplo do `.env.example`, configure um `JWT_SECRET`
 próprio e limite o acesso pelo firewall.
+`TRUST_PROXY` configura os IPs/sub-redes confiáveis do Express para que o throttle
+use o IP do cliente encaminhado pelo proxy. Por padrão fica vazio (desabilitado).
+Com Caddy/Nginx na mesma máquina, defina `TRUST_PROXY=loopback`; para proxies em
+outra rede, informe seus IPs/CIDRs separados por vírgula. Restrinja o acesso direto
+à API e configure o proxy para sobrescrever `X-Forwarded-For` com o IP do cliente.
+Confie somente nos endereços dos proxies que você controla.
+
 `ADMIN_WEB_ORIGIN` define a origem permitida pelo CORS para o painel Svelte
 (padrão: `http://localhost:5173`). Configure a origem exata do painel em produção.
 O app Android nativo não é limitado por CORS; mantenha esta origem restrita ao
