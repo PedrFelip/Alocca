@@ -16,8 +16,10 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -85,6 +87,9 @@ internal fun DateTimePickerField(
             trailingIcon = {
                 Icon(if (time) Icons.Default.AccessTime else Icons.Default.CalendarMonth, contentDescription = null)
             },
+            textStyle = CampoPlantaoTexto,
+            shape = CampoPlantaoShape,
+            colors = campoPlantaoColors(),
             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
             singleLine = true,
         )
@@ -113,18 +118,28 @@ internal fun InstitutionPicker(
             readOnly = true,
             enabled = enabled,
             label = { Text("Instituição") },
-            placeholder = { Text(when {
-                loading -> "Carregando instituições…"
-                options.isEmpty() -> "Nenhuma instituição vinculada"
-                else -> "Selecione a instituição"
-            }) },
+            placeholder = { Text("Selecione a instituição", fontSize = 15.sp) },
+            // O estado (carregando / sem vínculo) fica visível mesmo com o campo desabilitado.
+            supportingText = when {
+                loading -> ({ Text("Carregando instituições…") })
+                options.isEmpty() -> ({ Text("Nenhuma instituição vinculada") })
+                else -> null
+            },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded && enabled) },
-            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = enabled).fillMaxWidth(),
+            textStyle = CampoPlantaoTexto,
+            shape = CampoPlantaoShape,
+            colors = campoPlantaoColors(),
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = enabled).fillMaxWidth().heightIn(min = 56.dp),
             singleLine = true,
         )
-        ExposedDropdownMenu(expanded = expanded && enabled, onDismissRequest = { expanded = false }) {
+        ExposedDropdownMenu(
+            expanded = expanded && enabled,
+            onDismissRequest = { expanded = false },
+            shape = CampoPlantaoShape,
+            containerColor = Color.White,
+        ) {
             options.forEach { institution ->
-                DropdownMenuItem(text = { Text(institution.nomeFantasia ?: institution.nome) }, onClick = {
+                DropdownMenuItem(text = { Text(institution.nomeFantasia ?: institution.nome, color = Navy, fontSize = 16.sp) }, onClick = {
                     onSelect(institution)
                     expanded = false
                 })
