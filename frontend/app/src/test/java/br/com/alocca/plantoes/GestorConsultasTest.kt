@@ -26,3 +26,21 @@ class GestorConsultasTest {
         GestorConsultasApi.parseItem(JSONObject("""{"id":"r1","tipo_evento":"ENTRADA","timestamp_servidor":"invalido","com_localizacao":true,"medico":{"nome":"Ana"}}"""), true)
     }
 }
+
+class ConsultaFiltrosTest {
+    @Test fun `parametros sao codificados e paginados`() {
+        val filtros = ConsultaFiltros.parametros(FiltrosConsulta(q = " Ana & CRM ", uf = "sp", status = "ATIVO"), false)
+        assertEquals("gestor/medicos?limit=20&offset=20&q=Ana+%26+CRM&status=ATIVO&uf_crm=SP", GestorConsultasApi.caminho(false, 20, filtros))
+    }
+    @Test fun `periodo usa dias locais e offsets de cada limite`() {
+        val filtros = ConsultaFiltros.parametros(FiltrosConsulta(inicio = "2026-03-07", fim = "2026-03-08", evento = "SAIDA"), true, java.util.TimeZone.getTimeZone("America/New_York"))
+        assertEquals("2026-03-07T00:00:00-05:00", filtros["inicio"])
+        assertEquals("2026-03-09T00:00:00-04:00", filtros["fim"])
+        assertEquals("SAIDA", filtros["tipo_evento"])
+    }
+    @Test fun `datas invalidas e uuid invalido sao rejeitados`() {
+        listOf(FiltrosConsulta(inicio = "2026-02-30"), FiltrosConsulta(inicio = "2026-05-02", fim = "2026-05-01"), FiltrosConsulta(medico = "abc")).forEach {
+            assertThrows(IllegalArgumentException::class.java) { ConsultaFiltros.parametros(it, true) }
+        }
+    }
+}
