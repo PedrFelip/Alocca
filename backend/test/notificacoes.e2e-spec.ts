@@ -321,4 +321,43 @@ describe('notificações', () => {
     ).rows[0]
     expect(row).toEqual({ tentativas: 5, email_elegivel: false })
   })
+  it('não reabilita uma entrega desativada durante falha SMTP', async () => {
+    await db.query(
+      "UPDATE notificacoes SET status='PENDENTE', email_elegivel=true, tentativas=0, disponivel_em=now(), entrega_token=null, entrega_ate=null WHERE id=$1",
+      [notificacao],
+    )
+    let liberar!: () => void
+    let iniciou!: () => void
+    const inicio = new Promise<void>((resolve) => {
+      iniciou = resolve
+    })
+    enviar.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          liberar = () => reject(new Error('SMTP'))
+          iniciou()
+        }),
+    )
+    const trabalho = app.get(NotificacoesWorker).processar()
+    await inicio
+    await request(app.getHttpServer())
+      .put('/notificacoes/preferencias')
+      .set('Authorization', tokenMedico)
+      .send({ email_habilitado: false })
+      .expect(200)
+    liberar()
+    await trabalho
+    await request(app.getHttpServer())
+      .put('/notificacoes/preferencias')
+      .set('Authorization', tokenMedico)
+      .send({ email_habilitado: true })
+      .expect(200)
+    const row = (
+      await db.query<{ email_elegivel: boolean }>(
+        'SELECT email_elegivel FROM notificacoes WHERE id=$1',
+        [notificacao],
+      )
+    ).rows[0]
+    expect(row.email_elegivel).toBe(false)
+  })
 })
