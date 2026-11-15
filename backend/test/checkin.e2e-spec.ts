@@ -27,11 +27,12 @@ describe('Check-in e check-out (UC06)', () => {
   let alocacaoOutroMedico: string
   let alocacaoSemCoordenadas: string
 
+  // por padrao manda uma localizacao perto do hospital, o teste sobrescreve quando precisa
   function presenca(token: string, corpo: object) {
     return request(app.getHttpServer())
       .post('/presenca')
       .set('Authorization', token)
-      .send(corpo)
+      .send({ ...PERTO, ...corpo })
   }
 
   function proximos(token: string) {
@@ -267,9 +268,35 @@ describe('Check-in e check-out (UC06)', () => {
       }).expect(201)
     })
 
+    it('recusa check-in e check-out sem GPS quando o hospital tem localização', async () => {
+      const entrada = await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+        latitude: null,
+        longitude: null,
+      }).expect(409)
+      expect(entrada.body.message).toBe(
+        'Ative a localização do celular para fazer o check-in deste plantão.',
+      )
+      expect(await registroSalvo(alocacao, 'ENTRADA')).toBeUndefined()
+
+      // GPS fora do mapa conta como sem GPS
+      await checkinDireto(alocacao)
+      const saida = await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'SAIDA',
+        latitude: 999,
+        longitude: -47.88,
+      }).expect(409)
+      expect(saida.body.message).toBe(
+        'Ative a localização do celular para fazer o check-out deste plantão.',
+      )
+    })
+
+    // hospital sem localização nao tem como conferir, entao GPS negado ainda passa
     it('faz check-in sem GPS só com o horário do servidor (MSG-12)', async () => {
       const resposta = await presenca(medicoToken, {
-        alocacao_id: alocacao,
+        alocacao_id: alocacaoSemCoordenadas,
         tipo_evento: 'ENTRADA',
         latitude: null,
         longitude: null,
@@ -278,12 +305,14 @@ describe('Check-in e check-out (UC06)', () => {
       expect(resposta.body.message).toBe(
         'Check-in registrado sem localização (GPS negado).',
       )
-      expect((await registroSalvo(alocacao, 'ENTRADA')).latitude).toBeNull()
+      expect(
+        (await registroSalvo(alocacaoSemCoordenadas, 'ENTRADA')).latitude,
+      ).toBeNull()
     })
 
     it('trata GPS fora do mapa como GPS negado na entrada e na saída', async () => {
       const entrada = await presenca(medicoToken, {
-        alocacao_id: alocacao,
+        alocacao_id: alocacaoSemCoordenadas,
         tipo_evento: 'ENTRADA',
         latitude: 999,
         longitude: -47.88,
@@ -293,14 +322,14 @@ describe('Check-in e check-out (UC06)', () => {
         'Check-in registrado sem localização (GPS negado).',
       )
       expect(entrada.body.registro.distancia_local).toBeNull()
-      expect(await registroSalvo(alocacao, 'ENTRADA')).toEqual({
+      expect(await registroSalvo(alocacaoSemCoordenadas, 'ENTRADA')).toEqual({
         latitude: null,
         longitude: null,
         precisao_metros: null,
       })
 
       const saida = await presenca(medicoToken, {
-        alocacao_id: alocacao,
+        alocacao_id: alocacaoSemCoordenadas,
         tipo_evento: 'SAIDA',
         latitude: -15.8,
         longitude: 500,
@@ -308,16 +337,31 @@ describe('Check-in e check-out (UC06)', () => {
       expect(saida.body.message).toBe(
         'Check-out registrado sem localização (GPS negado).',
       )
-      expect((await registroSalvo(alocacao, 'SAIDA')).longitude).toBeNull()
+      expect(
+        (await registroSalvo(alocacaoSemCoordenadas, 'SAIDA')).longitude,
+      ).toBeNull()
     })
 
     it('salva sem localização quando vem só a latitude', async () => {
       await presenca(medicoToken, {
-        alocacao_id: alocacao,
+        alocacao_id: alocacaoSemCoordenadas,
         tipo_evento: 'ENTRADA',
         latitude: PERTO.latitude,
+        longitude: null,
       }).expect(201)
-      expect((await registroSalvo(alocacao, 'ENTRADA')).latitude).toBeNull()
+      expect(
+        (await registroSalvo(alocacaoSemCoordenadas, 'ENTRADA')).latitude,
+      ).toBeNull()
+    })
+
+    it('aceita sem GPS quando o plantão não usa geolocalização', async () => {
+      await mudarPlantao(alocacao, 'permite_geolocalizacao = false')
+      await presenca(medicoToken, {
+        alocacao_id: alocacao,
+        tipo_evento: 'ENTRADA',
+        latitude: null,
+        longitude: null,
+      }).expect(201)
     })
 
     it('ignora precisão negativa mas guarda as coordenadas', async () => {
