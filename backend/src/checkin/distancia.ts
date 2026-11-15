@@ -14,3 +14,6 @@ export function distanciaEmMetros(
     Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon / 2) ** 2
   return 2 * R * Math.asin(Math.sqrt(a))
 }
+
+// longe disso do hospital o check-in e o check-out sao recusados
+export const DISTANCIA_MAXIMA_METROS = 500

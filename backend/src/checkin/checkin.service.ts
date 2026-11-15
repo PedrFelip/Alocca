@@ -8,7 +8,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import type { RegistrarPresenca } from './checkin.schemas.ts'
-import { distanciaEmMetros } from './distancia.ts'
+import { DISTANCIA_MAXIMA_METROS, distanciaEmMetros } from './distancia.ts'
 import {
   checkinLiberadoEm,
   checkoutAte,
@@ -91,6 +91,22 @@ export class CheckinService {
       let longitude: number | null = null
       let precisao: number | null = null
       let distancia: number | null = null
+      const acao = dados.tipo_evento === 'ENTRADA' ? 'check-in' : 'check-out'
+      const hospitalTemLocal =
+        alocacao.hospital_lat != null && alocacao.hospital_lon != null
+
+      // se da pra conferir a distancia, sem GPS nao entra. quem nao quer
+      // exigir localizacao publica o plantao sem geolocalizacao (LGPD)
+      if (
+        alocacao.permite_geolocalizacao &&
+        hospitalTemLocal &&
+        !gpsValido(dados.latitude, dados.longitude)
+      ) {
+        throw new ConflictException(
+          `Ative a localização do celular para fazer o ${acao} deste plantão.`,
+        )
+      }
+
       if (
         alocacao.permite_geolocalizacao &&
         gpsValido(dados.latitude, dados.longitude)
@@ -101,13 +117,19 @@ export class CheckinService {
           precisao = dados.precisao_metros
         }
         // hospital sem coordenada salva sem distância
-        if (alocacao.hospital_lat != null && alocacao.hospital_lon != null) {
+        if (hospitalTemLocal) {
           distancia = distanciaEmMetros(
             latitude,
             longitude,
-            alocacao.hospital_lat,
-            alocacao.hospital_lon,
+            alocacao.hospital_lat!,
+            alocacao.hospital_lon!,
           )
+          // longe do hospital nao deixa registrar, assim a localizacao vale de verdade
+          if (distancia > DISTANCIA_MAXIMA_METROS) {
+            throw new ConflictException(
+              `Você está a ${Math.round(distancia)} m do hospital. O ${acao} só pode ser feito a até ${DISTANCIA_MAXIMA_METROS} m.`,
+            )
+          }
         }
       }
 

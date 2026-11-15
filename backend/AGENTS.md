@@ -20,7 +20,7 @@ Todo import relativo aponta para o arquivo `.ts` de origem (ex.: `import { Usuar
 1. Camadas: controller só DTO/HTTP → service/use-case com a RN → repository SQL parametrizado → entity/drizzle schema.
 2. UC11 (alocação) sempre em transação atômica; UC05 checa double-booking antes de persistir.
 3. Senha só com hash forte (bcrypt/Argon2), nunca plain. Rate limit no login, recuperação com resposta genérica.
-4. Check-in pontual por toque explícito, sem tracking em background; GPS negado = `latitude/longitude = null`, valida só pelo timestamp do servidor (LGPD).
+4. Check-in pontual por toque explícito, sem tracking em background; GPS negado = `latitude/longitude = null`, valida só pelo timestamp do servidor (LGPD), exceto em plantão com geolocalização e hospital com coordenadas, onde o GPS é obrigatório e o limite é 500 m (RN19).
 5. Financeiro sem gateway no MVP (`Pendente` → `Pago` só com comprovante PDF/JPG/PNG, nome de arquivo com UUID).
 6. Nunca hardcodar segredo (`.env`), responder erros no padrão MSG-XX do spec, logar ações críticas (login falho, alocação, baixa).
 7. Ordem de entrega: migrações → auth (UC01–UC04) → instituições/plantões (UC10) → feed/alocação (UC05+UC11) → presença/perfil/financeiro (UC06–UC09, UC12) → testes (double-booking, transação UC11).
