@@ -92,6 +92,7 @@ describe('notificações', () => {
       total: 1,
       dados: [{ id: notificacao, lida_em: null, tipo: 'ALOCACAO_APROVADA' }],
     })
+    expect(lista.body.dados[0].mensagem).toContain('P — H, H,')
     const primeira = await request(app.getHttpServer())
       .patch(`/notificacoes/${notificacao}/lida`)
       .set('Authorization', tokenMedico)
@@ -100,6 +101,7 @@ describe('notificações', () => {
       .patch(`/notificacoes/${notificacao}/lida`)
       .set('Authorization', tokenMedico)
       .expect(200)
+    expect(primeira.body.mensagem).toBe(lista.body.dados[0].mensagem)
     expect(primeira.body.lida_em).toBeTruthy()
     expect(segunda.body.lida_em).toBe(primeira.body.lida_em)
     await request(app.getHttpServer())

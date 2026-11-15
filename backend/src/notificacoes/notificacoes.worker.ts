@@ -9,7 +9,12 @@ import { ConfigService } from '@nestjs/config'
 import { and, eq, isNull, lte, sql } from 'drizzle-orm'
 import type { Env } from '../config/env.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
-import { notificacoesTable, usuariosTable } from '../db/schemas/index.ts'
+import {
+  notificacoesTable,
+  usuariosTable,
+  plantoesTable,
+  instituicoesTable,
+} from '../db/schemas/index.ts'
 import { EmailSender } from '../email/email-sender.ts'
 import { apresentar } from './notificacoes.service.ts'
 
@@ -34,7 +39,7 @@ export class NotificacoesWorker implements OnModuleInit, OnModuleDestroy {
       void this.processar().catch(() =>
         this.logger.error('Falha ao processar notificações'),
       )
-    }, 1000)
+    }, 30000)
     this.timer.unref()
   }
   async onModuleDestroy() {
@@ -55,11 +60,25 @@ export class NotificacoesWorker implements OnModuleInit, OnModuleDestroy {
           .select({
             notificacao: notificacoesTable,
             email: usuariosTable.email,
+            plantao: {
+              titulo: plantoesTable.titulo,
+              unidade: plantoesTable.local_unidade,
+              instituicao: instituicoesTable.nome,
+              inicio: plantoesTable.data_inicio,
+            },
           })
           .from(notificacoesTable)
           .innerJoin(
             usuariosTable,
             eq(usuariosTable.id, notificacoesTable.usuario_destino_id),
+          )
+          .innerJoin(
+            plantoesTable,
+            eq(plantoesTable.id, notificacoesTable.plantao_id),
+          )
+          .innerJoin(
+            instituicoesTable,
+            eq(instituicoesTable.id, plantoesTable.instituicao_id),
           )
           .where(
             and(
@@ -74,13 +93,9 @@ export class NotificacoesWorker implements OnModuleInit, OnModuleDestroy {
           .for('update', { of: notificacoesTable, skipLocked: true })
           .limit(1)
         if (!job) return false
-        const conteudo = apresentar(job.notificacao)
+        const conteudo = apresentar(job.notificacao, job.plantao)
         try {
-          if (
-            !this.config.get('SMTP_HOST', { infer: true }) ||
-            !this.config.get('SMTP_USER', { infer: true }) ||
-            !this.config.get('SMTP_PASS', { infer: true })
-          )
+          if (!this.config.get('SMTP_HOST', { infer: true }))
             throw new Error('SMTP não configurado')
           await this.email.enviar({
             para: job.email,
