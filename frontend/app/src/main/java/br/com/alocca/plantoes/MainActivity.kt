@@ -241,7 +241,7 @@ private fun AuthApp() {
             val currentPerfil = perfil
             if (currentPerfil != null) {
                 if (currentPerfil.tipo == "GESTOR") {
-                    InstitutionApp(currentPerfil, onLogout = ::logout)
+                    InstitutionApp(currentPerfil, onLogout = ::logout, onSessaoExpirada = ::expirarSessao)
                 } else {
                     CompositionLocalProvider(LocalSessaoExpirada provides ::expirarSessao) {
                         HomeScreen(currentPerfil, onLogout = ::logout, onPerfilAtualizado = { perfil = it })
@@ -806,7 +806,7 @@ private data class InstitutionShift(
 )
 
 @Composable
-private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
+private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit, onSessaoExpirada: () -> Unit = onLogout) {
     var screen by remember { mutableStateOf(InstitutionScreen.Home) }
     var notificationsOpen by remember { mutableStateOf(false) }
     val open: (InstitutionScreen) -> Unit = { screen = it }
@@ -823,11 +823,11 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
     }
     Box(Modifier.fillMaxSize()) {
         when (screen) {
-            InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, token, open, onLogout) { notificationsOpen = !notificationsOpen }
+            InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, token, open, onLogout, onSessaoExpirada) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.Shifts -> if (candidaturaPlantao != null) PlantoesScreen(gestor = true, onBack = { candidaturaPlantao = null }, inicial = candidaturaPlantao) else InstitutionShiftsScreen(token, open) { candidaturaPlantao = it }
-            InstitutionScreen.Doctors -> InstitutionDoctorsScreen(token, open, onLogout)
+            InstitutionScreen.Doctors -> InstitutionDoctorsScreen(token, open, onSessaoExpirada)
             InstitutionScreen.Payments -> InstitutionPaymentsScreen(open)
-            InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(token, open, onLogout)
+            InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(token, open, onSessaoExpirada)
             InstitutionScreen.Settings -> InstitutionSettingsScreen(perfil, open, onLogout) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.PublishShift -> PublishShiftScreen(
                 token,
@@ -846,7 +846,7 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
 }
 
 @Composable
-private fun InstitutionHomeScreen(name: String, token: String?, onNavigate: (InstitutionScreen) -> Unit, onLogout: () -> Unit, onNotification: () -> Unit) {
+private fun InstitutionHomeScreen(name: String, token: String?, onNavigate: (InstitutionScreen) -> Unit, onLogout: () -> Unit, onSessaoExpirada: () -> Unit, onNotification: () -> Unit) {
     InstitutionPage(InstitutionScreen.Home, onNavigate) {
         // Reutiliza exatamente o cabeçalho do fluxo médico: menu, marca e sino.
         HomeHeader(onNotification = onNotification, onLogout = onLogout)
@@ -854,6 +854,8 @@ private fun InstitutionHomeScreen(name: String, token: String?, onNavigate: (Ins
             Spacer(Modifier.height(15.dp))
             Text("Olá, ${name.ifBlank { "Gestor" }}!", color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Text("Confira o resumo da sua instituição e\ngerencie seus plantões.", color = Color(0xFF45617D), fontSize = 12.sp, lineHeight = 15.sp)
+            Spacer(Modifier.height(12.dp))
+            IndicadoresGestorConteudo(token, onSessaoExpirada)
             Spacer(Modifier.height(12.dp))
             InstitutionRecentShifts(token, onNavigate)
             Spacer(Modifier.height(12.dp))
