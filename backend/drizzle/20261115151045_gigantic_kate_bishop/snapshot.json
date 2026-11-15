@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "e37d1745-71e3-4240-b800-869872465492",
+  "id": "ed1b7e3a-2265-4e71-8524-25f0318f1905",
   "prevIds": [
-    "b16b2212-61b2-4aea-a45d-40f74fa1a242"
+    "551f4658-1542-48fa-b78d-93b8713c3615"
   ],
   "ddl": [
     {
@@ -228,6 +228,19 @@
       "table": "usuarios"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "email_notificacoes_habilitado",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "usuarios"
+    },
+    {
       "type": "varchar(20)",
       "typeSchema": null,
       "notNull": false,
@@ -262,45 +275,6 @@
       "generated": null,
       "identity": null,
       "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "usuarios"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "versao_sessao",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "usuarios"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "tentativas_alteracao_senha",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "usuarios"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "inicio_tentativas_alteracao_senha",
       "entityType": "columns",
       "schema": "public",
       "table": "usuarios"
@@ -1892,6 +1866,84 @@
       "table": "notificacoes"
     },
     {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "lida_em",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "tentativas",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "disponivel_em",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "email_elegivel",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "entrega_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "entrega_ate",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -2176,6 +2228,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "email_elegivel",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "status",
           "isExpression": false,

@@ -1,5 +1,7 @@
 import { alias } from 'drizzle-orm/pg-core'
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import type { Env } from '../config/env.ts'
 import { and, eq, gt, isNull, sql, inArray, ne, lt } from 'drizzle-orm'
 import { type Database } from '../db/db.provider.ts'
 import {
@@ -19,6 +21,9 @@ export type TransacaoAlocacao = Parameters<
 
 @Injectable()
 export class AlocacaoRepository {
+  constructor(
+    @Inject(ConfigService) private readonly config: ConfigService<Env, true>,
+  ) {}
   candidatura(tx: TransacaoAlocacao, id: string) {
     return tx
       .select({
@@ -131,14 +136,12 @@ export class AlocacaoRepository {
     valor: string,
     gestorId: string,
   ) {
-    return tx
-      .insert(pagamentosTable)
-      .values({
-        alocacao_id: alocacaoId,
-        valor,
-        status: 'PENDENTE',
-        registrado_por_gestor_id: gestorId,
-      })
+    return tx.insert(pagamentosTable).values({
+      alocacao_id: alocacaoId,
+      valor,
+      status: 'PENDENTE',
+      registrado_por_gestor_id: gestorId,
+    })
   }
 
   decrementarVaga(tx: TransacaoAlocacao, plantaoId: string) {
@@ -237,7 +240,17 @@ export class AlocacaoRepository {
     if (eventos.length === 0) return Promise.resolve([])
     return tx
       .insert(notificacoesTable)
-      .values(eventos)
+      .values(
+        eventos.map((evento) => ({
+          ...evento,
+          email_elegivel:
+            this.config.get('NOTIFICACOES_EMAIL_HABILITADO', {
+              infer: true,
+            }) === 'true'
+              ? sql<boolean>`coalesce((select email_notificacoes_habilitado from usuarios where id = ${evento.usuario_destino_id}), false)`
+              : false,
+        })),
+      )
       .returning({ id: notificacoesTable.id })
   }
 }

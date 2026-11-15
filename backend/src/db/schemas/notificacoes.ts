@@ -1,5 +1,7 @@
 import {
+  boolean,
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -14,12 +16,6 @@ export const statusNotificacao = pgEnum('status_notificacao', [
   'ENVIADA',
 ])
 
-/**
- * Caixa de saída de notificações (padrão outbox). Os eventos são gravados na
- * MESMA transação do fato que os originou (ex.: alocação UC11) e entregues
- * depois por um worker. O provedor de entrega (push/e-mail) é decisão pendente
- * (D10) — até lá os registros permanecem 'PENDENTE'.
- */
 export const notificacoesTable = pgTable(
   'notificacoes',
   {
@@ -35,10 +31,20 @@ export const notificacoesTable = pgTable(
     status: statusNotificacao().notNull().default('PENDENTE'),
     created_at: timestamp('created_at').notNull().defaultNow(),
     enviada_at: timestamp('enviada_at'),
+    lida_em: timestamp('lida_em'),
+    tentativas: integer('tentativas').notNull().default(0),
+    disponivel_em: timestamp('disponivel_em').notNull().defaultNow(),
+    email_elegivel: boolean('email_elegivel').notNull().default(false),
+    entrega_token: uuid('entrega_token'),
+    entrega_ate: timestamp('entrega_ate'),
   },
   (table) => [
     // Fila de entrega: worker consome PENDENTE na ordem de criação.
-    index('notificacoes_fila_idx').on(table.status, table.created_at),
+    index('notificacoes_fila_idx').on(
+      table.email_elegivel,
+      table.status,
+      table.created_at,
+    ),
     index('notificacoes_usuario_destino_id_idx').on(table.usuario_destino_id),
   ],
 )

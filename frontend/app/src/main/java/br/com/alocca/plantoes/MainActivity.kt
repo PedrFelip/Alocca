@@ -460,6 +460,8 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
     var notificationsOpen by remember { mutableStateOf(false) }
     var quickActionScreen by remember { mutableStateOf<QuickActionScreen?>(null) }
     var confirmandoSaida by remember { mutableStateOf(false) }
+    val contextoHome = LocalContext.current
+    val token = remember(perfil.id) { TokenStore.read(contextoHome) }
     val primeiroNome = perfil.nome.trim().split(" ").firstOrNull { it.isNotBlank() && !it.endsWith(".") } ?: "Doutor(a)"
     val pedirSaida = { confirmandoSaida = true }
 
@@ -496,7 +498,7 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
     }
 
     if (activeTab == "Configurações") {
-        SettingsScreen(perfil = perfil, onTabSelected = { activeTab = it }, onLogout = pedirSaida, onAbrirPerfil = { quickActionScreen = QuickActionScreen.Profile }, onAbrirSeguranca = { quickActionScreen = QuickActionScreen.Security }, onAbrirPrivacidade = { quickActionScreen = QuickActionScreen.Privacy })
+        SettingsScreen(perfil = perfil, token = token, onSessaoExpirada = onSessaoExpirada, onTabSelected = { activeTab = it }, onLogout = pedirSaida, onAbrirPerfil = { quickActionScreen = QuickActionScreen.Profile }, onAbrirSeguranca = { quickActionScreen = QuickActionScreen.Security }, onAbrirPrivacidade = { quickActionScreen = QuickActionScreen.Privacy })
         return
     }
 
@@ -564,7 +566,7 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
                 enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
                 exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
             ) {
-                NotificationsPanel(onClose = { notificationsOpen = false })
+                NotificationsPanel(token, onSessaoExpirada, onClose = { notificationsOpen = false })
             }
         }
     }
@@ -895,7 +897,7 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit, onSenhaT
     var notificationsOpen by remember { mutableStateOf(false) }
     val open: (InstitutionScreen) -> Unit = { screen = it }
     val context = LocalContext.current
-    val token = remember { TokenStore.read(context) }
+    val token = remember(perfil.id) { TokenStore.read(context) }
     var candidaturaPlantao by remember { mutableStateOf<ItemPlantao?>(null) }
     BackHandler(enabled = notificationsOpen || candidaturaPlantao != null || screen != InstitutionScreen.Home) {
         when {
@@ -912,7 +914,7 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit, onSenhaT
             InstitutionScreen.Doctors -> InstitutionDoctorsScreen(token, open, onSessaoExpirada)
             InstitutionScreen.Payments -> InstitutionPaymentsScreen(open)
             InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(token, open, onSessaoExpirada)
-            InstitutionScreen.Settings -> InstitutionSettingsScreen(perfil, open, onLogout, onSenhaTrocada, onSessaoExpirada) { notificationsOpen = !notificationsOpen }
+            InstitutionScreen.Settings -> InstitutionSettingsScreen(perfil, token, open, onLogout, onSenhaTrocada, onSessaoExpirada) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.PublishShift -> PublishShiftScreen(
                 token,
                 onBack = { screen = InstitutionScreen.Shifts },
@@ -925,7 +927,7 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit, onSenhaT
             modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 52.dp, end = 15.dp),
             enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
             exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
-        ) { NotificationsPanel(onClose = { notificationsOpen = false }) }
+        ) { NotificationsPanel(token, onSessaoExpirada, onClose = { notificationsOpen = false }) }
     }
 }
 
@@ -1061,6 +1063,7 @@ private fun InstitutionPaymentsScreen(onNavigate: (InstitutionScreen) -> Unit) {
 @Composable
 private fun InstitutionSettingsScreen(
     perfil: PerfilUsuario,
+    token: String?,
     onNavigate: (InstitutionScreen) -> Unit,
     onLogout: () -> Unit,
     onSenhaTrocada: () -> Unit,
@@ -1120,7 +1123,7 @@ private fun InstitutionSettingsScreen(
             }
             Spacer(Modifier.height(18.dp))
             SettingsSectionTitle("Preferências do aplicativo")
-            Text("Preferências de notificações ainda não disponíveis.", color = Muted, fontSize = 12.sp)
+            SettingsGroup { PreferenciasNotificacoes(token, onSessaoExpirada) }
 
             Spacer(Modifier.height(18.dp))
             SettingsSectionTitle("Informações do sistema")
@@ -1726,7 +1729,7 @@ internal fun ProfileEditorCard(title: String, fields: List<Pair<String, String>>
 }
 
 @Composable
-private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Unit, onLogout: () -> Unit, onAbrirPerfil: () -> Unit = {}, onAbrirSeguranca: () -> Unit = {}, onAbrirPrivacidade: () -> Unit = {}) {
+private fun SettingsScreen(perfil: PerfilUsuario, token: String?, onSessaoExpirada: () -> Unit, onTabSelected: (String) -> Unit, onLogout: () -> Unit, onAbrirPerfil: () -> Unit = {}, onAbrirSeguranca: () -> Unit = {}, onAbrirPrivacidade: () -> Unit = {}) {
     var notificationsOpen by remember { mutableStateOf(false) }
     val primeiroNome = perfil.nome.trim().substringBefore(" ").ifBlank { "" }
 
@@ -1778,7 +1781,7 @@ private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Uni
                     MainSettingsSectionTitle("Preferências do aplicativo")
                     Spacer(Modifier.height(7.dp))
                     SettingsCard {
-                        Text("Preferências de notificações indisponíveis no momento.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
+                        PreferenciasNotificacoes(token, onSessaoExpirada)
                     }
                     Spacer(Modifier.height(19.dp))
                     SettingsCard { SettingsNavigationRow(Icons.Default.Logout, "Sair da conta", "", Color(0xFFFFE6E8), Color(0xFFFF4A53), showDescription = false, onClick = onLogout) }
@@ -1792,7 +1795,7 @@ private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Uni
                 modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 46.dp, end = 16.dp),
                 enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
                 exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
-            ) { NotificationsPanel(onClose = { notificationsOpen = false }) }
+            ) { NotificationsPanel(token, onSessaoExpirada, onClose = { notificationsOpen = false }) }
         }
     }
 }
@@ -1938,31 +1941,6 @@ internal fun HomeHeader(onNotification: () -> Unit, onLogout: () -> Unit) {
                 modifier = Modifier.size(27.dp),
             )
 
-        }
-    }
-}
-
-@Composable
-internal fun NotificationsPanel(onClose: () -> Unit) {
-    Surface(
-        modifier = Modifier.width(300.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White,
-        shadowElevation = 10.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E5E5)),
-    ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Text("Notificações", color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(15.dp))
-            Text("Notificações ainda não disponíveis.", color = Muted, fontSize = 12.sp)
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Fechar",
-                color = DeepTeal,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.End).clickable(onClick = onClose).padding(5.dp),
-            )
         }
     }
 }

@@ -25,6 +25,7 @@ const envSchema = z
       vazioViraNada,
       z.string().min(32).optional(),
     ),
+    NOTIFICACOES_EMAIL_HABILITADO: z.enum(['true', 'false']).default('false'),
     SMTP_HOST: z.preprocess(vazioViraNada, z.string().trim().min(1).optional()),
     SMTP_PORT: z.preprocess(
       vazioViraNada,

@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "1f9d3adb-d427-42ac-b4d9-9f92b62cfa7f",
+  "id": "551f4658-1542-48fa-b78d-93b8713c3615",
   "prevIds": [
-    "e37d1745-71e3-4240-b800-869872465492"
+    "b16b2212-61b2-4aea-a45d-40f74fa1a242"
   ],
   "ddl": [
     {
@@ -163,30 +163,6 @@
       "schema": "public"
     },
     {
-      "isRlsEnabled": false,
-      "name": "desafios_mobile",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "envios_pin",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "refresh_mobile",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": false,
-      "name": "sessoes_mobile",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -252,6 +228,19 @@
       "table": "usuarios"
     },
     {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "email_notificacoes_habilitado",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "usuarios"
+    },
+    {
       "type": "varchar(20)",
       "typeSchema": null,
       "notNull": false,
@@ -286,45 +275,6 @@
       "generated": null,
       "identity": null,
       "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "usuarios"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "versao_sessao",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "usuarios"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "tentativas_alteracao_senha",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "usuarios"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "inicio_tentativas_alteracao_senha",
       "entityType": "columns",
       "schema": "public",
       "table": "usuarios"
@@ -1916,6 +1866,45 @@
       "table": "notificacoes"
     },
     {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "lida_em",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "tentativas",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "disponivel_em",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -1979,253 +1968,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "emails_pendentes"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "gen_random_uuid()",
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "desafios_mobile"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "usuario_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "desafios_mobile"
-    },
-    {
-      "type": "varchar(64)",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token_hash",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "desafios_mobile"
-    },
-    {
-      "type": "varchar(64)",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "pin_hash",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "desafios_mobile"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "pin_expires_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "desafios_mobile"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "0",
-      "generated": null,
-      "identity": null,
-      "name": "erros",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "desafios_mobile"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "expires_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "desafios_mobile"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "desafios_mobile"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "gen_random_uuid()",
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "envios_pin"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "usuario_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "envios_pin"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "envios_pin"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "gen_random_uuid()",
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refresh_mobile"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "sessao_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refresh_mobile"
-    },
-    {
-      "type": "varchar(64)",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "token_hash",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refresh_mobile"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "used_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "refresh_mobile"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "gen_random_uuid()",
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sessoes_mobile"
-    },
-    {
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "usuario_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sessoes_mobile"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "expires_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sessoes_mobile"
-    },
-    {
-      "type": "timestamp",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "revoked_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "sessoes_mobile"
     },
     {
       "nameExplicit": true,
@@ -2893,74 +2635,6 @@
       "table": "emails_pendentes"
     },
     {
-      "nameExplicit": false,
-      "columns": [
-        "usuario_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "usuarios",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "NO ACTION",
-      "name": "desafios_mobile_usuario_id_usuarios_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "desafios_mobile"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "usuario_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "usuarios",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "NO ACTION",
-      "name": "envios_pin_usuario_id_usuarios_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "envios_pin"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "sessao_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "sessoes_mobile",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "NO ACTION",
-      "name": "refresh_mobile_sessao_id_sessoes_mobile_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "refresh_mobile"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "usuario_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "usuarios",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "NO ACTION",
-      "name": "sessoes_mobile_usuario_id_usuarios_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "sessoes_mobile"
-    },
-    {
       "columns": [
         "gestor_id",
         "instituicao_id"
@@ -3089,46 +2763,6 @@
       "name": "emails_pendentes_pkey",
       "schema": "public",
       "table": "emails_pendentes",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "desafios_mobile_pkey",
-      "schema": "public",
-      "table": "desafios_mobile",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "envios_pin_pkey",
-      "schema": "public",
-      "table": "envios_pin",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "refresh_mobile_pkey",
-      "schema": "public",
-      "table": "refresh_mobile",
-      "entityType": "pks"
-    },
-    {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "sessoes_mobile_pkey",
-      "schema": "public",
-      "table": "sessoes_mobile",
       "entityType": "pks"
     },
     {
@@ -3266,28 +2900,6 @@
       "name": "gestores_usuario_id_key",
       "schema": "public",
       "table": "gestores",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "token_hash"
-      ],
-      "nullsNotDistinct": false,
-      "name": "desafios_mobile_token_hash_key",
-      "schema": "public",
-      "table": "desafios_mobile",
-      "entityType": "uniques"
-    },
-    {
-      "nameExplicit": false,
-      "columns": [
-        "token_hash"
-      ],
-      "nullsNotDistinct": false,
-      "name": "refresh_mobile_token_hash_key",
-      "schema": "public",
-      "table": "refresh_mobile",
       "entityType": "uniques"
     },
     {

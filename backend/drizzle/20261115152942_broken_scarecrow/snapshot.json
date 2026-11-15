@@ -1,9 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "fb76dfa9-50a3-4d5c-b951-00ccfcd9bf9b",
+  "id": "ed9fd0fd-dd25-4e77-b7c4-92f5ec0997a8",
   "prevIds": [
-    "1f9d3adb-d427-42ac-b4d9-9f92b62cfa7f"
+    "ed1b7e3a-2265-4e71-8524-25f0318f1905"
   ],
   "ddl": [
     {
@@ -247,6 +247,19 @@
       "generated": null,
       "identity": null,
       "name": "senha_hash",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "usuarios"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "email_notificacoes_habilitado",
       "entityType": "columns",
       "schema": "public",
       "table": "usuarios"
@@ -1916,6 +1929,84 @@
       "table": "notificacoes"
     },
     {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "lida_em",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "0",
+      "generated": null,
+      "identity": null,
+      "name": "tentativas",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "disponivel_em",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "email_elegivel",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "entrega_token",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
+      "type": "timestamp",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "entrega_ate",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "notificacoes"
+    },
+    {
       "type": "uuid",
       "typeSchema": null,
       "notNull": true,
@@ -2028,6 +2119,19 @@
       "generated": null,
       "identity": null,
       "name": "pin_hash",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "desafios_mobile"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "pin_enviado",
       "entityType": "columns",
       "schema": "public",
       "table": "desafios_mobile"
@@ -2447,6 +2551,13 @@
     {
       "nameExplicit": true,
       "columns": [
+        {
+          "value": "email_elegivel",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
         {
           "value": "status",
           "isExpression": false,

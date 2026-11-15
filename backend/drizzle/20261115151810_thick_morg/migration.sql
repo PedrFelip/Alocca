@@ -1,1 +1,0 @@
-ALTER TABLE "desafios_mobile" ADD COLUMN "pin_enviado" boolean DEFAULT false NOT NULL;

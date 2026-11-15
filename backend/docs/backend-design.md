@@ -14,4 +14,4 @@ EMAIL_OUTBOX_SECRET (opcional, mínimo 32 caracteres) cifra os payloads com AES-
 
 A entrega tem semântica de pelo menos uma vez: queda após aceitação SMTP e antes do commit pode repetir o mesmo e-mail. O retry preserva o código e sua expiração. O worker respeita os timeouts SMTP e aguarda o lote em andamento ao fechar a aplicação. NODE_ENV=test desativa o timer; testes executam processar() explicitamente.
 
-As notificações de alocação em notificacoes permanecem separadas: o canal de entrega delas continua pendente em D10.
+As notificações de plantão usam caixa de entrada e worker SMTP separados da recuperação; veja `contrato-notificacoes.md`.

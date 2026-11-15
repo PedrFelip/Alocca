@@ -118,7 +118,7 @@ Senha, incremento de `versao_sessao` e invalidação de códigos de recuperaçã
 são gravados na mesma transação, com trava de usuário. Recuperação bem-sucedida
 aplica a mesma revogação. JWT sem `versao_sessao` equivale à versão zero, preservando
 sessões legadas até a primeira troca/recuperação. Campos internos não entram no perfil.
-Aplicar a migração `20261114231753_pretty_cardiac` antes de iniciar o backend atualizado.
+Aplicar as migrações de autenticação antes de iniciar o backend atualizado.
 
 ## 2FA, refresh e logout — mobile (D9)
 
