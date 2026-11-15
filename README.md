@@ -25,25 +25,23 @@ Uma plataforma para conectar médicos e instituições de saúde, organizar plan
 
 O **Alocca** digitaliza a gestão de plantões médicos: da publicação de uma oportunidade à candidatura, alocação e acompanhamento financeiro. O projeto reúne um aplicativo Android para médicos e gestores, uma API REST e um painel web para a análise administrativa de cadastros.
 
-| Para médicos | Para gestores | Para administradores |
-| :--- | :--- | :--- |
-| Consultar oportunidades e candidatar-se a plantões | Publicar e gerenciar plantões das instituições vinculadas | Consultar a fila de médicos pendentes |
-| Acompanhar plantões e registros de presença | Avaliar candidaturas e alocar profissionais | Conferir manualmente identidade e CRM/UF |
-| Consultar valores e baixar comprovantes | Registrar pagamentos e anexar comprovantes | Aprovar ou rejeitar cadastros com motivo |
-
-> **Em desenvolvimento.** O painel web concentra atualmente a validação de médicos; os demais módulos administrativos são expansões futuras. A validação do CRM é manual e não comprova o RQE.
+| Para médicos                                       | Para gestores                                             |
+| :------------------------------------------------- | :-------------------------------------------------------- |
+| Consultar oportunidades e candidatar-se a plantões | Publicar e gerenciar plantões das instituições vinculadas |
+| Acompanhar plantões e registros de presença        | Avaliar candidaturas e alocar profissionais               |
+| Consultar valores e baixar comprovantes            | Registrar pagamentos e anexar comprovantes                |
 
 ## Tecnologias
 
-| Camada | Tecnologias | Papel no projeto |
-| :--- | :--- | :--- |
-| Aplicativo Android | Kotlin · Jetpack Compose · Material 3 | Interface nativa para médicos e gestores |
-| Painel administrativo | Svelte 5 · TypeScript · Vite · Lucide | Análise e validação dos cadastros médicos |
-| API | NestJS · TypeScript · Zod · JWT | Regras de negócio, validação e controle de acesso |
-| Persistência | PostgreSQL 17 · Drizzle ORM | Dados relacionais, consultas e migrações |
-| Arquivos | SeaweedFS | Armazenamento privado de comprovantes |
-| Desenvolvimento | Bun · Docker Compose · Bruno | Dependências, infraestrutura local e requisições HTTP |
-| Qualidade | Vitest · PGlite · JUnit · Svelte Check | Testes e verificações dos módulos |
+| Camada                | Tecnologias                            | Papel no projeto                                      |
+| :-------------------- | :------------------------------------- | :---------------------------------------------------- |
+| Aplicativo Android    | Kotlin · Jetpack Compose · Material 3  | Interface nativa para médicos e gestores              |
+| Painel administrativo | Svelte 5 · TypeScript · Vite · Lucide  | Análise e validação dos cadastros médicos             |
+| API                   | NestJS · TypeScript · Zod · JWT        | Regras de negócio, validação e controle de acesso     |
+| Persistência          | PostgreSQL 17 · Drizzle ORM            | Dados relacionais, consultas e migrações              |
+| Arquivos              | SeaweedFS                              | Armazenamento privado de comprovantes                 |
+| Desenvolvimento       | Bun · Docker Compose · Bruno           | Dependências, infraestrutura local e requisições HTTP |
+| Qualidade             | Vitest · PGlite · JUnit · Svelte Check | Testes e verificações dos módulos                     |
 
 <div align="center">
 
@@ -111,12 +109,12 @@ openssl rand -hex 32
 
 Copie o segredo gerado para `JWT_SECRET` no arquivo `backend/.env`. Confira também:
 
-| Variável | Configuração local |
-| :--- | :--- |
-| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/alocca` |
-| `SEAWEEDFS_FILER_URL` | `http://127.0.0.1:8888` |
-| `ADMIN_WEB_ORIGIN` | `http://localhost:5173` |
-| `ADMIN_EMAIL` e `ADMIN_PASSWORD` | Credenciais do administrador criado na inicialização |
+| Variável                         | Configuração local                                     |
+| :------------------------------- | :----------------------------------------------------- |
+| `DATABASE_URL`                   | `postgresql://postgres:postgres@localhost:5432/alocca` |
+| `SEAWEEDFS_FILER_URL`            | `http://127.0.0.1:8888`                                |
+| `ADMIN_WEB_ORIGIN`               | `http://localhost:5173`                                |
+| `ADMIN_EMAIL` e `ADMIN_PASSWORD` | Credenciais do administrador criado na inicialização   |
 
 Use um segredo próprio e substitua as credenciais de exemplo antes de expor a API à rede. O SeaweedFS deve permanecer privado; os downloads são autorizados pela API.
 
@@ -172,11 +170,11 @@ Substitua o IP pelo endereço da sua máquina e permita o acesso à porta `3000`
 
 Execute cada grupo de comandos na pasta indicada:
 
-| Módulo | Comandos |
-| :--- | :--- |
+| Módulo  | Comandos                                                               |
+| :------ | :--------------------------------------------------------------------- |
 | Backend | `bun run build` · `bun run lint` · `bun run test` · `bun run test:e2e` |
-| Painel | `bun run check` · `bun run build` |
-| Android | `./gradlew testDebugUnitTest` · `./gradlew assembleDebug` |
+| Painel  | `bun run check` · `bun run build`                                      |
+| Android | `./gradlew testDebugUnitTest` · `./gradlew assembleDebug`              |
 
 Parte dos testes de integração do backend exige PostgreSQL com permissão `CREATEDB`, configurado por `E2E_PG_ADMIN`. Consulte os requisitos no [guia do backend](backend/README.md#verificação).
 
