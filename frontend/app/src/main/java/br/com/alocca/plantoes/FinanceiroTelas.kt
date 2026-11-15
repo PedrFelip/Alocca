@@ -61,8 +61,12 @@ internal fun PagamentosGestorConteudo() {
                                 }
                             )
                             TextButton(enabled = !ocupado, onClick = {
-                                val hoje = vencimentoAtual?.let { java.time.LocalDate.ofInstant(it.toInstant(), Datas.fuso.toZoneId()) }
-                                    ?: java.time.LocalDate.now(Datas.fuso.toZoneId())
+                                val (anoHoje, mesHoje, diaHoje) = vencimentoAtual?.let {
+                                    val cal = java.util.Calendar.getInstance(Datas.fuso).apply { time = it }
+                                    Triple(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH))
+                                } ?: java.util.Calendar.getInstance(Datas.fuso).let {
+                                    Triple(it.get(java.util.Calendar.YEAR), it.get(java.util.Calendar.MONTH), it.get(java.util.Calendar.DAY_OF_MONTH))
+                                }
                                 android.app.DatePickerDialog(context, { _, ano, mes, dia ->
                                     val escolhido = FinanceiroCliente.fimDoDiaSelecionado(ano, mes, dia)
                                     ocupado = true
@@ -71,7 +75,7 @@ internal fun PagamentosGestorConteudo() {
                                         mensagem = when (r) { is Resposta.Ok -> r.dados; is Resposta.Falha -> r.mensagem }
                                         carga.recarregar()
                                     }
-                                }, hoje.year, hoje.monthValue - 1, hoje.dayOfMonth).show()
+                                }, anoHoje, mesHoje, diaHoje).show()
                             }) { Text("Definir vencimento") }
                             if (p.vencimento != null) TextButton(enabled = !ocupado, onClick = {
                                 ocupado = true

@@ -22,10 +22,18 @@ internal open class FinanceiroCliente(private val baseUrl: String) {
 
         // Último milissegundo do dia escolhido, no fuso de apresentação (#78):
         // o backend classifica "a receber" com vencimento_em >= now(), então o
-        // fim do dia mantém o pagamento a receber até a virada.
-        fun fimDoDiaSelecionado(ano: Int, mes: Int, dia: Int): String =
-            java.time.LocalDate.of(ano, mes + 1, dia).plusDays(1)
-                .atStartOfDay(Datas.fuso.toZoneId()).toInstant().minusMillis(1).toString()
+        // fim do dia mantém o pagamento a receber até a virada. Calendar (e
+        // não java.time) porque o minSdk é 24, sem desugaring.
+        fun fimDoDiaSelecionado(ano: Int, mes: Int, dia: Int): String {
+            val fimDoDia = java.util.Calendar.getInstance(Datas.fuso).apply {
+                clear(); set(ano, mes, dia, 0, 0, 0)
+                add(java.util.Calendar.DAY_OF_MONTH, 1)
+                add(java.util.Calendar.MILLISECOND, -1)
+            }
+            val formatoUtc = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
+            formatoUtc.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            return formatoUtc.format(fimDoDia.time)
+        }
     }
 
     fun pendentes(token: String): Resposta<List<PendenteBaixa>> = listar(token, "financeiro/pendentes-baixa")

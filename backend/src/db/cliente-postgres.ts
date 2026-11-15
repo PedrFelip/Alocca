@@ -4,10 +4,15 @@ import postgres from 'postgres'
 // entao a sessao fica sempre em UTC, nao importa o fuso do servidor (#77).
 // A leitura de timestamp sem fuso (OID 1114) tambem fica ancorada em UTC:
 // sem isso, o postgres-js converte a string com o fuso do processo Node e um
-// vencimento de fim de dia sai deslocado no JSON (#78).
+// vencimento de fim de dia sai deslocado no JSON (#78). A escrita continua
+// ISO sem zona, que em sessao UTC grava o instante como hora de parede UTC.
 function parseTimestampUtc(valor: string) {
   const deslocado = /[zZ]|[+-]\d{2}:?\d{2}$/.test(valor)
   return new Date(valor.replace(' ', 'T') + (deslocado ? '' : 'Z'))
+}
+
+function serializeTimestampUtc(valor: Date) {
+  return valor.toISOString().replace('T', ' ').replace(/Z$/, '')
 }
 
 export function criarClientePostgres(
@@ -19,7 +24,12 @@ export function criarClientePostgres(
     connection: { ...opcoes.connection, TimeZone: 'UTC' },
     types: {
       ...opcoes.types,
-      timestamp: { from: [1114], parse: parseTimestampUtc },
+      timestamp: {
+        from: [1114],
+        to: 1114,
+        parse: parseTimestampUtc,
+        serialize: serializeTimestampUtc,
+      },
     },
   })
 }
