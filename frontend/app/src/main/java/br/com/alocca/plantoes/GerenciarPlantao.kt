@@ -91,10 +91,10 @@ internal fun GerenciarPlantaoDialog(plantao: PlantaoGerenciado, token: String?, 
                         CampoEdicao("Título", edicao.titulo) { edicao = edicao.copy(titulo = it) }
                         CampoEdicao("Especialidade", edicao.especialidade) { edicao = edicao.copy(especialidade = it) }
                         CampoEdicao("Local", edicao.local) { edicao = edicao.copy(local = it) }
-                        CampoEdicao("Data de início (dd/mm/aaaa)", edicao.dataInicio) { edicao = edicao.copy(dataInicio = it) }
-                        CampoEdicao("Hora de início (hh:mm)", edicao.horaInicio) { edicao = edicao.copy(horaInicio = it) }
-                        CampoEdicao("Data de término (dd/mm/aaaa)", edicao.dataFim) { edicao = edicao.copy(dataFim = it) }
-                        CampoEdicao("Hora de término (hh:mm)", edicao.horaFim) { edicao = edicao.copy(horaFim = it) }
+                        DateTimePickerField("Data de início", edicao.dataInicio, { edicao = edicao.copy(dataInicio = it) })
+                        DateTimePickerField("Hora de início", edicao.horaInicio, { edicao = edicao.copy(horaInicio = it) }, time = true)
+                        DateTimePickerField("Data de término", edicao.dataFim, { edicao = edicao.copy(dataFim = it) })
+                        DateTimePickerField("Hora de término", edicao.horaFim, { edicao = edicao.copy(horaFim = it) }, time = true)
                         CampoEdicao("Valor (R$)", edicao.valor) { edicao = edicao.copy(valor = it) }
                         CampoEdicao("Vagas", edicao.vagas) { edicao = edicao.copy(vagas = it) }
                         CampoEdicao("Observações", edicao.descricao) { edicao = edicao.copy(descricao = it) }
