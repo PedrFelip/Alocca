@@ -4,7 +4,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common'
+import { sql } from 'drizzle-orm'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import { FinanceiroRepository } from './financeiro.repository.ts'
 import { randomUUID } from 'node:crypto'
@@ -24,6 +26,52 @@ export class FinanceiroService {
     @Inject(FinanceiroRepository)
     private readonly repository: FinanceiroRepository,
   ) {}
+
+  async pagamentosGestor(usuarioId: string) {
+    const gestor = await this.gestores.perfilAtivo(usuarioId)
+    return this.repository.pagamentosGestor(gestor.id)
+  }
+
+  async definirVencimento(
+    usuarioId: string,
+    id: string,
+    vencimento: string | null,
+  ) {
+    const gestor = await this.gestores.perfilAtivo(usuarioId)
+    try {
+      await this.db.transaction(async (tx) => {
+        // A baixa mantém o lock do pagamento durante o upload; um vencimento
+        // concorrente espera no máximo 5s em vez de travar até o timeout do app.
+        await tx.execute(sql`set local lock_timeout = '5s'`)
+        const pagamento = await this.repository.bloquearPagamento(
+          tx,
+          gestor.id,
+          id,
+        )
+        if (!pagamento) throw new NotFoundException('Pagamento não encontrado')
+        if (pagamento.status !== 'PENDENTE')
+          throw new ConflictException(mensagensOficiais['MSG-19'])
+        await this.repository.definirVencimento(
+          tx,
+          id,
+          vencimento ? new Date(vencimento) : null,
+        )
+      })
+    } catch (erro) {
+      if ((erro as { code?: string }).code === '55P03')
+        throw new ServiceUnavailableException('Serviço ocupado. Tente novamente.')
+      throw erro
+    }
+    this.logger.log(
+      JSON.stringify({
+        evento: 'VENCIMENTO_DEFINIDO',
+        pagamento_id: id,
+        gestor_id: gestor.id,
+        vencimento_em: vencimento,
+      }),
+    )
+    return { message: mensagensOficiais['MSG-20'] }
+  }
 
   async pendentesBaixa(usuarioId: string) {
     const gestor = await this.gestores.perfilAtivo(usuarioId)
@@ -115,8 +163,13 @@ export class FinanceiroService {
     return { message: mensagensOficiais['MSG-18'] }
   }
 
-  async comprovante(usuarioId: string, id: string) {
-    const pagamento = await this.repository.comprovante(usuarioId, id)
+  async comprovante(usuarioId: string, id: string, gestor = false) {
+    const pagamento = gestor
+      ? await this.repository.comprovanteGestor(
+          (await this.gestores.perfilAtivo(usuarioId)).id,
+          id,
+        )
+      : await this.repository.comprovante(usuarioId, id)
     if (
       !pagamento?.chave ||
       !pagamento.mime ||

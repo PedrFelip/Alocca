@@ -12,7 +12,8 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun PagamentosGestorConteudo() {
-    val carga = rememberCarga(Unit) { FinanceiroApi.pendentes(it) }
+    val carga = rememberCarga(Unit) { FinanceiroApi.pagamentos(it) }
+    var historico by rememberSaveable { mutableStateOf(false) }
     val executor = rememberExecutor()
     val context = LocalContext.current
     var selecionadoId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -30,22 +31,67 @@ internal fun PagamentosGestorConteudo() {
             }
         } else selecionadoId = null
     }
-    Text("Plantões encerrados aguardando baixa")
+    Row {
+        FilterChip(selected = !historico, onClick = { historico = false }, label = { Text("Pendentes") })
+        FilterChip(selected = historico, onClick = { historico = true }, label = { Text("Histórico de pagos") })
+    }
     TextButton(enabled = !ocupado, onClick = { carga.recarregar() }) { Text("Atualizar") }
     mensagem?.let { Text(it) }
     if (ocupado) LinearProgressIndicator(Modifier.fillMaxWidth())
     ConteudoCarga(carga) { pagamentos ->
-        if (pagamentos.isEmpty()) EstadoVazio("Nenhum pagamento elegível para baixa.")
-        pagamentos.forEach { p ->
-            Card(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-                Column(Modifier.padding(12.dp)) {
-                    Text(p.medico)
-                    Text("${p.plantao} • ${p.instituicao}")
-                    Text(Datas.moeda(p.valor))
-                    Button(enabled = !ocupado && arquivo == null, onClick = {
-                        selecionadoId = p.id; selecionadoNome = p.medico; selecionadoValor = Datas.moeda(p.valor); mensagem = null
-                        escolher.launch(arrayOf("application/pdf", "image/jpeg", "image/png"))
-                    }) { Text("Anexar comprovante e dar baixa") }
+        val visiveis = pagamentos.filter { (it.status == "PAGO") == historico }
+        if (visiveis.isEmpty()) EstadoVazio(if (historico) "Nenhum pagamento realizado." else "Nenhum pagamento pendente.")
+        visiveis.forEach { p ->
+            key(p.id) {
+                Card(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(p.medico)
+                        Text("${p.plantao} • ${p.instituicao}")
+                        Text(Datas.moeda(p.valor))
+                        if (p.status == "PAGO") {
+                            Text("Pago em: ${p.pagoEm?.let { Datas.dataCurta(it) } ?: "Data não informada"}")
+                            BaixarComprovanteButton(p.id)
+                        } else {
+                            val vencimentoAtual = p.vencimento
+                            Text(
+                                when {
+                                    vencimentoAtual == null -> "A receber • sem vencimento definido"
+                                    vencimentoAtual.before(java.util.Date()) -> "Atrasado desde ${Datas.dataCurta(vencimentoAtual)}"
+                                    else -> "A receber • vence em ${Datas.dataCurta(vencimentoAtual)}"
+                                }
+                            )
+                            TextButton(enabled = !ocupado, onClick = {
+                                val (anoHoje, mesHoje, diaHoje) = vencimentoAtual?.let {
+                                    val cal = java.util.Calendar.getInstance(Datas.fuso).apply { time = it }
+                                    Triple(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH), cal.get(java.util.Calendar.DAY_OF_MONTH))
+                                } ?: java.util.Calendar.getInstance(Datas.fuso).let {
+                                    Triple(it.get(java.util.Calendar.YEAR), it.get(java.util.Calendar.MONTH), it.get(java.util.Calendar.DAY_OF_MONTH))
+                                }
+                                android.app.DatePickerDialog(context, { _, ano, mes, dia ->
+                                    val escolhido = FinanceiroCliente.fimDoDiaSelecionado(ano, mes, dia)
+                                    ocupado = true
+                                    executor.executar({ FinanceiroApi.definirVencimento(it, p.id, escolhido) }) { r ->
+                                        ocupado = false
+                                        mensagem = when (r) { is Resposta.Ok -> r.dados; is Resposta.Falha -> r.mensagem }
+                                        carga.recarregar()
+                                    }
+                                }, anoHoje, mesHoje, diaHoje).show()
+                            }) { Text("Definir vencimento") }
+                            if (p.vencimento != null) TextButton(enabled = !ocupado, onClick = {
+                                ocupado = true
+                                executor.executar({ FinanceiroApi.definirVencimento(it, p.id, null) }) { r ->
+                                    ocupado = false
+                                    mensagem = when (r) { is Resposta.Ok -> r.dados; is Resposta.Falha -> r.mensagem }
+                                    carga.recarregar()
+                                }
+                            }) { Text("Remover vencimento") }
+                            if (!p.encerrado) Text("Baixa disponível após o encerramento do plantão.")
+                            Button(enabled = p.encerrado && !ocupado && arquivo == null, onClick = {
+                                selecionadoId = p.id; selecionadoNome = p.medico; selecionadoValor = Datas.moeda(p.valor); mensagem = null
+                                escolher.launch(arrayOf("application/pdf", "image/jpeg", "image/png"))
+                            }) { Text("Anexar comprovante e dar baixa") }
+                        }
+                    }
                 }
             }
         }

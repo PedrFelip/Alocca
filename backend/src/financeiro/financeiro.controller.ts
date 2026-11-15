@@ -1,4 +1,6 @@
 import {
+  Body,
+  Put,
   Controller,
   HttpCode,
   Header,
@@ -13,6 +15,8 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common'
+import { z } from 'zod'
+import { ZodValidationPipe } from '../common/zod-validation.pipe.ts'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { AuthGuard, type AuthenticatedRequest } from '../auth/auth.guard.ts'
 import { Permissoes } from '../auth/permissoes.decorator.ts'
@@ -32,6 +36,35 @@ export class FinanceiroController {
   @Get('medico')
   doMedico(@Req() request: AuthenticatedRequest) {
     return this.financeiro.doMedico(request.usuarioId)
+  }
+
+  @Permissoes('GESTOR')
+  @Get('pagamentos')
+  pagamentos(@Req() request: AuthenticatedRequest) {
+    return this.financeiro.pagamentosGestor(request.usuarioId)
+  }
+
+  @Permissoes('GESTOR')
+  @Put('pagamentos/:id/vencimento')
+  vencimento(
+    @Req() request: AuthenticatedRequest,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(
+      new ZodValidationPipe(
+        z
+          .object({
+            vencimento_em: z.iso.datetime({ offset: true }).nullable(),
+          })
+          .strict(),
+      ),
+    )
+    body: { vencimento_em: string | null },
+  ) {
+    return this.financeiro.definirVencimento(
+      request.usuarioId,
+      id,
+      body.vencimento_em,
+    )
   }
 
   @Permissoes('GESTOR')
@@ -56,7 +89,7 @@ export class FinanceiroController {
     return this.financeiro.darBaixa(request.usuarioId, id, arquivo)
   }
 
-  @Permissoes('MEDICO')
+  @Permissoes('MEDICO', 'GESTOR')
   @Get('comprovantes/:id')
   @Header('Cache-Control', 'private, no-store')
   @Header('X-Content-Type-Options', 'nosniff')
@@ -64,7 +97,11 @@ export class FinanceiroController {
     @Req() request: AuthenticatedRequest,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    const arquivo = await this.financeiro.comprovante(request.usuarioId, id)
+    const arquivo = await this.financeiro.comprovante(
+      request.usuarioId,
+      id,
+      request.tipoUsuario === 'GESTOR',
+    )
     return new StreamableFile(arquivo.buffer, {
       type: arquivo.mime,
       disposition: `attachment; filename="${arquivo.nome}"`,

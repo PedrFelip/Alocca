@@ -8,18 +8,40 @@ import org.json.JSONObject
 import java.math.BigDecimal
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Date
 import java.util.UUID
 
-internal data class PendenteBaixa(val id: String, val medico: String, val plantao: String, val instituicao: String, val valor: BigDecimal)
+internal data class PendenteBaixa(val id: String, val medico: String, val plantao: String, val instituicao: String, val valor: BigDecimal, val status: String = "PENDENTE", val vencimento: Date? = null, val pagoEm: Date? = null, val encerrado: Boolean = true)
 internal data class ComprovanteArquivo(val nome: String, val mime: String, val bytes: ByteArray)
 
 internal object FinanceiroApi : FinanceiroCliente(BuildConfig.API_BASE_URL)
 
 internal open class FinanceiroCliente(private val baseUrl: String) {
-    companion object { const val LIMITE = 5 * 1024 * 1024 }
+    companion object {
+        const val LIMITE = 5 * 1024 * 1024
 
-    fun pendentes(token: String): Resposta<List<PendenteBaixa>> {
-        val r = conectar("financeiro/pendentes-baixa", token) { c ->
+        // Último milissegundo do dia escolhido, no fuso de apresentação (#78):
+        // o backend classifica "a receber" com vencimento_em >= now(), então o
+        // fim do dia mantém o pagamento a receber até a virada. Calendar (e
+        // não java.time) porque o minSdk é 24, sem desugaring.
+        fun fimDoDiaSelecionado(ano: Int, mes: Int, dia: Int): String {
+            val fimDoDia = java.util.Calendar.getInstance(Datas.fuso).apply {
+                clear(); set(ano, mes, dia, 0, 0, 0)
+                add(java.util.Calendar.DAY_OF_MONTH, 1)
+                add(java.util.Calendar.MILLISECOND, -1)
+            }
+            val formatoUtc = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
+            formatoUtc.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            return formatoUtc.format(fimDoDia.time)
+        }
+    }
+
+    fun pendentes(token: String): Resposta<List<PendenteBaixa>> = listar(token, "financeiro/pendentes-baixa")
+
+    fun pagamentos(token: String): Resposta<List<PendenteBaixa>> = listar(token, "financeiro/pagamentos")
+
+    private fun listar(token: String, path: String): Resposta<List<PendenteBaixa>> {
+        val r = conectar(path, token) { c ->
             val status = c.responseCode
             val texto = (if (status in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (status in 200..299) Resposta.Ok(texto) else falha(status, texto)
@@ -30,9 +52,21 @@ internal open class FinanceiroCliente(private val baseUrl: String) {
             val lista = JSONArray(texto)
             Resposta.Ok(List(lista.length()) { i ->
                 val p = lista.getJSONObject(i)
-                PendenteBaixa(p.getString("id"), p.getJSONObject("medico").getString("nome"), p.getJSONObject("plantao").getString("titulo"), p.getJSONObject("instituicao").getString("nome"), BigDecimal(p.getString("valor")))
+                val dataFim = Datas.parseIso(p.getJSONObject("plantao").getString("data_fim"))
+                    ?: error("data_fim inválida")
+                PendenteBaixa(p.getString("id"), p.getJSONObject("medico").getString("nome"), p.getJSONObject("plantao").getString("titulo"), p.getJSONObject("instituicao").getString("nome"), BigDecimal(p.getString("valor")), p.getString("status"), p.optString("vencimento_em").takeUnless { it.isBlank() || it == "null" }?.let(Datas::parseIso), p.optString("pago_at").takeUnless { it.isBlank() || it == "null" }?.let(Datas::parseIso), dataFim <= Date())
             })
         }.getOrElse { Resposta.Falha("Resposta inválida do servidor.", 0) }
+    }
+
+    fun definirVencimento(token: String, id: String, vencimento: String?): Resposta<String> = conectar("financeiro/pagamentos/$id/vencimento", token) { c ->
+        c.requestMethod = "PUT"
+        c.doOutput = true
+        c.setRequestProperty("Content-Type", "application/json")
+        c.outputStream.use { it.write(JSONObject().put("vencimento_em", vencimento ?: JSONObject.NULL).toString().toByteArray()) }
+        val status = c.responseCode
+        val texto = (if (status in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+        if (status in 200..299) Resposta.Ok(JSONObject(texto).getString("message")) else falha(status, texto)
     }
 
     fun lerArquivo(context: Context, uri: Uri): Resposta<ComprovanteArquivo> = try {

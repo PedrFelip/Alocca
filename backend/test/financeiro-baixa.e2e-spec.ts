@@ -11,10 +11,12 @@ import { drizzle } from 'drizzle-orm/pglite'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import { readFile, readdir } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import request from 'supertest'
 import { vi } from 'vitest'
 import { AppModule } from '../src/app.module.ts'
 import { DRIZZLE_DB } from '../src/db/db.provider.ts'
+import { criarClientePostgres } from '../src/db/cliente-postgres.ts'
 import { GestoresService } from '../src/gestores/gestores.service.ts'
 import { ComprovantesStorage } from '../src/financeiro/comprovantes.storage.ts'
 
@@ -62,7 +64,10 @@ describe('Baixa financeira e comprovantes (#85 e #86)', () => {
       await admin.unsafe(`CREATE DATABASE ${banco}`)
       const destino = new URL(url)
       destino.pathname = `/${banco}`
-      pg = postgres(destino.toString(), { max: 5 })
+      // Mesma fábrica da produção: sessão em UTC e parser de timestamp
+      // sem fuso ancorado em UTC, para os testes não validarem o fuso
+      // sob outra convenção (#78).
+      pg = criarClientePostgres(destino.toString(), { max: 5 })
       // Adaptador só do fixture: cada chamada preserva parâmetros SQL.
       db = {
         query: async (texto: string, parametros: unknown[] = []) => ({
@@ -71,7 +76,12 @@ describe('Baixa financeira e comprovantes (#85 e #86)', () => {
         exec: (texto: string) => pg!.unsafe(texto),
         close: () => pg!.end(),
       } as unknown as PGlite
-    } else db = new PGlite()
+    } else {
+      db = new PGlite()
+      // Paridade com a produção: now() e strings de vencimento classificados
+      // em UTC, como o criarClientePostgres garante no Postgres real (#78).
+      await db.exec("SET TimeZone = 'UTC'")
+    }
     for (const directory of (await readdir('drizzle')).sort())
       await db.exec(
         await readFile(`drizzle/${directory}/migration.sql`, 'utf8'),
@@ -247,8 +257,160 @@ describe('Baixa financeira e comprovantes (#85 e #86)', () => {
     await listar(inativo).expect(403)
     await baixar(p.id, medico).expect(403)
     await baixar(p.id, inativo).expect(403)
-    await comprovante(p.id, gestor).expect(403)
+    await comprovante(p.id, gestor).expect(404)
   })
+  const pagamentosGestor = (token = gestor) =>
+    request(app.getHttpServer())
+      .get('/financeiro/pagamentos')
+      .set('Authorization', token)
+  const vencimento = (id: string, data: unknown, token = gestor) =>
+    request(app.getHttpServer())
+      .put(`/financeiro/pagamentos/${id}/vencimento`)
+      .set('Authorization', token)
+      .send({ vencimento_em: data })
+
+  it('consulta histórico e comprovante com isolamento institucional', async () => {
+    const p = await pagamento()
+    await baixar(p.id).expect(200)
+    await pagamento({ instituicao: outraInstituicao, status: 'PAGO' })
+    const lista = (await pagamentosGestor().expect(200)).body
+    expect(lista).toHaveLength(1)
+    expect(lista[0]).toMatchObject({ id: p.id, status: 'PAGO' })
+    expect(lista[0]).not.toHaveProperty('chave')
+    expect((await comprovante(p.id, gestor).expect(200)).body).toEqual(pdf)
+    await comprovante(p.id, outroGestor).expect(404)
+    await comprovante(p.id, inativo).expect(403)
+    await pagamentosGestor(medico).expect(403)
+    await pagamentosGestor(inativo).expect(403)
+  })
+
+  it('define, altera e remove vencimento inclusive antes do encerramento', async () => {
+    const p = await pagamento({ futuro: true })
+    expect((await pagamentosGestor().expect(200)).body).toHaveLength(1)
+    const passado = new Date(Date.now() - 86400000).toISOString()
+    await vencimento(p.id, passado).expect(200)
+    expect(await resumo()).toMatchObject({
+      total_pendente: '100.00',
+      total_a_receber: '0',
+    })
+    await vencimento(
+      p.id,
+      new Date(Date.now() + 86400000).toISOString(),
+    ).expect(200)
+    expect(await resumo()).toMatchObject({
+      total_pendente: '0',
+      total_a_receber: '100.00',
+    })
+    await vencimento(p.id, null).expect(200)
+    expect(
+      (await pagamentosGestor().expect(200)).body[0].vencimento_em,
+    ).toBeNull()
+    await baixar(p.id).expect(409)
+  })
+
+  it('valida vencimento, escopo e imutabilidade de pagos', async () => {
+    const p = await pagamento()
+    for (const data of ['inválido', '2026-02-30T12:00:00Z', '', 42])
+      await vencimento(p.id, data).expect(400)
+    await vencimento(p.id, null, medico).expect(403)
+    await vencimento(p.id, null, inativo).expect(403)
+    await vencimento(p.id, null, outroGestor).expect(404)
+    await vencimento(randomUUID(), null).expect(404)
+    await baixar(p.id).expect(200)
+    await vencimento(p.id, null).expect(409)
+  })
+
+  // Regressão #78: o contrato (docs/contrato-financeiro.md) define GET
+  // /financeiro/pagamentos como lista de pendentes E pagos; a aba "Histórico
+  // de pagos" do app filtra status PAGO no cliente. O teste documenta esse
+  // contrato e o isolamento por instituição dos dois status.
+  it('histórico do gestor lista pendentes e pagos somente de suas instituições', async () => {
+    const pagoProprio = await pagamento()
+    await baixar(pagoProprio.id).expect(200)
+    const pendenteProprio = await pagamento({ valor: '30.00' })
+    const pagoAlheio = await pagamento({
+      instituicao: outraInstituicao,
+      status: 'PAGO',
+    })
+    const pendenteAlheio = await pagamento({ instituicao: outraInstituicao })
+    const visaoPropria = (await pagamentosGestor().expect(200)).body
+    expect(visaoPropria.map((p: { id: string }) => p.id).sort()).toEqual(
+      [pagoProprio.id, pendenteProprio.id].sort(),
+    )
+    for (const linha of visaoPropria) {
+      expect(linha).not.toHaveProperty('chave')
+      expect(linha).not.toHaveProperty('mime')
+      expect(linha).not.toHaveProperty('elegivel')
+      expect(linha).not.toHaveProperty('gestor_id')
+    }
+    const visaoAlheia = (await pagamentosGestor(outroGestor).expect(200)).body
+    expect(visaoAlheia.map((p: { id: string }) => p.id).sort()).toEqual(
+      [pagoAlheio.id, pendenteAlheio.id].sort(),
+    )
+    await pagamentosGestor(medico).expect(403)
+  })
+
+  it('gestor não baixa comprovante de pagamento pendente ou pago sem arquivo', async () => {
+    const pendente = await pagamento()
+    await comprovante(pendente.id, gestor).expect(404)
+    const legado = await pagamento({ status: 'PAGO' })
+    await comprovante(legado.id, gestor).expect(404)
+    await baixar(pendente.id).expect(200)
+    await comprovante(pendente.id, gestor).expect(200)
+    await comprovante(pendente.id, medico).expect(200)
+  })
+
+  it('remover vencimento devolve o valor a receber no resumo e no banco', async () => {
+    const p = await pagamento({ valor: '70.00' })
+    await vencimento(
+      p.id,
+      new Date(Date.now() - 86400000).toISOString(),
+    ).expect(200)
+    expect(await resumo()).toMatchObject({
+      total_pendente: '70.00',
+      total_a_receber: '0',
+    })
+    await vencimento(p.id, null).expect(200)
+    expect(await resumo()).toMatchObject({
+      total_pendente: '0',
+      total_a_receber: '70.00',
+    })
+    expect(
+      (
+        await db.query<{ vencimento_em: Date | null }>(
+          'SELECT vencimento_em FROM pagamentos WHERE id = $1',
+          [p.id],
+        )
+      ).rows[0].vencimento_em,
+    ).toBeNull()
+  })
+
+  it('exige corpo de vencimento estrito, sem campos extras', async () => {
+    const p = await pagamento()
+    await request(app.getHttpServer())
+      .put(`/financeiro/pagamentos/${p.id}/vencimento`)
+      .set('Authorization', gestor)
+      .send({})
+      .expect(400)
+    await request(app.getHttpServer())
+      .put(`/financeiro/pagamentos/${p.id}/vencimento`)
+      .set('Authorization', gestor)
+      .send({ vencimento_em: null, campo_extra: true })
+      .expect(400)
+    expect(
+      (await pagamentosGestor().expect(200)).body[0].vencimento_em,
+    ).toBeNull()
+  })
+
+  it('escopo precede status no vencimento: 404 para outro gestor e 409 para o dono', async () => {
+    const pagoAlheio = await pagamento({
+      instituicao: outraInstituicao,
+      status: 'PAGO',
+    })
+    await vencimento(pagoAlheio.id, null, gestor).expect(404)
+    await vencimento(pagoAlheio.id, null, outroGestor).expect(409)
+  })
+
   it('lista somente pendentes encerrados e ativos da instituição vinculada', async () => {
     const elegivel = await pagamento()
     await pagamento({ futuro: true })
@@ -553,6 +715,23 @@ describe('Baixa financeira e comprovantes (#85 e #86)', () => {
       total_recebido: '70.00',
       total_a_receber: '30.00',
       total_pendente: '0',
+    })
+  })
+  it('separa a receber de atrasado com margem de uma hora (#78)', async () => {
+    // Margens de ±24h escondem qualquer deslocamento de fuso de poucas horas:
+    // 1h pin a fronteira exata do contrato (fim do dia no fuso do app).
+    await pagamento({
+      valor: '10.00',
+      vencimento: new Date(Date.now() + 3600000).toISOString(),
+    })
+    await pagamento({
+      valor: '20.00',
+      vencimento: new Date(Date.now() - 3600000).toISOString(),
+    })
+    expect(await resumo()).toEqual({
+      total_recebido: '0',
+      total_a_receber: '10.00',
+      total_pendente: '20.00',
     })
   })
   it('nega baixa futura, fora do escopo e em objetos excluídos ou cancelados', async () => {

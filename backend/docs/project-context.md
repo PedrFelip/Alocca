@@ -433,3 +433,5 @@ sem `/api/v1`, são exclusivas do fluxo mobile novo. `/auth/login` legado perman
 para painel admin; em produção, acesso legado de médico/gestor exige a exceção
 `LOGIN_LEGADO_MOBILE=true`, que será retirada em até 30 dias após a implantação em produção. Contrato detalhado em `proposta-sessao-2fa.md`;
 estado efetivamente implementado e validações em `contrato-auth-app.md`.
+
+O gestor também consulta `GET /financeiro/pagamentos` (pendentes e pagos das instituições vinculadas), baixa comprovantes de pagamentos pagos via rota autenticada e define/remove vencimento explícito em `PUT /financeiro/pagamentos/:id/vencimento`. Apenas pagamentos pendentes aceitam alteração; não há cálculo automático de prazo. Ver `contrato-financeiro.md`.
