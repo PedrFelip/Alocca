@@ -13,6 +13,7 @@ const envSchema = z
     JWT_SECRET: z
       .string()
       .min(32, 'JWT_SECRET deve ter pelo menos 32 caracteres'),
+    LOGIN_LEGADO_MOBILE: z.enum(['true', 'false']).optional(),
     JWT_EXPIRES: z.coerce.number().int().min(60).max(86400).default(900),
     ADMIN_WEB_ORIGIN: z.url().default('http://localhost:5173'),
     ADMIN_EMAIL: z.email().trim().toLowerCase().optional(),

@@ -35,6 +35,14 @@ export class AuthService {
 
   async login(data: Login) {
     const usuario = await this.autenticar(data)
+    const legadoMobile = this.config.get('LOGIN_LEGADO_MOBILE', { infer: true })
+    if (
+      usuario.tipo !== 'ADMIN' &&
+      (legadoMobile === 'false' ||
+        (legadoMobile !== 'true' &&
+          this.config.get('NODE_ENV', { infer: true }) === 'production'))
+    )
+      throw new UnauthorizedException(mensagensOficiais['MSG-01'])
     return {
       access_token: await this.jwt.signAsync({
         sub: usuario.id,

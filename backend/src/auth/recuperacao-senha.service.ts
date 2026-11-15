@@ -148,7 +148,7 @@ export class RecuperacaoSenhaService {
         })
         .where(eq(usuariosTable.id, usuarioId))
       if (!(await this.passwords.verify(data.senha_atual, usuario.senha_hash)))
-        return 'invalido'
+        return 'senha_incorreta'
       const senha_hash = await this.passwords.hash(data.nova_senha)
       await tx
         .update(usuariosTable)
@@ -193,6 +193,8 @@ export class RecuperacaoSenhaService {
         'Muitas tentativas. Tente novamente em instantes.',
         429,
       )
+    if (resultado === 'senha_incorreta')
+      throw new BadRequestException(mensagensOficiais['MSG-01'])
     if (resultado !== 'ok')
       throw new UnauthorizedException(mensagensOficiais['MSG-01'])
     return { message: mensagensOficiais['MSG-08'] }

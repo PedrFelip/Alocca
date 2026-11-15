@@ -109,8 +109,8 @@ Corpo estrito: `{"senha_atual":"SenhaAtual123","nova_senha":"NovaSenha123"}`.
 
 - `200`: `{"message":"Senha atualizada com sucesso!"}` (MSG-08). Android apaga
   o token local e pede novo login. Todos os access tokens anteriores deixam de valer.
-- `400`: validação do corpo; não altera senha nem consome tentativa por conta.
-- `401`: sessão inválida ou senha atual incorreta (MSG-01); Android encerra sessão.
+- `400`: corpo inválido ou senha atual incorreta (MSG-01); senha incorreta consome tentativa por conta.
+- `401`: sessão inválida; Android encerra sessão.
 - `429`: até 5 requisições/min por IP e 5 tentativas/conta por minuto, com contador
   separado do bloqueio RN08. Não bloqueia o login da conta.
 
@@ -154,5 +154,4 @@ um retry pode disparar proteção de replay e exigir login; não existe janela d
 Biometria é opcional e local: CryptoObject com chave Keystore autenticada decifra
 marcador antes de restaurar sessão, sem declaração biométrica ao servidor. Hardware
 indisponível/chave invalidada permite voltar ao login PIN. Validação física pendente.
-Login legado `/auth/login` continua sem 2FA nesta transição; migração dos demais
-consumidores é futura. Aplicar também migração `20261114232625_peaceful_wolfpack`.
+Login legado `/auth/login` aceita apenas ADMIN em produção por padrão. `LOGIN_LEGADO_MOBILE=true` reabilita temporariamente o acesso sem PIN para MEDICO e GESTOR; `false` bloqueia também fora de produção. A data de retirada dessa exceção depende de decisão de produto. Aplicar também migração `20261114232625_peaceful_wolfpack`.

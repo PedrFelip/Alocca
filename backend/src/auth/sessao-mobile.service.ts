@@ -150,8 +150,6 @@ export class SessaoMobileService {
     return { message: 'Código enviado por e-mail.' }
   }
   async validar(raw: string, pin: string) {
-    if (!this.config.get('SMTP_HOST', { infer: true }))
-      throw new ServiceUnavailableException('Envio de e-mail indisponível')
     const result = await this.db.transaction(async (tx) => {
       const [ref] = await tx
         .select()

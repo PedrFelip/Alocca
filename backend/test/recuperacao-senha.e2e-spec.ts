@@ -319,7 +319,7 @@ describe('UC04 recuperação de senha', () => {
           senha_atual: 'errada',
           nova_senha: 'Senha-Nova-456',
         }),
-      ).rejects.toMatchObject({ status: 401 })
+      ).rejects.toMatchObject({ status: 400 })
     }
     await expect(
       servico.alterar(usuarioId, 0, {
@@ -338,7 +338,14 @@ describe('UC04 recuperação de senha', () => {
         .auth(token, { type: 'bearer' })
         .send({ senha_atual, nova_senha })
     expect((await alterar('Senha-Antiga-123', 'fraca')).status).toBe(400)
-    expect((await alterar('errada', 'Senha-Nova-456')).status).toBe(401)
+    expect((await alterar('errada', 'Senha-Nova-456')).status).toBe(400)
+    expect(
+      (
+        await request(app.getHttpServer())
+          .get('/usuarios/me')
+          .auth(token, { type: 'bearer' })
+      ).status,
+    ).toBe(200)
     expect((await login('Senha-Antiga-123')).status).toBe(200)
   })
 
