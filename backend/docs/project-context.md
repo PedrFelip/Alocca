@@ -431,5 +431,5 @@ Cliente guarda credenciais cifradas com chave Keystore, fora de backup e logs.
 Transição D18: novas rotas `/auth/login/medico` e `/auth/login/gestor`, snake_case,
 sem `/api/v1`, são exclusivas do fluxo mobile novo. `/auth/login` legado permanece
 para painel admin; em produção, acesso legado de médico/gestor exige a exceção
-`LOGIN_LEGADO_MOBILE=true`, com retirada ainda dependente de decisão da equipe. Contrato detalhado em `proposta-sessao-2fa.md`;
+`LOGIN_LEGADO_MOBILE=true`, que será retirada em até 30 dias após a implantação em produção. Contrato detalhado em `proposta-sessao-2fa.md`;
 estado efetivamente implementado e validações em `contrato-auth-app.md`.
