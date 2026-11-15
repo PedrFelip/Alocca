@@ -14,6 +14,13 @@ describe('validateEnv', () => {
     expect(validateEnv({ ...required, HOST: '0.0.0.0' }).HOST).toBe('0.0.0.0')
   })
 
+  it('desabilita confiança em proxies por padrão e aceita configuração explícita', () => {
+    expect(validateEnv(required).TRUST_PROXY).toBe('')
+    expect(
+      validateEnv({ ...required, TRUST_PROXY: 'loopback' }).TRUST_PROXY,
+    ).toBe('loopback')
+  })
+
   it('rejeita configuração de host vazia', () => {
     expect(() => validateEnv({ ...required, HOST: ' ' })).toThrow(
       /HOST: Too small/,
