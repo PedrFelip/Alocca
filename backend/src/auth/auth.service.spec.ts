@@ -32,7 +32,10 @@ describe('AuthService (logs de login falho)', () => {
     vi.restoreAllMocks()
   })
 
-  function criarServico(usuariosOverrides: Partial<UsuariosService> = {}) {
+  function criarServico(
+    usuariosOverrides: Partial<UsuariosService> = {},
+    env: Record<string, string> = {},
+  ) {
     const usuarios = {
       buscarCredenciais: vi.fn(),
       bloqueioLoginAtivo: vi.fn().mockResolvedValue(false),
@@ -41,7 +44,9 @@ describe('AuthService (logs de login falho)', () => {
         bloqueado_ate: null,
       }),
       registrarLogin: vi.fn().mockResolvedValue(true),
-      perfil: vi.fn().mockResolvedValue({ id: '11111111-1111-4111-8111-111111111111' }),
+      perfil: vi
+        .fn()
+        .mockResolvedValue({ id: '11111111-1111-4111-8111-111111111111' }),
       ...usuariosOverrides,
     } as unknown as UsuariosService
 
@@ -51,6 +56,7 @@ describe('AuthService (logs de login falho)', () => {
     } as unknown as JwtService
     const config = new ConfigService<Env, true>({
       JWT_EXPIRES: '900',
+      ...env,
     })
 
     return {
@@ -59,6 +65,36 @@ describe('AuthService (logs de login falho)', () => {
       usuarios,
     }
   }
+
+  it('restringe o login legado mobile em produção, salvo exceção explícita', async () => {
+    const senha = 'Senha-Correta-123'
+    const senha_hash = await new PasswordService().hash(senha)
+    const usuario = criarUsuarioBase({ senha_hash })
+    const overrides = { buscarCredenciais: vi.fn().mockResolvedValue(usuario) }
+    const credenciais = { email: usuario.email, senha }
+    const restrito = criarServico(overrides, { NODE_ENV: 'production' })
+    await expect(restrito.auth.login(credenciais)).rejects.toThrow(
+      UnauthorizedException,
+    )
+    const liberado = criarServico(overrides, {
+      NODE_ENV: 'production',
+      LOGIN_LEGADO_MOBILE: 'true',
+    })
+    await expect(liberado.auth.login(credenciais)).resolves.toHaveProperty(
+      'access_token',
+    )
+    const admin = criarServico(
+      {
+        buscarCredenciais: vi
+          .fn()
+          .mockResolvedValue({ ...usuario, tipo: 'ADMIN' }),
+      },
+      { NODE_ENV: 'production' },
+    )
+    await expect(admin.auth.login(credenciais)).resolves.toHaveProperty(
+      'access_token',
+    )
+  })
 
   function capturarLogsWarn() {
     return vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})

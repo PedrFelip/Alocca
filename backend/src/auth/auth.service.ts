@@ -34,6 +34,27 @@ export class AuthService {
   }
 
   async login(data: Login) {
+    const usuario = await this.autenticar(data)
+    const legadoMobile = this.config.get('LOGIN_LEGADO_MOBILE', { infer: true })
+    if (
+      usuario.tipo !== 'ADMIN' &&
+      (legadoMobile === 'false' ||
+        (legadoMobile !== 'true' &&
+          this.config.get('NODE_ENV', { infer: true }) === 'production'))
+    )
+      throw new UnauthorizedException(mensagensOficiais['MSG-01'])
+    return {
+      access_token: await this.jwt.signAsync({
+        sub: usuario.id,
+        versao_sessao: usuario.versao_sessao,
+      }),
+      token_type: 'Bearer',
+      expires_in: this.config.get('JWT_EXPIRES', { infer: true }),
+      usuario: await this.usuarios.perfil(usuario.id),
+    }
+  }
+
+  async autenticar(data: Login) {
     const usuario = await this.usuarios.buscarCredenciais(data.email)
     if (usuario && (await this.usuarios.bloqueioLoginAtivo(usuario.id))) {
       this.registrarLoginFalho('CONTA_BLOQUEADA_RN08', data.email, usuario.id)
@@ -76,12 +97,7 @@ export class AuthService {
       this.registrarLoginFalho('CONTA_BLOQUEADA_RN08', data.email, usuario.id)
       throw new HttpException(mensagensOficiais['MSG-03'], 429)
     }
-    return {
-      access_token: await this.jwt.signAsync({ sub: usuario.id }),
-      token_type: 'Bearer',
-      expires_in: this.config.get('JWT_EXPIRES', { infer: true }),
-      usuario: await this.usuarios.perfil(usuario.id),
-    }
+    return usuario
   }
 
   private registrarLoginFalho(

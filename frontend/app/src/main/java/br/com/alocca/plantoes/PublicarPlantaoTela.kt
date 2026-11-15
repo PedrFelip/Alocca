@@ -308,7 +308,7 @@ internal fun PublishShiftScreen(
                         ) {
                             Icon(Icons.Default.Info, contentDescription = null, tint = DeepTeal, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("O plantão termina no dia seguinte.", color = Navy, fontSize = 13.sp)
+                            Text(if (hours == endTime) "O plantão dura 24 horas e termina no dia seguinte." else "O plantão termina no dia seguinte.", color = Navy, fontSize = 13.sp)
                         }
                     }
                     CampoPlantaoTexto("Local de atuação", location, { location = it }, "Digite o nome ou endereço da unidade")

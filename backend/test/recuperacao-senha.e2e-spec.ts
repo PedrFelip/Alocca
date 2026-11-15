@@ -8,6 +8,7 @@ import { drizzle } from 'drizzle-orm/pglite'
 import { readFile, readdir } from 'node:fs/promises'
 import request from 'supertest'
 import { AppModule } from '../src/app.module.ts'
+import { JwtService } from '@nestjs/jwt'
 import { PasswordService } from '../src/auth/password.service.ts'
 import {
   hashDoToken,
@@ -261,6 +262,91 @@ describe('UC04 recuperação de senha', () => {
       .send({ token: 'codigo-valido', nova_senha: 'Outra-Senha-789' })
     expect(deNovo.status).toBe(400)
     expect(deNovo.body.message).toBe(MSG_06)
+  })
+
+  it('troca autenticada revoga tokens atuais e legados e invalida códigos', async () => {
+    const token = (await login('Senha-Antiga-123')).body.access_token
+    const legado = await app.get(JwtService).signAsync({ sub: usuarioId })
+    await criarToken('codigo-pendente')
+    expect(
+      (
+        await request(app.getHttpServer())
+          .get('/usuarios/me')
+          .auth(legado, { type: 'bearer' })
+      ).status,
+    ).toBe(200)
+    const resposta = await request(app.getHttpServer())
+      .post('/auth/alterar-senha')
+      .auth(token, { type: 'bearer' })
+      .send({ senha_atual: 'Senha-Antiga-123', nova_senha: 'Senha-Nova-456' })
+    expect(resposta.status).toBe(200)
+    expect(resposta.body.message).toBe(MSG_08)
+    for (const antigo of [token, legado]) {
+      expect(
+        (
+          await request(app.getHttpServer())
+            .get('/usuarios/me')
+            .auth(antigo, { type: 'bearer' })
+        ).status,
+      ).toBe(401)
+    }
+    expect(await codigosValendo()).toBe(0)
+    expect((await login('Senha-Nova-456')).status).toBe(200)
+  })
+
+  it('redefinição revoga sessões e todos os códigos pendentes', async () => {
+    const token = (await login('Senha-Antiga-123')).body.access_token
+    await criarToken('codigo-um')
+    await criarToken('codigo-dois')
+    await app
+      .get(RecuperacaoSenhaService)
+      .redefinir({ token: 'codigo-um', nova_senha: 'Senha-Nova-456' })
+    expect(
+      (
+        await request(app.getHttpServer())
+          .get('/usuarios/me')
+          .auth(token, { type: 'bearer' })
+      ).status,
+    ).toBe(401)
+    expect(await codigosValendo()).toBe(0)
+  })
+
+  it('limita tentativas por conta sem bloquear o login', async () => {
+    const servico = app.get(RecuperacaoSenhaService)
+    for (let i = 0; i < 5; i++) {
+      await expect(
+        servico.alterar(usuarioId, 0, {
+          senha_atual: 'errada',
+          nova_senha: 'Senha-Nova-456',
+        }),
+      ).rejects.toMatchObject({ status: 400 })
+    }
+    await expect(
+      servico.alterar(usuarioId, 0, {
+        senha_atual: 'Senha-Antiga-123',
+        nova_senha: 'Senha-Nova-456',
+      }),
+    ).rejects.toMatchObject({ status: 429 })
+    expect((await login('Senha-Antiga-123')).status).toBe(200)
+  })
+
+  it('valida senha nova antes de alterar e rejeita senha atual incorreta', async () => {
+    const token = (await login('Senha-Antiga-123')).body.access_token
+    const alterar = (senha_atual: string, nova_senha: string) =>
+      request(app.getHttpServer())
+        .post('/auth/alterar-senha')
+        .auth(token, { type: 'bearer' })
+        .send({ senha_atual, nova_senha })
+    expect((await alterar('Senha-Antiga-123', 'fraca')).status).toBe(400)
+    expect((await alterar('errada', 'Senha-Nova-456')).status).toBe(400)
+    expect(
+      (
+        await request(app.getHttpServer())
+          .get('/usuarios/me')
+          .auth(token, { type: 'bearer' })
+      ).status,
+    ).toBe(200)
+    expect((await login('Senha-Antiga-123')).status).toBe(200)
   })
 
   it('código vencido não troca a senha (RN11)', async () => {

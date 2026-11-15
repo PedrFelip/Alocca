@@ -22,6 +22,23 @@ internal object ApiHttp {
         payload: JSONObject? = null,
         token: String? = null,
     ): Resposta {
+        if (token == null || path.substringBefore('?') in setOf("auth/refresh", "auth/logout")) {
+            return enviarUmaVez(path, method, payload, token)
+        }
+        return autenticado(token, { status -> Resposta(status, "") }) { actual -> enviarUmaVez(path, method, payload, actual).let { it.status to it } }.second
+    }
+
+    /** Runs a replayable authenticated operation at most twice. */
+    fun <T> autenticado(token: String, failure: (Int) -> T, operation: (String) -> Pair<Int, T>): Pair<Int, T> {
+        val actual = SessionManager.currentAccess(token)
+        val first = operation(actual)
+        if (first.first != 401) return first
+        val renewed = SessionManager.refresh(actual)
+        val access = renewed.access ?: return if (renewed.status == 401 || renewed.status == 400) first else renewed.status to failure(renewed.status)
+        return operation(access)
+    }
+
+    private fun enviarUmaVez(path: String, method: String, payload: JSONObject?, token: String?): Resposta {
         var connection: HttpURLConnection? = null
         return try {
             connection = (URL(BuildConfig.API_BASE_URL + path).openConnection() as HttpURLConnection).apply {

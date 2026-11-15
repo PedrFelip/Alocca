@@ -1,3 +1,4 @@
+import { ConfigService } from '@nestjs/config'
 import { PerfilMedicoService } from '../src/medicos/perfil-medico.service.ts'
 import { AcessoInstitucionalService } from '../src/gestores/acesso-institucional.service.ts'
 import { AprovarCandidaturaUseCase } from '../src/candidaturas/aprovar-candidatura.use-case.ts'
@@ -60,7 +61,7 @@ describeConcorrencia(
       conexoes.push(conexao)
       const db = drizzle({ client: conexao as never })
       const acesso = new AcessoInstitucionalService(db, new GestoresService(db))
-      const alocacoes = new AlocacaoRepository()
+      const alocacoes = new AlocacaoRepository(new ConfigService())
       return new CandidaturasService(
         db,
         new PerfilMedicoService(db),

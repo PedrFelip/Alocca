@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { UsuariosModule } from '../usuarios/usuarios.module.ts'
+import { SessaoMobileService } from './sessao-mobile.service.ts'
 import { AuthController } from './auth.controller.ts'
 import { AuthService } from './auth.service.ts'
 import { SecurityModule } from './security.module.ts'
@@ -11,6 +12,11 @@ import { RecuperacaoSenhaService } from './recuperacao-senha.service.ts'
 @Module({
   imports: [UsuariosModule, SecurityModule, DatabaseModule, EmailModule],
   controllers: [AuthController],
-  providers: [AuthService, AdminBootstrapService, RecuperacaoSenhaService],
+  providers: [
+    SessaoMobileService,
+    AuthService,
+    AdminBootstrapService,
+    RecuperacaoSenhaService,
+  ],
 })
 export class AuthModule {}

@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
@@ -30,6 +31,8 @@ internal fun DateTimePickerField(
     value: String,
     onValueChange: (String) -> Unit,
     time: Boolean = false,
+    // quando a tela ja tem um titulo em cima do campo, o rotulo dentro fica repetido
+    mostrarRotulo: Boolean = true,
 ) {
     val context = LocalContext.current
     val format = if (time) "HH:mm" else "dd/MM/yyyy"
@@ -43,9 +46,18 @@ internal fun DateTimePickerField(
                 onValueChange(String.format(Locale.ROOT, "%02d:%02d", hour, minute))
             }, calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), true).show()
         } else {
-            DatePickerDialog(context, { _, year, month, day ->
+            val dialogo = DatePickerDialog(context, { _, year, month, day ->
                 onValueChange(String.format(Locale.ROOT, "%02d/%02d/%04d", day, month + 1, year))
-            }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show()
+            }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH))
+            // nao deixa escolher dia que ja passou: plantao no passado nao recebe candidatura
+            val hoje = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            dialogo.datePicker.minDate = hoje.timeInMillis
+            dialogo.show()
         }
         Unit
     }
@@ -59,8 +71,19 @@ internal fun DateTimePickerField(
             value = value,
             onValueChange = {},
             readOnly = true,
-            label = { Text(label) },
-            placeholder = { Text(if (time) "hh:mm" else "dd/mm/aaaa") },
+            // maxLines = 1 pra palavra nao quebrar no meio quando o campo e estreito
+            label = if (mostrarRotulo) {
+                { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            } else null,
+            placeholder = {
+                val dica = when {
+                    mostrarRotulo && time -> "hh:mm"
+                    mostrarRotulo -> "dd/mm/aaaa"
+                    time -> "Selecione o horário"
+                    else -> "Selecione a data"
+                }
+                Text(dica, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            },
             trailingIcon = {
                 Icon(if (time) Icons.Default.AccessTime else Icons.Default.CalendarMonth, contentDescription = null)
             },

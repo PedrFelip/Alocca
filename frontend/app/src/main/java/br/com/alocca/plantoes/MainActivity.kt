@@ -1,12 +1,14 @@
 package br.com.alocca.plantoes
 
+import androidx.activity.compose.LocalActivity
+
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.core.view.WindowCompat
@@ -89,10 +91,10 @@ internal val Muted = Color(0xFF657775)
 private val CanvasColor = Color(0xFFF3F9F8)
 private val Border = Color(0xFF48A8BC)
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        TokenStore.discardLegacyPlaintext(this)
+        SessionManager.initialize(this)
 
         // Permite que o fundo chegue até as bordas, atrás da barra de status e navegação.
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -114,7 +116,7 @@ class MainActivity : ComponentActivity() {
 
 }
 
-private enum class Screen { Login, Register, EsqueciSenha }
+private enum class Screen { Login, Pin, Register, EsqueciSenha }
 private enum class QuickActionScreen { Security, Calendar, Profile, Workplaces, Privacy }
 internal enum class InstitutionScreen { Home, Shifts, Doctors, Payments, TimeRecord, Settings, PublishShift }
 
@@ -129,6 +131,10 @@ private fun AuthApp() {
     var restoring by remember { mutableStateOf(true) }
     var podeTentarRestaurar by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val activity = checkNotNull(LocalActivity.current as? FragmentActivity)
+    var locked by remember { mutableStateOf(BiometricGate.enabled(context)) }
+    var challenge by remember { mutableStateOf("") }
+    var challengeDeadline by remember { mutableLongStateOf(0L) }
 
     fun restaurarSessao() {
         Thread {
@@ -138,12 +144,6 @@ private fun AuthApp() {
             } else {
                 val result = AuthApi.getProfile(token)
                 val autenticado = if (result.successful) PerfilUsuario.fromJson(result.body) else null
-                val sessionExpired = result.status == 401 || result.status == 403
-                // Remove só o token consultado: se um novo login acontecer durante
-                // a restauração, o token recém-salvo continua intacto.
-                if (autenticado == null && (result.successful || sessionExpired)) {
-                    TokenStore.clearIfMatches(context, token)
-                }
                 Handler(Looper.getMainLooper()).post {
                     when {
                         autenticado != null -> {
@@ -151,7 +151,7 @@ private fun AuthApp() {
                             podeTentarRestaurar = false
                             feedback = ""
                         }
-                        sessionExpired -> {
+                        result.status == 401 && TokenStore.read(context) == null -> {
                             feedback = "Sua sessão expirou. Entre novamente."
                             podeTentarRestaurar = false
                         }
@@ -177,7 +177,15 @@ private fun AuthApp() {
         restaurarSessao()
     }
 
-    LaunchedEffect(Unit) { restaurarSessao() }
+    LaunchedEffect(Unit) {
+        if (locked) {
+            restoring = false
+            BiometricGate.unlock(activity) { success, message ->
+                if (success) { locked = false; restoring = true; restaurarSessao() }
+                else feedback = message
+            }
+        } else restaurarSessao()
+    }
 
     fun submit(path: String, payload: JSONObject, onSuccess: (JSONObject?) -> Unit) {
         if (loading) return
@@ -195,12 +203,12 @@ private fun AuthApp() {
     }
 
     fun logout() {
-        if (!TokenStore.clear(context)) {
-            // Exclusão em disco falhou: avisar em vez de dizer que a sessão encerrou.
+        if (!SessionManager.logout(context)) {
             feedback = "Não foi possível encerrar a sessão. Tente novamente."
             feedbackSuccess = false
             return
         }
+        BiometricGate.clear(context)
         perfil = null
         screen = Screen.Login
         feedback = "Sessão encerrada."
@@ -208,17 +216,29 @@ private fun AuthApp() {
     }
 
     // voltar do celular na tela de esqueci a senha volta pro login em vez de fechar o app
-    BackHandler(enabled = perfil == null && screen == Screen.EsqueciSenha) {
+    BackHandler(enabled = perfil == null && (screen == Screen.EsqueciSenha || screen == Screen.Pin)) {
+        if (loading) return@BackHandler
         feedback = ""
+        challenge = ""
         screen = Screen.Login
     }
 
     fun expirarSessao() {
-        TokenStore.clear(context)
+        SessionManager.logout(context)
+        BiometricGate.clear(context)
         perfil = null
         screen = Screen.Login
         feedback = "Sua sessão expirou. Entre novamente."
         feedbackSuccess = false
+    }
+
+    fun senhaTrocada() {
+        val removido = SessionManager.logout(context)
+        BiometricGate.clear(context)
+        perfil = null
+        screen = Screen.Login
+        feedback = if (removido) "Senha atualizada com sucesso! Entre novamente." else "Senha atualizada, mas não foi possível limpar a sessão local. Entre novamente."
+        feedbackSuccess = removido
     }
 
     if (restoring) {
@@ -241,11 +261,29 @@ private fun AuthApp() {
             val currentPerfil = perfil
             if (currentPerfil != null) {
                 if (currentPerfil.tipo == "GESTOR") {
-                    InstitutionApp(currentPerfil, onLogout = ::logout)
+                    InstitutionApp(currentPerfil, onLogout = ::logout, onSenhaTrocada = ::senhaTrocada, onSessaoExpirada = ::expirarSessao)
                 } else {
                     CompositionLocalProvider(LocalSessaoExpirada provides ::expirarSessao) {
-                        HomeScreen(currentPerfil, onLogout = ::logout, onPerfilAtualizado = { perfil = it })
+                        HomeScreen(currentPerfil, onLogout = ::logout, onPerfilAtualizado = { perfil = it }, onSenhaTrocada = ::senhaTrocada, onSessaoExpirada = ::expirarSessao)
                     }
+                }
+            } else if (locked) {
+                Column(Modifier.fillMaxSize().statusBarsPadding().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Desbloqueie sua sessão", color = Navy, fontSize = 20.sp)
+                    if (feedback.isNotBlank()) FeedbackText(feedback, false)
+                    Spacer(Modifier.height(16.dp))
+                    PrimaryButton("Usar biometria") {
+                        BiometricGate.unlock(activity) { success, message ->
+                            if (success) { locked = false; restoring = true; restaurarSessao() } else feedback = message
+                        }
+                    }
+                    TextButton(onClick = {
+                        if (SessionManager.logout(context)) {
+                            BiometricGate.clear(context)
+                            locked = false
+                            feedback = "Entre novamente para receber um PIN."
+                        } else feedback = "Não foi possível limpar a sessão. Tente novamente."
+                    }) { Text("Entrar com e-mail e PIN") }
                 }
             } else if (showPrivacy) {
                 BackHandler { showPrivacy = false }
@@ -295,28 +333,73 @@ private fun AuthApp() {
                             loading = loading,
                             feedback = feedback,
                             feedbackSuccess = feedbackSuccess,
-                            onSubmit = { email, senha ->
-                                val payload = JSONObject().put("email", email.trim()).put("senha", senha)
-                                submit("auth/login", payload) { response ->
-                                    val token = response?.optString("access_token")?.trim().orEmpty()
-                                    val autenticado = PerfilUsuario.fromLoginResponse(response)
-                                    if (token.isBlank() || autenticado == null) {
-                                        feedback = "O servidor retornou uma sessão inválida. Tente novamente."
-                                        feedbackSuccess = false
+                            onSubmit = { tipo, email, senha ->
+                                if (!loading) {
+                                    if (podeTentarRestaurar && !SessionManager.logout(context)) {
+                                        feedback = "Não foi possível limpar a sessão anterior. Tente novamente."
                                     } else {
-                                        try {
-                                            TokenStore.save(context, token)
-                                            perfil = autenticado
-                                            feedback = ""
-                                            feedbackSuccess = false
-                                        } catch (_: Exception) {
-                                            feedback = "Não foi possível salvar a sessão com segurança. Tente novamente."
-                                            feedbackSuccess = false
+                                    podeTentarRestaurar = false
+                                    BiometricGate.clear(context)
+                                    loading = true
+                                    feedback = ""
+                                    Thread {
+                                        val login = AuthApi.iniciarLogin(tipo, email.trim(), senha)
+                                        val token = login.body?.optString("challenge_token").orEmpty()
+                                        val sent = if (login.successful) AuthApi.solicitarPin(token) else login
+                                        Handler(Looper.getMainLooper()).post {
+                                            loading = false
+                                            if (login.successful && sent.successful) {
+                                                challenge = token
+                                                challengeDeadline = android.os.SystemClock.elapsedRealtime() + login.body!!.optLong("expires_in") * 1000
+                                                screen = Screen.Pin
+                                                feedback = sent.message
+                                                feedbackSuccess = true
+                                            } else { feedback = sent.message; feedbackSuccess = false }
                                         }
+                                    }.start()
                                     }
                                 }
                             }
                         )
+                    } else if (screen == Screen.Pin) {
+                        Spacer(Modifier.height(24.dp))
+                        Text("Confirme seu acesso", color = Navy, fontSize = 23.sp)
+                        Text("Informe o PIN de 6 dígitos enviado por e-mail.", color = Muted)
+                        var pin by remember { mutableStateOf("") }
+                        Spacer(Modifier.height(20.dp))
+                        AuthField("PIN", pin, { pin = it.filter(Char::isDigit).take(6) }, "000000", Icons.Default.Lock, KeyboardType.NumberPassword, password = true)
+                        if (feedback.isNotBlank()) FeedbackText(feedback, feedbackSuccess)
+                        Spacer(Modifier.height(12.dp))
+                        PrimaryButton("Confirmar PIN", loading) {
+                            if (!pinValido(pin)) { feedback = "Informe os 6 dígitos do PIN."; feedbackSuccess = false }
+                            else if (challengeExpirado(android.os.SystemClock.elapsedRealtime(), challengeDeadline)) { feedback = "Desafio expirado. Volte e faça um novo login."; feedbackSuccess = false }
+                            else {
+                                loading = true
+                                val submittedPin = pin
+                                pin = ""
+                                Thread {
+                                    val result = AuthApi.validarPin(challenge, submittedPin)
+                                    val user = if (result.successful) PerfilUsuario.fromLoginResponse(result.body) else null
+                                    val saved = if (user != null && result.body != null) runCatching { SessionManager.save(context, result.body); true }.getOrDefault(false) else false
+                                    Handler(Looper.getMainLooper()).post {
+                                        loading = false
+                                        if (saved) { challenge = ""; perfil = user; feedback = "" }
+                                        else { feedback = if (result.successful) "Não foi possível salvar a sessão com segurança." else result.message; feedbackSuccess = false }
+                                    }
+                                }.start()
+                            }
+                        }
+                        TextButton(enabled = !loading, onClick = {
+                            if (challengeExpirado(android.os.SystemClock.elapsedRealtime(), challengeDeadline)) { feedback = "Desafio expirado. Volte e faça um novo login."; feedbackSuccess = false }
+                            else {
+                                loading = true
+                                Thread {
+                                    val result = AuthApi.solicitarPin(challenge)
+                                    Handler(Looper.getMainLooper()).post { loading = false; feedback = result.message; feedbackSuccess = result.successful }
+                                }.start()
+                            }
+                        }) { Text("Reenviar PIN") }
+                        TextButton(enabled = !loading, onClick = { challenge = ""; feedback = ""; screen = Screen.Login }) { Text("Voltar ao login") }
                     } else if (screen == Screen.EsqueciSenha) {
                         Spacer(Modifier.height(10.dp))
                         Text("Esqueceu sua senha?", color = Navy, fontSize = 23.sp, fontWeight = FontWeight.Medium)
@@ -372,11 +455,13 @@ private fun AuthApp() {
 }
 
 @Composable
-private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtualizado: (PerfilUsuario) -> Unit = {}) {
+private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtualizado: (PerfilUsuario) -> Unit = {}, onSenhaTrocada: () -> Unit = {}, onSessaoExpirada: () -> Unit = {}) {
     var activeTab by remember { mutableStateOf("Início") }
     var notificationsOpen by remember { mutableStateOf(false) }
     var quickActionScreen by remember { mutableStateOf<QuickActionScreen?>(null) }
     var confirmandoSaida by remember { mutableStateOf(false) }
+    val contextoHome = LocalContext.current
+    val token = remember(perfil.id) { TokenStore.read(contextoHome) }
     val primeiroNome = perfil.nome.trim().split(" ").firstOrNull { it.isNotBlank() && !it.endsWith(".") } ?: "Doutor(a)"
     val pedirSaida = { confirmandoSaida = true }
 
@@ -404,7 +489,7 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
         activeTab = selected
     }
     when (quickActionScreen) {
-        QuickActionScreen.Security -> { SecurityScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected, onAbrirPrivacidade = { quickActionScreen = QuickActionScreen.Privacy }); return }
+        QuickActionScreen.Security -> { SecurityScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected, onAbrirPrivacidade = { quickActionScreen = QuickActionScreen.Privacy }, onSenhaTrocada = onSenhaTrocada, onSessaoExpirada = onSessaoExpirada); return }
         QuickActionScreen.Calendar -> { CalendarScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
         QuickActionScreen.Profile -> { ProfileScreen(perfil = perfil, onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected, onPerfilAtualizado = onPerfilAtualizado); return }
         QuickActionScreen.Workplaces -> { WorkplacesScreen(onBack = { quickActionScreen = null }, onTabSelected = onQuickTabSelected); return }
@@ -413,7 +498,7 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
     }
 
     if (activeTab == "Configurações") {
-        SettingsScreen(perfil = perfil, onTabSelected = { activeTab = it }, onLogout = pedirSaida, onAbrirPerfil = { quickActionScreen = QuickActionScreen.Profile }, onAbrirSeguranca = { quickActionScreen = QuickActionScreen.Security }, onAbrirPrivacidade = { quickActionScreen = QuickActionScreen.Privacy })
+        SettingsScreen(perfil = perfil, token = token, onSessaoExpirada = onSessaoExpirada, onTabSelected = { activeTab = it }, onLogout = pedirSaida, onAbrirPerfil = { quickActionScreen = QuickActionScreen.Profile }, onAbrirSeguranca = { quickActionScreen = QuickActionScreen.Security }, onAbrirPrivacidade = { quickActionScreen = QuickActionScreen.Privacy })
         return
     }
 
@@ -481,7 +566,7 @@ private fun HomeScreen(perfil: PerfilUsuario, onLogout: () -> Unit, onPerfilAtua
                 enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
                 exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
             ) {
-                NotificationsPanel(onClose = { notificationsOpen = false })
+                NotificationsPanel(token, onSessaoExpirada, onClose = { notificationsOpen = false })
             }
         }
     }
@@ -497,7 +582,7 @@ internal fun CalendarLegend(color: Color, label: String) {
 }
 
 @Composable
-private fun SecurityScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit, onAbrirPrivacidade: () -> Unit = {}) {
+private fun SecurityScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit, onAbrirPrivacidade: () -> Unit = {}, onSenhaTrocada: () -> Unit, onSessaoExpirada: () -> Unit) {
     Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             QuickActionHeader("Segurança", onBack)
@@ -511,10 +596,11 @@ private fun SecurityScreen(onBack: () -> Unit, onTabSelected: (String) -> Unit, 
                 Spacer(Modifier.height(18.dp))
                 SecurityStatusCard()
                 Spacer(Modifier.height(22.dp))
+                BiometricSettings()
+                Spacer(Modifier.height(24.dp))
                 Text("Alterar senha", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(6.dp))
-                // Sem rota de troca de senha no backend ainda (chega junto com a UC04).
-                EstadoVazio("A troca de senha pelo aplicativo ainda não está disponível. Ela será liberada junto com a recuperação de senha.")
+                AlterarSenhaForm(onSenhaTrocada, onSessaoExpirada)
                 Spacer(Modifier.height(24.dp))
                 Text("Sessão", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(9.dp))
@@ -806,12 +892,12 @@ private data class InstitutionShift(
 )
 
 @Composable
-private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
+private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit, onSenhaTrocada: () -> Unit, onSessaoExpirada: () -> Unit) {
     var screen by remember { mutableStateOf(InstitutionScreen.Home) }
     var notificationsOpen by remember { mutableStateOf(false) }
     val open: (InstitutionScreen) -> Unit = { screen = it }
     val context = LocalContext.current
-    val token = remember { TokenStore.read(context) }
+    val token = remember(perfil.id) { TokenStore.read(context) }
     var candidaturaPlantao by remember { mutableStateOf<ItemPlantao?>(null) }
     BackHandler(enabled = notificationsOpen || candidaturaPlantao != null || screen != InstitutionScreen.Home) {
         when {
@@ -823,12 +909,12 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
     }
     Box(Modifier.fillMaxSize()) {
         when (screen) {
-            InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, token, open, onLogout) { notificationsOpen = !notificationsOpen }
+            InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, token, open, onLogout, onSessaoExpirada) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.Shifts -> if (candidaturaPlantao != null) PlantoesScreen(gestor = true, onBack = { candidaturaPlantao = null }, inicial = candidaturaPlantao) else InstitutionShiftsScreen(token, open) { candidaturaPlantao = it }
-            InstitutionScreen.Doctors -> InstitutionDoctorsScreen(token, open, onLogout)
+            InstitutionScreen.Doctors -> InstitutionDoctorsScreen(token, open, onSessaoExpirada)
             InstitutionScreen.Payments -> InstitutionPaymentsScreen(open)
-            InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(token, open, onLogout)
-            InstitutionScreen.Settings -> InstitutionSettingsScreen(perfil, open, onLogout) { notificationsOpen = !notificationsOpen }
+            InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(token, open, onSessaoExpirada)
+            InstitutionScreen.Settings -> InstitutionSettingsScreen(perfil, token, open, onLogout, onSenhaTrocada, onSessaoExpirada) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.PublishShift -> PublishShiftScreen(
                 token,
                 onBack = { screen = InstitutionScreen.Shifts },
@@ -841,12 +927,12 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit) {
             modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 52.dp, end = 15.dp),
             enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
             exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
-        ) { NotificationsPanel(onClose = { notificationsOpen = false }) }
+        ) { NotificationsPanel(token, onSessaoExpirada, onClose = { notificationsOpen = false }) }
     }
 }
 
 @Composable
-private fun InstitutionHomeScreen(name: String, token: String?, onNavigate: (InstitutionScreen) -> Unit, onLogout: () -> Unit, onNotification: () -> Unit) {
+private fun InstitutionHomeScreen(name: String, token: String?, onNavigate: (InstitutionScreen) -> Unit, onLogout: () -> Unit, onSessaoExpirada: () -> Unit, onNotification: () -> Unit) {
     InstitutionPage(InstitutionScreen.Home, onNavigate) {
         // Reutiliza exatamente o cabeçalho do fluxo médico: menu, marca e sino.
         HomeHeader(onNotification = onNotification, onLogout = onLogout)
@@ -854,6 +940,8 @@ private fun InstitutionHomeScreen(name: String, token: String?, onNavigate: (Ins
             Spacer(Modifier.height(15.dp))
             Text("Olá, ${name.ifBlank { "Gestor" }}!", color = Navy, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Text("Confira o resumo da sua instituição e\ngerencie seus plantões.", color = Color(0xFF45617D), fontSize = 12.sp, lineHeight = 15.sp)
+            Spacer(Modifier.height(12.dp))
+            IndicadoresGestorConteudo(token, onSessaoExpirada)
             Spacer(Modifier.height(12.dp))
             InstitutionRecentShifts(token, onNavigate)
             Spacer(Modifier.height(12.dp))
@@ -912,12 +1000,14 @@ internal fun ManagerBottomNavigation(active: InstitutionScreen, onNavigate: (Ins
     Row(modifier = Modifier.fillMaxWidth().height(65.dp).background(Color.White).border(1.dp, Color(0xFFE0E7ED)), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
         items.forEach { (label, icon, destination) ->
             val selected = active == destination
+            // o item do meio continua maior, mas so fica azul quando e a aba atual
+            // (antes ficava sempre azul e parecia que tinha duas abas marcadas)
             val centralItem = label == "Médicos"
             Column(modifier = Modifier.width(65.dp).clickable { onNavigate(destination) }, horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(modifier = Modifier.size(if (centralItem) 38.dp else if (selected) 37.dp else 29.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (centralItem || selected) Color(0xFF1475D1) else Color.Transparent), contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = if (centralItem || selected) Color.White else Color(0xFF152226), modifier = Modifier.size(if (centralItem) 23.dp else 21.dp))
+                Box(modifier = Modifier.size(if (centralItem) 38.dp else if (selected) 37.dp else 29.dp).clip(androidx.compose.foundation.shape.CircleShape).background(if (selected) Color(0xFF1475D1) else Color.Transparent), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = if (selected) Color.White else Color(0xFF152226), modifier = Modifier.size(if (centralItem) 23.dp else 21.dp))
                 }
-                Text(label, color = if (selected || centralItem) Color(0xFF1475D1) else Color(0xFF152226), fontSize = 8.sp, fontWeight = if (selected || centralItem) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
+                Text(label, color = if (selected) Color(0xFF1475D1) else Color(0xFF152226), fontSize = 8.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
             }
         }
     }
@@ -973,13 +1063,32 @@ private fun InstitutionPaymentsScreen(onNavigate: (InstitutionScreen) -> Unit) {
 @Composable
 private fun InstitutionSettingsScreen(
     perfil: PerfilUsuario,
+    token: String?,
     onNavigate: (InstitutionScreen) -> Unit,
     onLogout: () -> Unit,
+    onSenhaTrocada: () -> Unit,
+    onSessaoExpirada: () -> Unit,
     onNotification: () -> Unit,
 ) {
     var selectedOption by remember { mutableStateOf<String?>(null) }
     val displayName = perfil.nome.ifBlank { "Gestor" }
 
+    if (selectedOption == "Segurança") {
+        BackHandler { selectedOption = null }
+        Surface(modifier = Modifier.fillMaxSize(), color = Color.White) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+                QuickActionHeader("Segurança") { selectedOption = null }
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp)) {
+                    BiometricSettings()
+                    Spacer(Modifier.height(24.dp))
+                    Text("Alterar senha", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(12.dp))
+                    AlterarSenhaForm(onSenhaTrocada, onSessaoExpirada)
+                }
+            }
+        }
+        return
+    }
     InstitutionPage(InstitutionScreen.Settings, onNavigate) {
         Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             Spacer(Modifier.height(18.dp))
@@ -1014,7 +1123,7 @@ private fun InstitutionSettingsScreen(
             }
             Spacer(Modifier.height(18.dp))
             SettingsSectionTitle("Preferências do aplicativo")
-            Text("Preferências de notificações ainda não disponíveis.", color = Muted, fontSize = 12.sp)
+            SettingsGroup { PreferenciasNotificacoes(token, onSessaoExpirada) }
 
             Spacer(Modifier.height(18.dp))
             SettingsSectionTitle("Informações do sistema")
@@ -1334,7 +1443,7 @@ internal fun ProfileEditorCard(title: String, fields: List<Pair<String, String>>
 }
 
 @Composable
-private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Unit, onLogout: () -> Unit, onAbrirPerfil: () -> Unit = {}, onAbrirSeguranca: () -> Unit = {}, onAbrirPrivacidade: () -> Unit = {}) {
+private fun SettingsScreen(perfil: PerfilUsuario, token: String?, onSessaoExpirada: () -> Unit, onTabSelected: (String) -> Unit, onLogout: () -> Unit, onAbrirPerfil: () -> Unit = {}, onAbrirSeguranca: () -> Unit = {}, onAbrirPrivacidade: () -> Unit = {}) {
     var notificationsOpen by remember { mutableStateOf(false) }
     val primeiroNome = perfil.nome.trim().substringBefore(" ").ifBlank { "" }
 
@@ -1386,7 +1495,7 @@ private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Uni
                     MainSettingsSectionTitle("Preferências do aplicativo")
                     Spacer(Modifier.height(7.dp))
                     SettingsCard {
-                        Text("Preferências de notificações indisponíveis no momento.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(12.dp))
+                        PreferenciasNotificacoes(token, onSessaoExpirada)
                     }
                     Spacer(Modifier.height(19.dp))
                     SettingsCard { SettingsNavigationRow(Icons.Default.Logout, "Sair da conta", "", Color(0xFFFFE6E8), Color(0xFFFF4A53), showDescription = false, onClick = onLogout) }
@@ -1400,7 +1509,7 @@ private fun SettingsScreen(perfil: PerfilUsuario, onTabSelected: (String) -> Uni
                 modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 46.dp, end = 16.dp),
                 enter = expandIn(expandFrom = Alignment.TopEnd) + fadeIn(),
                 exit = shrinkOut(shrinkTowards = Alignment.TopEnd) + fadeOut(),
-            ) { NotificationsPanel(onClose = { notificationsOpen = false }) }
+            ) { NotificationsPanel(token, onSessaoExpirada, onClose = { notificationsOpen = false }) }
         }
     }
 }
@@ -1493,6 +1602,8 @@ private fun InstitutionHomeScreenPreview() {
                 motivoRejeicao = null,
             ),
             onLogout = {},
+            onSenhaTrocada = {},
+            onSessaoExpirada = {},
         )
     }
 }
@@ -1544,31 +1655,6 @@ internal fun HomeHeader(onNotification: () -> Unit, onLogout: () -> Unit) {
                 modifier = Modifier.size(27.dp),
             )
 
-        }
-    }
-}
-
-@Composable
-internal fun NotificationsPanel(onClose: () -> Unit) {
-    Surface(
-        modifier = Modifier.width(300.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = Color.White,
-        shadowElevation = 10.dp,
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE0E5E5)),
-    ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Text("Notificações", color = Navy, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(15.dp))
-            Text("Notificações ainda não disponíveis.", color = Muted, fontSize = 12.sp)
-            Spacer(Modifier.height(16.dp))
-            Text(
-                "Fechar",
-                color = DeepTeal,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.End).clickable(onClick = onClose).padding(5.dp),
-            )
         }
     }
 }
@@ -1826,13 +1912,21 @@ private fun LoginForm(
     loading: Boolean,
     feedback: String,
     feedbackSuccess: Boolean,
-    onSubmit: (String, String) -> Unit
+    onSubmit: (String, String, String) -> Unit
 ) {
+    var tipo by remember { mutableStateOf("medico") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
     var formError by remember { mutableStateOf("") }
 
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        RadioButton(selected = tipo == "medico", onClick = { tipo = "medico" })
+        Text("Médico", Modifier.clickable { tipo = "medico" })
+        Spacer(Modifier.width(20.dp))
+        RadioButton(selected = tipo == "gestor", onClick = { tipo = "gestor" })
+        Text("Gestor", Modifier.clickable { tipo = "gestor" })
+    }
     AuthField("E-mail", email, { email = it }, "Seu@email.com", Icons.Default.Email, KeyboardType.Email)
     Spacer(Modifier.height(28.dp))
     AuthField(
@@ -1855,7 +1949,7 @@ private fun LoginForm(
             password.length > 128 -> "A senha deve ter no máximo 128 caracteres."
             else -> ""
         }
-        if (formError.isEmpty()) onSubmit(email, password)
+        if (formError.isEmpty()) onSubmit(tipo, email, password)
     }
     Row(
         Modifier.fillMaxWidth().padding(vertical = 10.dp),
@@ -1872,6 +1966,54 @@ private fun LoginForm(
             Modifier.clickable(onClick = onRegister),
             color = Border, fontWeight = FontWeight.Bold, fontSize = 13.sp
         )
+    }
+}
+
+internal fun validarAlteracaoSenha(atual: String, nova: String, confirmacao: String): String = when {
+    atual.isEmpty() -> "Informe sua senha atual."
+    !senhaAtendeRn05(nova) -> "A senha deve ter de 8 a 128 caracteres, com maiúscula, minúscula e número."
+    nova != confirmacao -> "As senhas não coincidem."
+    else -> ""
+}
+
+@Composable
+private fun AlterarSenhaForm(onSenhaTrocada: () -> Unit, onSessaoExpirada: () -> Unit) {
+    var atual by remember { mutableStateOf("") }
+    var nova by remember { mutableStateOf("") }
+    var confirmacao by remember { mutableStateOf("") }
+    var erro by remember { mutableStateOf("") }
+    var carregando by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    AuthField("Senha atual", atual, { atual = it; erro = "" }, "Sua senha atual", Icons.Default.Lock, KeyboardType.Password, password = true)
+    Spacer(Modifier.height(12.dp))
+    AuthField("Nova senha", nova, { nova = it; erro = "" }, "Crie uma senha segura", Icons.Default.Lock, KeyboardType.Password, password = true)
+    Spacer(Modifier.height(12.dp))
+    AuthField("Confirme a nova senha", confirmacao, { confirmacao = it; erro = "" }, "Confirme sua senha", Icons.Default.Lock, KeyboardType.Password, password = true)
+    if (erro.isNotBlank()) { Spacer(Modifier.height(8.dp)); FeedbackText(erro, false) }
+    Spacer(Modifier.height(16.dp))
+    PrimaryButton("Alterar senha", carregando) {
+        erro = validarAlteracaoSenha(atual, nova, confirmacao)
+        if (erro.isEmpty() && !carregando) {
+            val token = TokenStore.read(context)
+            if (token == null) {
+                atual = ""; nova = ""; confirmacao = ""
+                onSessaoExpirada()
+            } else {
+                carregando = true
+                val senhaAtual = atual
+                val novaSenha = nova
+                Thread {
+                    val resultado = AuthApi.alterarSenha(token, senhaAtual, novaSenha)
+                    Handler(Looper.getMainLooper()).post {
+                        carregando = false
+                        if (resultado.successful || resultado.status == 401) {
+                            atual = ""; nova = ""; confirmacao = ""
+                            if (resultado.successful) onSenhaTrocada() else onSessaoExpirada()
+                        } else erro = resultado.message
+                    }
+                }.start()
+            }
+        }
     }
 }
 
@@ -2387,3 +2529,23 @@ private fun InstitutionRecentShifts(token: String?, onNavigate: (InstitutionScre
         }
     }
 }
+
+@Composable
+private fun BiometricSettings() {
+    val activity = checkNotNull(LocalActivity.current as? FragmentActivity)
+    var enabled by remember { mutableStateOf(BiometricGate.enabled(activity)) }
+    var message by remember { mutableStateOf("") }
+    Text("Biometria neste dispositivo", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+    Text("Use sua biometria para desbloquear a sessão ao abrir o aplicativo.", color = Muted, fontSize = 13.sp)
+    TextButton(onClick = {
+        if (enabled) {
+            BiometricGate.clear(activity)
+            enabled = false
+            message = "Biometria desativada."
+        } else BiometricGate.enable(activity) { success, result -> enabled = success; message = result }
+    }) { Text(if (enabled) "Desativar biometria" else "Ativar biometria") }
+    if (message.isNotBlank()) FeedbackText(message, enabled || message == "Biometria desativada.")
+}
+
+internal fun pinValido(pin: String): Boolean = pin.length == 6 && pin.all { it in '0'..'9' }
+internal fun challengeExpirado(agora: Long, limite: Long): Boolean = agora >= limite

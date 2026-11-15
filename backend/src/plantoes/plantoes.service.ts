@@ -1,3 +1,5 @@
+import { ConfigService } from '@nestjs/config'
+import type { Env } from '../config/env.ts'
 import { AcessoInstitucionalService } from '../gestores/acesso-institucional.service.ts'
 import { PerfilMedicoService } from '../medicos/perfil-medico.service.ts'
 import {
@@ -53,11 +55,19 @@ export class PlantoesService {
 
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: Database,
+    @Inject(ConfigService) private readonly config: ConfigService<Env, true>,
     @Inject(GestoresService) private readonly gestores: GestoresService,
     @Inject(PerfilMedicoService) private readonly perfis: PerfilMedicoService,
     @Inject(AcessoInstitucionalService)
     private readonly acesso: AcessoInstitucionalService,
   ) {}
+
+  private emailElegivel(usuarioId: string) {
+    return this.config.get('NOTIFICACOES_EMAIL_HABILITADO', { infer: true }) ===
+      'true'
+      ? sql<boolean>`coalesce((select email_notificacoes_habilitado from usuarios where id = ${usuarioId}), false)`
+      : false
+  }
 
   async listar(usuarioId: string, filtros: ListarPlantoes) {
     const medicoId = await this.perfis.idDoUsuario(usuarioId)
@@ -422,6 +432,7 @@ export class PlantoesService {
           await tx.insert(notificacoesTable).values(
             destinos.map((d) => ({
               usuario_destino_id: d.usuario_id,
+              email_elegivel: this.emailElegivel(d.usuario_id),
               plantao_id: id,
               tipo: 'CANDIDATURA_REJEITADA',
             })),
@@ -557,6 +568,7 @@ export class PlantoesService {
         await tx.insert(notificacoesTable).values(
           participantes.map((p) => ({
             usuario_destino_id: p.usuario_id,
+            email_elegivel: this.emailElegivel(p.usuario_id),
             plantao_id: id,
             tipo:
               status === 'CANCELADO'

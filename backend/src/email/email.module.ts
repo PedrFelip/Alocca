@@ -13,6 +13,6 @@ import { EmailService } from './email.service.ts'
     EmailPayloadService,
     EmailOutboxService,
   ],
-  exports: [EmailService, EmailPayloadService],
+  exports: [EmailSender, EmailService, EmailPayloadService],
 })
 export class EmailModule {}

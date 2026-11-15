@@ -47,7 +47,7 @@ status, …`, **sem `senha_hash`**) + `medico`:
 ```
 
 - `200`: `{ access_token, token_type: "Bearer", expires_in: 900, usuario: { …, medico|null } }`.
-  JWT HS256 de 15 min (env `JWT_EXPIRES`); o guard revalida `status = ATIVO` no banco a cada request.
+  JWT HS256 de 15 min (env `JWT_EXPIRES`); o guard revalida `status = ATIVO` e a versão de sessão no banco a cada request. Troca ou recuperação de senha invalida todos os tokens anteriores, inclusive legados sem versão.
 - `401` (MSG-01) → mesma resposta para senha errada e e-mail inexistente (anti-enumeração).
 - `429` (MSG-03) → 5 falhas consecutivas (RN08) ou throttle. RN08: bloqueio de
   15 min, `tentativas_falhas` reseta no sucesso e na expiração do bloqueio.
@@ -100,3 +100,62 @@ status, …`, **sem `senha_hash`**) + `medico`:
   deve mostrar a mensagem do servidor; 409 → MSG-02; 429 → MSG-03;
   exceção de rede → mensagem de conexão distinta das anteriores.
 - Senha do cadastro deve espelhar RN05 no cliente (mesma exigência do backend).
+
+
+## `POST /auth/alterar-senha` — configurações (Bearer)
+
+Corpo estrito: `{"senha_atual":"SenhaAtual123","nova_senha":"NovaSenha123"}`.
+`nova_senha` segue RN05, com máximo de 128 caracteres; senha atual não sofre trim.
+
+- `200`: `{"message":"Senha atualizada com sucesso!"}` (MSG-08). Android apaga
+  o token local e pede novo login. Todos os access tokens anteriores deixam de valer.
+- `400`: corpo inválido ou senha atual incorreta (MSG-01); senha incorreta consome tentativa por conta.
+- `401`: sessão inválida; Android encerra sessão.
+- `429`: até 5 requisições/min por IP e 5 tentativas/conta por minuto, com contador
+  separado do bloqueio RN08. Não bloqueia o login da conta.
+
+Senha, incremento de `versao_sessao` e invalidação de códigos de recuperação pendentes
+são gravados na mesma transação, com trava de usuário. Recuperação bem-sucedida
+aplica a mesma revogação. JWT sem `versao_sessao` equivale à versão zero, preservando
+sessões legadas até a primeira troca/recuperação. Campos internos não entram no perfil.
+Aplicar as migrações de autenticação antes de iniciar o backend atualizado.
+
+## 2FA, refresh e logout — mobile (D9)
+
+Todas as rotas retornam 200 no sucesso e usam snake_case, sem `/api/v1`.
+
+- `POST /auth/login/medico` ou `/auth/login/gestor`: `{email,senha}` →
+  `{challenge_token,requer_2fa:true,expires_in:300}`. Nenhuma sessão antes do PIN.
+- `POST /auth/2fa/solicitar-pin`: `{challenge_token}` → `{message}`. PIN numérico
+  de 6 dígitos, 5 minutos; reenvio substitui PIN anterior. Até 3 envios/conta/15 min
+  e 5 requisições/IP/min. SMTP ausente/falho retorna 503, sem simular entrega.
+- `POST /auth/2fa/validar-pin`: `{challenge_token,pin_code}` →
+  `{access_token,token_type:"Bearer",expires_in,refresh_token,refresh_expires_in,usuario}`.
+  Challenge é de uso único, expira em 5 minutos e fica inválido após 5 erros.
+- `POST /auth/refresh`: `{refresh_token}` → mesmo shape de sessão. Refresh gira
+  atomicamente; prazo absoluto da família é 30 dias, sem extensão. Replay revoga
+  a família inteira. Guard consulta sessão ativa em cada uso do access mobile.
+- `POST /auth/logout`: `{refresh_token}` → `{message}`, idempotente; revoga família
+  atual inclusive access. Alteração/recuperação revoga todas as famílias e desafios.
+
+Challenge/refresh são aleatórios de 256 bits e só persistem como SHA-256; PIN é
+HMAC-SHA256 com subchave derivada por HKDF do segredo do servidor. A transação
+reserva o envio e invalida o PIN anterior; SMTP ocorre fora do bloqueio e o novo
+PIN só é ativado após o envio. Falha do SMTP invalida apenas esse PIN e conta no
+limite; se o processo cair após envio e antes da confirmação, solicite outro PIN.
+A limpeza horária remove desafios e sessões expirados e envios de mais de 15 minutos;
+refresh consumido é preservado até expirar a sessão para detectar replay. Respostas
+inválidas/expiradas usam 401; limites usam 429.
+
+Android usa as rotas mobile por papel, tela PIN e restauração via perfil. Guarda
+par e expirações atomicamente cifrados AES-GCM/Keystore, com backup desativado.
+Renovação é serializada e cada operação autenticada repete no máximo uma vez,
+inclusive upload/download. Rede/5xx preserva credenciais; refresh 400/401 encerra
+sessão. Logout limpa local imediatamente e tenta revogação remota em background:
+sem rede não garante revogação remota. Se resposta de rotação se perder após commit,
+um retry pode disparar proteção de replay e exigir login; não existe janela de graça.
+
+Biometria é opcional e local: CryptoObject com chave Keystore autenticada decifra
+marcador antes de restaurar sessão, sem declaração biométrica ao servidor. Hardware
+indisponível/chave invalidada permite voltar ao login PIN. Validação física pendente.
+Login legado `/auth/login` aceita apenas ADMIN em produção por padrão. `LOGIN_LEGADO_MOBILE=true` reabilita temporariamente o acesso sem PIN para MEDICO e GESTOR; `false` bloqueia também fora de produção. A exceção será retirada em até 30 dias após a implantação em produção; tokens legados já emitidos permanecem válidos até expirarem ou serem revogados. Aplicar todas as migrações de sessão, incluindo índices e confirmação do envio do PIN.
