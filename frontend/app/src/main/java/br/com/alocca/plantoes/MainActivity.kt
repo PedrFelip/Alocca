@@ -1,5 +1,7 @@
 package br.com.alocca.plantoes
 
+import androidx.activity.compose.LocalActivity
+
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -129,7 +131,7 @@ private fun AuthApp() {
     var restoring by remember { mutableStateOf(true) }
     var podeTentarRestaurar by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
-    val activity = context as FragmentActivity
+    val activity = checkNotNull(LocalActivity.current as? FragmentActivity)
     var locked by remember { mutableStateOf(BiometricGate.enabled(context)) }
     var challenge by remember { mutableStateOf("") }
     var challengeDeadline by remember { mutableLongStateOf(0L) }
@@ -2846,7 +2848,7 @@ private fun InstitutionRecentShifts(token: String?, onNavigate: (InstitutionScre
 
 @Composable
 private fun BiometricSettings() {
-    val activity = LocalContext.current as FragmentActivity
+    val activity = checkNotNull(LocalActivity.current as? FragmentActivity)
     var enabled by remember { mutableStateOf(BiometricGate.enabled(activity)) }
     var message by remember { mutableStateOf("") }
     Text("Biometria neste dispositivo", color = Navy, fontSize = 16.sp, fontWeight = FontWeight.Bold)
