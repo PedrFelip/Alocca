@@ -4,8 +4,9 @@
 
 As telas de médicos e registro de ponto do gestor consultam `/gestor/medicos` e `/gestor/ponto` com o token da sessão. Mostram dados reais, estado vazio, carregamento e erro, atualização manual e paginação. Sessão expirada encerra o login. As consultas respeitam as instituições vinculadas ao gestor; o vínculo do médico deriva exclusivamente de alocações (RN14).
 
-A tela de médicos exibe nome, CRM/UF, especialidade, estado da conta e validação cadastral. A de ponto exibe médico, plantão, instituição, evento, horário do servidor no fuso do dispositivo e presença/ausência de localização. Não há edição nem registro de ponto em nome de terceiros.
+A tela de médicos exibe nome, CRM/UF, especialidade, estado da conta e validação cadastral. A de ponto exibe médico, plantão, instituição, evento, horário do servidor no fuso de São Paulo e presença/ausência de localização. Não há edição nem registro de ponto em nome de terceiros.
 
+As duas telas aplicam filtros no servidor e reiniciam a paginação ao aplicar ou limpar. Médicos: busca por nome/CRM/especialidade e filtros de especialidade, UF, conta, validação e instituição. Ponto: seleção de médico com busca paginada real, instituição, evento e período por dias locais (data final inclusiva na interface, convertida para limite exclusivo na API). Instituições vêm dos vínculos reais do gestor. Respostas antigas não substituem a consulta atual. O contrato e as limitações de paginação por offset estão em `backend/docs/contrato-consultas-gestor.md`.
 ## Indicadores da home do gestor
 
 A home consome `GET /gestor/indicadores`, independente da paginação de plantões. O período é todo o histórico elegível das instituições ativas que o gestor administra, considerando os vínculos atuais e exclusões. Médicos são contados uma única vez por identidade, a partir de alocações; o histórico inclui alocações pagas e não representa vínculo contratual vigente. Vagas preenchidas contam alocações elegíveis, não a quantidade de plantões com status preenchido.
@@ -18,7 +19,7 @@ Os pagamentos são separados em pago, a pagar (pendente sem vencimento ou ainda 
 - **Segurança:** implementar troca de senha autenticada nas configurações. Recuperação de senha já chama a API, mas envio real requer SMTP configurado. Definir e implementar o contrato de 2FA/PIN e renovação de sessão; não adicionar autenticação fictícia.
 - **Notificações:** entregar os eventos da outbox por push/e-mail, registrar dispositivo e implementar listagem/leitura e preferências no aplicativo. A interface atual informa indisponibilidade.
 - **Resumo do gestor:** filtros por período e comparativos temporais ficam fora desta entrega. O resumo usa todo o histórico elegível; não representa um fechamento contábil nem substitui a lista de pagamentos.
-- **Médicos e ponto:** busca/filtros no servidor, detalhes do profissional e eventual fluxo de contestação/ajuste de ponto precisam de contrato próprio. A consulta paginada está integrada; a tela de gestor não concede poderes de validação cadastral do administrador.
+- **Médicos e ponto:** buscas/filtros têm contrato em `backend/docs/contrato-consultas-gestor.md`. Detalhes do profissional e eventual fluxo de contestação/ajuste permanecem pendentes; a tela de gestor não concede poderes de validação cadastral do administrador nem altera presença.
 - **Regras de produto:** fechar compensações/estornos no cancelamento, validação cadastral institucional e contratos pendentes listados em `backend/docs/decisoes-pendentes.md`.
 - **Operação:** validar o fluxo completo em dispositivo com contas reais (publicação → candidatura → aprovação → ponto → pagamento com comprovante), configurar HTTPS, SMTP e infraestrutura de produção. O modo HTTP/ADB do script é para desenvolvimento.
 
@@ -26,6 +27,7 @@ Os pagamentos são separados em pago, a pagar (pendente sem vencimento ou ainda 
 
 Build e lint do backend; testes de presença/consultas com PGlite, incluindo autenticação, papel, isolamento institucional, paginação, exclusões e ausência de coordenadas; build e testes unitários Android, incluindo leitura das respostas novas.
 
+Nesta frente: 33 testes unitários backend; suíte de integração geral com 242 aprovados e 12 ignorados na execução inicial; depois da conclusão do backend, 16 testes de presença/consultas aprovados com `TZ=America/Sao_Paulo`, build e lint aprovados. Android: 36 testes unitários, `assembleDebug` e `lintDebug` offline aprovados na conferência final, usando apenas `ANDROID_HOME` no processo. Uma execução anterior apresentou falha intermitente no teste de dispatcher de `PlantoesRepositoryTest`, fora desta alteração; a conferência completa posterior passou. Nenhum app foi instalado e não houve validação visual/em dispositivo. Testes de Postgres real ignorados por indisponibilidade continuam sendo limitação da validação local.
 ## Validação dos indicadores
 
 Backend: build e lint, 33 testes unitários e 248 testes de integração aprovados (`bun run test:e2e --maxWorkers=2`); 12 casos dependentes de serviços externos pulados. Os nove casos novos verificam isolamento, deduplicação, exclusões, revogação, totais decimais e vencimento inclusive exatamente no instante da consulta.
