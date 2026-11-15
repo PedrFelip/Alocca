@@ -151,7 +151,7 @@ describe('GET /gestor/indicadores', () => {
     await alocar(p1, medicos[1], '0.20')
     const futuro = (
       await db.query<{ data: string }>(
-        "SELECT (now() + interval '1 minute')::text AS data",
+        "SELECT ((now() at time zone 'UTC') + interval '1 minute')::text AS data",
       )
     ).rows[0]!.data
     await alocar(p2, medicos[0], '123.45', 'PENDENTE', futuro)
@@ -195,7 +195,7 @@ describe('GET /gestor/indicadores', () => {
   it('separa vencimentos pelo relógio do banco, inclusive sem vencimento', async () => {
     const datas = (
       await db.query<{ passado: string; futuro: string }>(
-        "SELECT (now() - interval '1 second')::text AS passado, (now() + interval '1 minute')::text AS futuro",
+        "SELECT ((now() at time zone 'UTC') - interval '1 second')::text AS passado, ((now() at time zone 'UTC') + interval '1 minute')::text AS futuro",
       )
     ).rows[0]!
     await alocar(await plantao(), medicos[0], '0.01', 'PENDENTE', datas.passado)
@@ -215,7 +215,7 @@ describe('GET /gestor/indicadores', () => {
     await db.exec('BEGIN')
     try {
       await db.query(
-        'UPDATE pagamentos SET vencimento_em = now() WHERE id = $1',
+        "UPDATE pagamentos SET vencimento_em = (now() at time zone 'UTC') WHERE id = $1",
         [pagamento],
       )
       const resposta = await consultar().expect(200)

@@ -47,9 +47,9 @@ export class ConsultasGestorRepository {
         select
           coalesce(sum(pg.valor) filter (where pg.status = 'PAGO'), 0)::text as total_pago,
           coalesce(sum(pg.valor) filter (where pg.status = 'PENDENTE' and
-            (pg.vencimento_em is null or pg.vencimento_em >= now())), 0)::text as total_a_pagar,
+            (pg.vencimento_em is null or pg.vencimento_em >= (now() at time zone 'UTC'))), 0)::text as total_a_pagar,
           coalesce(sum(pg.valor) filter (where pg.status = 'PENDENTE' and
-            pg.vencimento_em < now()), 0)::text as total_em_atraso
+            pg.vencimento_em < (now() at time zone 'UTC')), 0)::text as total_em_atraso
         from ${pagamentos} pg
         join alocacoes_elegiveis a on a.id = pg.alocacao_id
         where pg.deleted_at is null

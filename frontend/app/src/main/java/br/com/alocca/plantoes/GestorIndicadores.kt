@@ -10,9 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.math.BigDecimal
-import java.text.NumberFormat
-import java.text.SimpleDateFormat
-import java.util.Locale
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.graphics.Color
 
 internal data class IndicadoresGestor(
     val atualizadoEm: String, val plantoes: Int, val medicos: Int, val vagas: Int,
@@ -62,7 +61,7 @@ internal class GestorIndicadoresCliente(
 }
 
 internal fun formatarValorIndicador(valor: BigDecimal): String =
-    NumberFormat.getCurrencyInstance(Locale("pt", "BR")).format(valor)
+    Datas.moeda(valor)
 
 @Composable
 internal fun IndicadoresGestorConteudo(token: String?, onSessaoExpirada: () -> Unit) {
@@ -84,29 +83,30 @@ internal fun IndicadoresGestorConteudo(token: String?, onSessaoExpirada: () -> U
             else erro = (failure as? ApiException)?.userMessage ?: "Não foi possível carregar os indicadores."
         } finally { carregando = false }
     }
-    Card(Modifier.fillMaxWidth()) {
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Color(0xFFE0E5E5))) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Indicadores • todo o histórico", style = MaterialTheme.typography.titleMedium)
             Text("Instituições ativas que você administra; plantões não cancelados ou excluídos.", style = MaterialTheme.typography.bodySmall)
             when {
-                carregando -> CircularProgressIndicator()
-                erro.isNotBlank() -> {
+                carregando && dados == null -> CircularProgressIndicator()
+                erro.isNotBlank() && dados == null -> {
                     Text(erro, color = MaterialTheme.colorScheme.error)
                     TextButton(onClick = { tentativa++ }) { Text("Tentar novamente") }
                 }
                 dados != null -> {
                     val d = dados!!
                     if (d.vazio) Text("Nenhum dado no histórico das suas instituições.")
-                    Text("Plantões: ${d.plantoes}")
+                    Text("Plantões no histórico: ${d.plantoes}")
                     Text("Médicos com alocação no histórico: ${d.medicos}")
                     Text("Cada médico conta uma vez, inclusive após pagamento.", style = MaterialTheme.typography.bodySmall)
                     Text("Vagas preenchidas: ${d.vagas}")
                     Text("Total pago: ${formatarValorIndicador(d.pago)}")
                     Text("A pagar (a vencer ou sem vencimento): ${formatarValorIndicador(d.aPagar)}")
                     Text("Em atraso: ${formatarValorIndicador(d.atrasado)}")
-                    val data = Datas.parseIso(d.atualizadoEm)!!
-                    Text("Atualizado em ${SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR")).format(data)}", style = MaterialTheme.typography.bodySmall)
-                    TextButton(onClick = { tentativa++ }) { Text("Atualizar") }
+                    Text("Atualizado em ${Datas.dataHora(Datas.parseIso(d.atualizadoEm)!!)}", style = MaterialTheme.typography.bodySmall)
+                    if (erro.isNotBlank()) Text(erro, color = MaterialTheme.colorScheme.error)
+                    if (carregando) CircularProgressIndicator()
+                    else TextButton(onClick = { tentativa++ }) { Text("Atualizar") }
                 }
             }
         }

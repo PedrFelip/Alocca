@@ -825,9 +825,9 @@ private fun InstitutionApp(perfil: PerfilUsuario, onLogout: () -> Unit, onSessao
         when (screen) {
             InstitutionScreen.Home -> InstitutionHomeScreen(perfil.nome, token, open, onLogout, onSessaoExpirada) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.Shifts -> if (candidaturaPlantao != null) PlantoesScreen(gestor = true, onBack = { candidaturaPlantao = null }, inicial = candidaturaPlantao) else InstitutionShiftsScreen(token, open) { candidaturaPlantao = it }
-            InstitutionScreen.Doctors -> InstitutionDoctorsScreen(token, open, onLogout)
+            InstitutionScreen.Doctors -> InstitutionDoctorsScreen(token, open, onSessaoExpirada)
             InstitutionScreen.Payments -> InstitutionPaymentsScreen(open)
-            InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(token, open, onLogout)
+            InstitutionScreen.TimeRecord -> InstitutionTimeRecordScreen(token, open, onSessaoExpirada)
             InstitutionScreen.Settings -> InstitutionSettingsScreen(perfil, open, onLogout) { notificationsOpen = !notificationsOpen }
             InstitutionScreen.PublishShift -> PublishShiftScreen(
                 token,
