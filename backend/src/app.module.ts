@@ -1,3 +1,4 @@
+import { NotificacoesModule } from './notificacoes/notificacoes.module.ts'
 import { Module } from '@nestjs/common'
 import { APP_FILTER, APP_GUARD } from '@nestjs/core'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
@@ -27,6 +28,7 @@ import { InstituicoesModule } from './instituicoes/instituicoes.module.ts'
       validate: validateEnv,
     }),
     DatabaseModule,
+    NotificacoesModule,
     AuthModule,
     AgendaModule,
     PresencaModule,

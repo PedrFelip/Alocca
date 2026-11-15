@@ -3,7 +3,7 @@ import { Logger, type INestApplication } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { JwtService } from '@nestjs/jwt'
 import { drizzle } from 'drizzle-orm/pglite'
-import { readFile } from 'node:fs/promises'
+import { readFile, readdir } from 'node:fs/promises'
 import request from 'supertest'
 import { vi } from 'vitest'
 import { AppModule } from '../src/app.module.ts'
@@ -64,6 +64,20 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
         'utf8',
       ),
     )
+    // Preserve the legacy-user migration assertion, then bring the fixture up to date.
+    const aplicadas = new Set([
+      '20260917114458_peaceful_frog_thor',
+      '20261009191003_classy_paper_doll',
+      '20261009213113_amused_nextwave',
+      '20261019230000_login_lockout',
+      '20261026133738_rainy_liz_osborn',
+    ])
+    for (const dir of (await readdir('drizzle')).sort()) {
+      if (!aplicadas.has(dir))
+        await database.exec(
+          await readFile(`drizzle/${dir}/migration.sql`, 'utf8'),
+        )
+    }
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(DRIZZLE_DB)
       .useValue(drizzle({ client: database }))

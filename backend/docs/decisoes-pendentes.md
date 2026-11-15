@@ -20,8 +20,8 @@ Marque `[x]` e mova para o spec quando decidir.
 - [ ] **D13 — Colunas extras do PR0 (fora do spec):** `plantoes` mantém `titulo`, `descricao`, `permite_candidatura`, `exige_checkin` e `permite_geolocalizacao`; `pagamentos` mantém `vencimento_em`/`observacoes`; `candidaturas` mantém `mensagem_medico`/`observacao_gestor`/`analisado_por_gestor_id`/`analisado_at`. Alinhar/validar com a frente de gestão de plantões. Impacto: colunas.
   Situação atual: as colunas continuam nos schemas (`plantoes.ts`, `pagamentos.ts`, `candidaturas.ts`). Falta decidir com a frente de gestão de plantões se cada uma fica, entra no spec ou sai.
 - [x] **D14 — `pagamentos.urlComprovantePdf`:** referência interna em `pagamentos.comprovante_chave` e MIME em `comprovante_mime`; nome UUID, sem URL pública. Download via API autenticada (UC08/UC12).
-- [ ] **D15 — Tabelas fora do PR0:** `notificacoes` criada (outbox UC11; entrega ainda em D10). `tokens_2fa` (D9) ainda não existe. Impacto: UC02.
-  Situação atual: `notificacoes` existe (`backend/src/db/schemas/notificacoes.ts`); nenhum schema tem `tokens_2fa`. Falta decidir se o 2FA entra no PR0, o que depende de D9, e como `notificacoes` será entregue, o que depende de D10.
+- [ ] **D15 — Tabelas fora do PR0:** `notificacoes` criada (outbox UC11; entrega conforme D10). `tokens_2fa` (D9) ainda não existe. Impacto: UC02.
+  Situação atual: `notificacoes` existe (`backend/src/db/schemas/notificacoes.ts`); nenhum schema tem `tokens_2fa`. Falta decidir se o 2FA entra no PR0, o que depende de D9, e a eventual inclusão de `tokens_2fa`.
 - [ ] **D16 — Recandidatura:** `UNIQUE(plantao_id, medico_id)` em candidaturas impede nova candidatura após `REJEITADA` (spec). Decidir se rejeitado pode voltar a candidatar-se (índice parcial). Impacto: UC05.
   Situação atual: a unique `candidaturas_plantao_medico_unique` (`backend/src/db/schemas/candidaturas.ts`) continua valendo, então uma candidatura `REJEITADA` bloqueia nova candidatura ao mesmo plantão. Falta decidir se rejeitado pode voltar a se candidatar; se sim, a unique precisaria virar índice parcial.
 
@@ -40,7 +40,7 @@ Marque `[x]` e mova para o spec quando decidir.
 - [x] **D7b — Semântica dos totais financeiros (confirmada pelo produto em 14/11/2026):** `total_recebido` = `PAGO`; `total_a_receber` = `PENDENTE` não vencido (`vencimento_em` nulo ou futuro); `total_pendente` = `PENDENTE` vencido. Confirmado pelo usuário: manter vencimento explícito; sem data fica em “A receber”. Não inferir prazo pelo fim do plantão. Igualdade ao instante atual ainda está no prazo.
 - [ ] **D8 — Validação de CNPJ (RN30):** "CNPJ válido e ativo + ramo de saúde" — como? API da Receita na hora do vínculo, validação só de formato + dígito, ou manual? Impacto: UC de vínculo de instituição (ainda sem endpoint no spec).
 - [ ] **D9 — Fluxo 2FA completo:** não implementado no contrato atual do app Android. Permanecem pendentes o formato/expiração do `challengeToken`, expiração do refresh token (RNF05) e quem envia o e-mail do PIN (provedor SMTP?). Não adicionar 2FA até definir e alinhar o contrato de UC02/UC03 com o app.
-- [ ] **D10 — Notificações da cascata (UC11):** UC11 grava os eventos em outbox (`notificacoes`) na MESMA transação da aprovação (RN21). Pendente: provedor de entrega (Firebase, SMTP próprio, worker de consumo do outbox) e colunas de canal/retry. Impacto: UC02/UC11.
+- [x] **D10 — Notificações da cascata (UC11), aprovada em 15/11/2026:** caixa de entrada sempre disponível e email SMTP opcional por ambiente e preferência, com worker, retry e entrega pelo menos uma vez. Push depende de infraestrutura ainda não definida. Contrato e operação em `contrato-notificacoes.md`; emails de segurança são independentes.
 
 ## Infra
 

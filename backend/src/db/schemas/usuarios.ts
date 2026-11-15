@@ -1,4 +1,5 @@
 import {
+  boolean,
   integer,
   pgEnum,
   pgTable,
@@ -21,6 +22,9 @@ export const usuariosTable = pgTable('usuarios', {
   cpf: varchar('cpf', { length: 11 }).unique(),
   email: varchar('email', { length: 255 }).unique().notNull(),
   senha_hash: varchar('senha_hash', { length: 255 }).notNull(),
+  email_notificacoes_habilitado: boolean('email_notificacoes_habilitado')
+    .notNull()
+    .default(false),
   telefone: varchar('telefone', { length: 20 }),
   tipo: TipoUsuario().notNull(),
   status: StatusUsuario().notNull().default('ATIVO'),
