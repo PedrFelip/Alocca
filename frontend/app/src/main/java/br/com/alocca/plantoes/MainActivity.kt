@@ -1481,7 +1481,7 @@ private fun PublishShiftScreen(
                         }
                     }
                     if (hours.isNotBlank() && endTime.isNotBlank() && endTime <= hours) {
-                        Text("O plantão termina no dia seguinte.", color = Navy, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
+                        Text(if (hours == endTime) "O plantão dura 24 horas e termina no dia seguinte." else "O plantão termina no dia seguinte.", color = Navy, fontSize = 12.sp, modifier = Modifier.padding(bottom = 8.dp))
                     }
                     PublishFormField(Icons.Default.LocationOn, Color(0xFFE5F4FA), "Local de atuação") { PublishTextInput(location, { location = it }, "Digite o nome ou endereço da unidade") }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1489,7 +1489,7 @@ private fun PublishShiftScreen(
                         Box(Modifier.weight(1f)) { PublishFormField(Icons.Default.Groups, Color(0xFFE5F4FA), "Vagas") { PublishTextInput(vacancies, { vacancies = it }, "Ex.: 10") } }
                     }
                     PublishFormField(Icons.Default.EventNote, Color(0xFFE5F4FA), "Observações", optional = true) {
-                        OutlinedTextField(value = note, onValueChange = { note = it }, placeholder = { Text("Informações adicionais sobre o plantão, como\nrequisitos, tipo de atendimento, etc.", fontSize = 9.sp, lineHeight = 11.sp) }, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = Navy), modifier = Modifier.fillMaxWidth().height(84.dp), shape = RoundedCornerShape(7.dp), maxLines = 4)
+                        OutlinedTextField(value = note, onValueChange = { note = it }, placeholder = { Text("Informações adicionais sobre o plantão, como\nrequisitos, tipo de atendimento, etc.", fontSize = 14.sp, lineHeight = 18.sp) }, textStyle = androidx.compose.ui.text.TextStyle(fontSize = 16.sp, color = Navy), modifier = Modifier.fillMaxWidth().height(84.dp), shape = RoundedCornerShape(7.dp), maxLines = 4)
                     }
                 }
                 if (instituicoesErro.isNotBlank()) {

@@ -112,6 +112,7 @@ internal fun InstitutionPicker(
             onValueChange = {},
             readOnly = true,
             enabled = enabled,
+            label = { Text("Instituição") },
             placeholder = { Text(when {
                 loading -> "Carregando instituições…"
                 options.isEmpty() -> "Nenhuma instituição vinculada"
