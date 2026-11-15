@@ -55,8 +55,20 @@ export class AuthGuard implements CanActivate {
         id: usuariosTable.id,
         tipo: usuariosTable.tipo,
         versao: usuariosTable.versao_sessao,
+        sessao: sessoesMobileTable.id,
       })
       .from(usuariosTable)
+      .leftJoin(
+        sessoesMobileTable,
+        sid
+          ? and(
+              eq(sessoesMobileTable.id, sid),
+              eq(sessoesMobileTable.usuario_id, usuariosTable.id),
+              isNull(sessoesMobileTable.revoked_at),
+              gt(sessoesMobileTable.expires_at, sql`now()`),
+            )
+          : sql`false`,
+      )
       .where(
         and(
           eq(usuariosTable.id, usuarioId),
@@ -67,21 +79,8 @@ export class AuthGuard implements CanActivate {
       .limit(1)
     if (!usuario || usuario.versao !== versaoSessao)
       throw new UnauthorizedException('Usuário indisponível')
-    if (sid) {
-      const [sessao] = await this.db
-        .select({ id: sessoesMobileTable.id })
-        .from(sessoesMobileTable)
-        .where(
-          and(
-            eq(sessoesMobileTable.id, sid),
-            eq(sessoesMobileTable.usuario_id, usuarioId),
-            isNull(sessoesMobileTable.revoked_at),
-            gt(sessoesMobileTable.expires_at, sql`now()`),
-          ),
-        )
-        .limit(1)
-      if (!sessao) throw new UnauthorizedException('Sessão indisponível')
-    }
+    if (sid && !usuario.sessao)
+      throw new UnauthorizedException('Sessão indisponível')
     request.versaoSessao = versaoSessao
     request.usuarioId = usuario.id
     request.tipoUsuario = usuario.tipo

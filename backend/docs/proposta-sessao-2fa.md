@@ -14,8 +14,7 @@ atuais (snake_case, sem `/api/v1`, D18); não se migram todos os UCs nesta frent
    Keystore. Alinhamento de RN09 aprovado: um booleano do cliente
    não comprova biometria no servidor. A alternativa de chave de dispositivo no servidor não foi adotada nesta etapa.
 3. Novas rotas mobile por papel; preservar `/auth/login` legado nesta transição.
-   Esse legado não passa a exigir 2FA: sua retirada/exclusividade administrativa
-   requer migração coordenada dos consumidores. Sem SMTP, login mobile não deve
+   Em produção o legado é restrito a ADMIN por padrão; `LOGIN_LEGADO_MOBILE=true` permite temporariamente acesso sem 2FA para consumidores legados. O prazo de retirada da exceção ainda precisa ser definido pela equipe. Sem SMTP, login mobile não deve
    emitir sessão nem simular sucesso. PIN: 5 erros invalidam desafio; 3 envios por
    conta em 15 minutos; reenvio invalida o anterior. Somar limite por IP.
 

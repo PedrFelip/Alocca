@@ -2,15 +2,19 @@ import {
   HttpException,
   Inject,
   Injectable,
+  Logger,
+  type OnModuleInit,
+  type OnModuleDestroy,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
-import { and, count, eq, gt, isNull, sql } from 'drizzle-orm'
+import { and, count, eq, gt, lt, inArray, isNull, sql } from 'drizzle-orm'
 import {
   createHash,
   createHmac,
+  hkdfSync,
   randomBytes,
   randomInt,
   timingSafeEqual,
@@ -35,7 +39,50 @@ const invalido = () =>
   new UnauthorizedException('Desafio ou sessão inválida ou expirada')
 
 @Injectable()
-export class SessaoMobileService {
+export class SessaoMobileService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(SessaoMobileService.name)
+  private timer?: ReturnType<typeof setInterval>
+  private limpeza?: Promise<void>
+  onModuleInit() {
+    if (this.config.get('NODE_ENV', { infer: true }) === 'test') return
+    this.timer = setInterval(() => {
+      if (!this.limpeza)
+        this.limpeza = this.limpar()
+          .catch(() => this.logger.error('Falha ao limpar sessões expiradas'))
+          .finally(() => {
+            this.limpeza = undefined
+          })
+    }, 3600000)
+    this.timer.unref()
+  }
+  async onModuleDestroy() {
+    clearInterval(this.timer)
+    await this.limpeza
+  }
+  async limpar(): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .delete(desafios)
+        .where(lt(desafios.expires_at, sql`now() at time zone 'UTC'`))
+      await tx
+        .delete(envios)
+        .where(
+          lt(
+            envios.created_at,
+            sql`(now() at time zone 'UTC') - interval '15 minutes'`,
+          ),
+        )
+      const expiradas = tx
+        .select({ id: sessoes.id })
+        .from(sessoes)
+        .where(lt(sessoes.expires_at, sql`now() at time zone 'UTC'`))
+      await tx.delete(refresh).where(inArray(refresh.sessao_id, expiradas))
+      await tx
+        .delete(sessoes)
+        .where(lt(sessoes.expires_at, sql`now() at time zone 'UTC'`))
+    })
+  }
+
   constructor(
     @Inject(DRIZZLE_DB) private readonly db: Database,
     @Inject(AuthService) private readonly auth: AuthService,
@@ -45,9 +92,16 @@ export class SessaoMobileService {
     @Inject(EmailService) private readonly email: EmailService,
   ) {}
   private pinHash(id: string, pin: string) {
-    return createHmac('sha256', this.config.get('JWT_SECRET', { infer: true }))
-      .update(`pin:${id}:${pin}`)
-      .digest('hex')
+    const chave = Buffer.from(
+      hkdfSync(
+        'sha256',
+        this.config.get('JWT_SECRET', { infer: true }),
+        '',
+        'alocca-mobile-pin-v1',
+        32,
+      ),
+    )
+    return createHmac('sha256', chave).update(`pin:${id}:${pin}`).digest('hex')
   }
   async login(data: Login, tipo: 'MEDICO' | 'GESTOR') {
     const usuario = await this.auth.autenticar(data)
@@ -110,43 +164,63 @@ export class SessaoMobileService {
         .where(
           and(
             eq(envios.usuario_id, u.id),
-            gt(envios.created_at, sql`now() - interval '15 minutes'`),
+            gt(
+              envios.created_at,
+              sql`(now() at time zone 'UTC') - interval '15 minutes'`,
+            ),
           ),
         )
       if (n.total >= 3) return 'limite'
       const pin = randomInt(1000000).toString().padStart(6, '0')
-      // SMTP runs before commit: an unsuccessful delivery cannot activate a PIN.
-      try {
-        await this.email.enviar({
-          para: u.email,
-          assunto: 'Alocca Plantões - código de acesso',
-          texto: `Seu código de acesso é ${pin}. Ele vale por 5 minutos.`,
-        })
-      } catch {
-        return 'smtp'
-      }
       await tx
         .update(desafios)
-        .set({ pin_hash: null, pin_expires_at: null })
+        .set({ pin_hash: null, pin_expires_at: null, pin_enviado: false })
         .where(and(eq(desafios.usuario_id, u.id), isNull(desafios.used_at)))
       await tx
         .update(desafios)
         .set({
           pin_hash: this.pinHash(d.id, pin),
+          pin_enviado: false,
           pin_expires_at: new Date(Date.now() + 300000),
         })
         .where(eq(desafios.id, d.id))
       await tx.insert(envios).values({ usuario_id: u.id })
-      return 'ok'
+      return { email: u.email, id: d.id, pin, pinHash: this.pinHash(d.id, pin) }
     })
     if (result === 'limite')
       throw new HttpException(
         'Limite de envios atingido. Tente novamente mais tarde.',
         429,
       )
-    if (result === 'smtp')
+    if (typeof result === 'string') throw invalido()
+    try {
+      await this.email.enviar({
+        para: result.email,
+        assunto: 'Alocca Plantões - código de acesso',
+        texto: `Seu código de acesso é ${result.pin}. Ele vale por 5 minutos.`,
+      })
+    } catch {
+      await this.db
+        .update(desafios)
+        .set({ pin_hash: null, pin_expires_at: null, pin_enviado: false })
+        .where(
+          and(
+            eq(desafios.id, result.id),
+            eq(desafios.pin_hash, result.pinHash),
+          ),
+        )
       throw new ServiceUnavailableException('Envio de e-mail indisponível')
-    if (result !== 'ok') throw invalido()
+    }
+    await this.db
+      .update(desafios)
+      .set({ pin_enviado: true })
+      .where(
+        and(
+          eq(desafios.id, result.id),
+          eq(desafios.pin_hash, result.pinHash),
+          isNull(desafios.used_at),
+        ),
+      )
     return { message: 'Código enviado por e-mail.' }
   }
   async validar(raw: string, pin: string) {
@@ -174,6 +248,7 @@ export class SessaoMobileService {
         d.used_at ||
         d.expires_at <= new Date() ||
         !d.pin_hash ||
+        !d.pin_enviado ||
         !d.pin_expires_at ||
         d.pin_expires_at <= new Date()
       )

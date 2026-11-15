@@ -139,9 +139,13 @@ Todas as rotas retornam 200 no sucesso e usam snake_case, sem `/api/v1`.
   atual inclusive access. Alteração/recuperação revoga todas as famílias e desafios.
 
 Challenge/refresh são aleatórios de 256 bits e só persistem como SHA-256; PIN é
-HMAC-SHA256 com segredo do servidor. PIN é enviado diretamente por SMTP dentro da
-transação (não usa outbox de recuperação); falha de commit após envio pode exigir
-novo pedido. Respostas inválidas/expiradas usam 401; limites usam 429.
+HMAC-SHA256 com subchave derivada por HKDF do segredo do servidor. A transação
+reserva o envio e invalida o PIN anterior; SMTP ocorre fora do bloqueio e o novo
+PIN só é ativado após o envio. Falha do SMTP invalida apenas esse PIN e conta no
+limite; se o processo cair após envio e antes da confirmação, solicite outro PIN.
+A limpeza horária remove desafios e sessões expirados e envios de mais de 15 minutos;
+refresh consumido é preservado até expirar a sessão para detectar replay. Respostas
+inválidas/expiradas usam 401; limites usam 429.
 
 Android usa as rotas mobile por papel, tela PIN e restauração via perfil. Guarda
 par e expirações atomicamente cifrados AES-GCM/Keystore, com backup desativado.
@@ -154,4 +158,4 @@ um retry pode disparar proteção de replay e exigir login; não existe janela d
 Biometria é opcional e local: CryptoObject com chave Keystore autenticada decifra
 marcador antes de restaurar sessão, sem declaração biométrica ao servidor. Hardware
 indisponível/chave invalidada permite voltar ao login PIN. Validação física pendente.
-Login legado `/auth/login` aceita apenas ADMIN em produção por padrão. `LOGIN_LEGADO_MOBILE=true` reabilita temporariamente o acesso sem PIN para MEDICO e GESTOR; `false` bloqueia também fora de produção. A data de retirada dessa exceção depende de decisão de produto. Aplicar também migração `20261114232625_peaceful_wolfpack`.
+Login legado `/auth/login` aceita apenas ADMIN em produção por padrão. `LOGIN_LEGADO_MOBILE=true` reabilita temporariamente o acesso sem PIN para MEDICO e GESTOR; `false` bloqueia também fora de produção. A data de retirada dessa exceção depende de decisão de produto; tokens legados já emitidos permanecem válidos até expirarem ou serem revogados. Aplicar todas as migrações de sessão, incluindo índices e confirmação do envio do PIN.
