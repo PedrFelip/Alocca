@@ -124,13 +124,25 @@ export class NotificacoesService {
     return u
   }
   async atualizarPreferencias(usuario: string, habilitado: boolean) {
-    const [u] = await this.db
-      .update(usuariosTable)
-      .set({ email_notificacoes_habilitado: habilitado })
-      .where(eq(usuariosTable.id, usuario))
-      .returning({
-        email_habilitado: usuariosTable.email_notificacoes_habilitado,
-      })
-    return u
+    return this.db.transaction(async (tx) => {
+      const [u] = await tx
+        .update(usuariosTable)
+        .set({ email_notificacoes_habilitado: habilitado })
+        .where(eq(usuariosTable.id, usuario))
+        .returning({
+          email_habilitado: usuariosTable.email_notificacoes_habilitado,
+        })
+      if (!habilitado)
+        await tx
+          .update(notificacoesTable)
+          .set({ email_elegivel: false })
+          .where(
+            and(
+              eq(notificacoesTable.usuario_destino_id, usuario),
+              eq(notificacoesTable.status, 'PENDENTE'),
+            ),
+          )
+      return u
+    })
   }
 }

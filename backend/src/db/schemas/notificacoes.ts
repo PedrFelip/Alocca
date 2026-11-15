@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   pgEnum,
@@ -33,10 +34,17 @@ export const notificacoesTable = pgTable(
     lida_em: timestamp('lida_em'),
     tentativas: integer('tentativas').notNull().default(0),
     disponivel_em: timestamp('disponivel_em').notNull().defaultNow(),
+    email_elegivel: boolean('email_elegivel').notNull().default(false),
+    entrega_token: uuid('entrega_token'),
+    entrega_ate: timestamp('entrega_ate'),
   },
   (table) => [
     // Fila de entrega: worker consome PENDENTE na ordem de criação.
-    index('notificacoes_fila_idx').on(table.status, table.created_at),
+    index('notificacoes_fila_idx').on(
+      table.email_elegivel,
+      table.status,
+      table.created_at,
+    ),
     index('notificacoes_usuario_destino_id_idx').on(table.usuario_destino_id),
   ],
 )

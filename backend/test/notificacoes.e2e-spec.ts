@@ -11,6 +11,8 @@ import { DRIZZLE_DB } from '../src/db/db.provider.ts'
 import { EmailSender } from '../src/email/email-sender.ts'
 import { NotificacoesWorker } from '../src/notificacoes/notificacoes.worker.ts'
 import { ConfigService } from '@nestjs/config'
+import { AlocacaoRepository } from '../src/candidaturas/alocacao.repository.ts'
+import type { Database } from '../src/db/db.provider.ts'
 
 describe('notificações', () => {
   let db: PGlite
@@ -131,6 +133,9 @@ describe('notificações', () => {
       .mockRejectedValueOnce(new Error('SMTP indisponível'))
       .mockResolvedValue(undefined)
     const worker = app.get(NotificacoesWorker)
+    await db.query('UPDATE notificacoes SET email_elegivel=true WHERE id=$1', [
+      notificacao,
+    ])
     await worker.processar()
     let row = (
       await db.query<{ status: string; tentativas: number }>(
@@ -152,7 +157,7 @@ describe('notificações', () => {
         [notificacao],
       )
     ).rows[0]
-    expect(row).toEqual({ status: 'ENVIADA', tentativas: 1 })
+    expect(row).toEqual({ status: 'ENVIADA', tentativas: 2 })
     expect(enviar).toHaveBeenCalledTimes(2)
   })
   it('mantém o limite temporal ao receber eventos entre páginas', async () => {
@@ -177,7 +182,7 @@ describe('notificações', () => {
   it('não entrega sem consentimento, para excluído ou sem SMTP', async () => {
     enviar.mockClear()
     await db.query(
-      `UPDATE notificacoes SET status='PENDENTE', disponivel_em=now(), tentativas=0 WHERE id=$1`,
+      `UPDATE notificacoes SET status='PENDENTE', disponivel_em=now(), tentativas=0, email_elegivel=true WHERE id=$1`,
       [notificacao],
     )
     await db.query(
@@ -214,5 +219,103 @@ describe('notificações', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+  it('registra elegibilidade no fato e não envia histórico após opt-in ou ativação global', async () => {
+    const database = app.get<Database>(DRIZZLE_DB)
+    const config = app.get(ConfigService)
+    const get = config.get.bind(config)
+    let global = false
+    const spy = vi
+      .spyOn(config, 'get')
+      .mockImplementation((key: string, options?: never) =>
+        key === 'NOTIFICACOES_EMAIL_HABILITADO'
+          ? global
+            ? 'true'
+            : 'false'
+          : get(key, options),
+      )
+    try {
+      await db.query(
+        'UPDATE usuarios SET email_notificacoes_habilitado=false WHERE id=$1',
+        [medico],
+      )
+      const plantao = (
+        await db.query<{ plantao_id: string }>(
+          'SELECT plantao_id FROM notificacoes WHERE id=$1',
+          [notificacao],
+        )
+      ).rows[0].plantao_id
+      const repo = app.get(AlocacaoRepository)
+      async function criar() {
+        return database.transaction((tx) =>
+          repo.notificar(tx, [
+            {
+              usuario_destino_id: medico,
+              plantao_id: plantao,
+              tipo: 'PLANTAO_CANCELADO',
+            },
+          ]),
+        )
+      }
+      await criar()
+      global = true
+      await criar()
+      await request(app.getHttpServer())
+        .put('/notificacoes/preferencias')
+        .set('Authorization', tokenMedico)
+        .send({ email_habilitado: true })
+        .expect(200)
+      await criar()
+      const rows = await db.query<{ email_elegivel: boolean }>(
+        "SELECT email_elegivel FROM notificacoes WHERE tipo='PLANTAO_CANCELADO' ORDER BY created_at, id",
+      )
+      expect(rows.rows.filter((r) => r.email_elegivel)).toHaveLength(1)
+      await request(app.getHttpServer())
+        .put('/notificacoes/preferencias')
+        .set('Authorization', tokenMedico)
+        .send({ email_habilitado: false })
+        .expect(200)
+      await request(app.getHttpServer())
+        .put('/notificacoes/preferencias')
+        .set('Authorization', tokenMedico)
+        .send({ email_habilitado: true })
+        .expect(200)
+      const remaining = await db.query(
+        "SELECT id FROM notificacoes WHERE tipo='PLANTAO_CANCELADO' AND email_elegivel",
+      )
+      expect(remaining.rows).toHaveLength(0)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+  it('limita tentativas e libera a transação durante o envio', async () => {
+    await db.query(
+      "UPDATE notificacoes SET status='PENDENTE', email_elegivel=true, tentativas=4, disponivel_em=now(), entrega_token=null, entrega_ate=null WHERE id=$1",
+      [notificacao],
+    )
+    let liberar!: () => void
+    let iniciado!: () => void
+    const comecou = new Promise<void>((resolve) => {
+      iniciado = resolve
+    })
+    enviar.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          liberar = () => reject(new Error('falha'))
+          iniciado()
+        }),
+    )
+    const trabalho = app.get(NotificacoesWorker).processar()
+    await comecou
+    await db.query('UPDATE usuarios SET nome=nome WHERE id=$1', [medico])
+    liberar()
+    await trabalho
+    const row = (
+      await db.query<{ tentativas: number; email_elegivel: boolean }>(
+        'SELECT tentativas,email_elegivel FROM notificacoes WHERE id=$1',
+        [notificacao],
+      )
+    ).rows[0]
+    expect(row).toEqual({ tentativas: 5, email_elegivel: false })
   })
 })
