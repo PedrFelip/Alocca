@@ -59,6 +59,8 @@ export class FinanceiroRepository {
     return db
       .select({
         ...CAMPOS_PAGAMENTO,
+        chave: pagamentosTable.comprovante_chave,
+        mime: pagamentosTable.comprovante_mime,
         elegivel: sql<boolean>`${plantoesTable.data_fim} <= clock_timestamp()`,
         gestor_id: gestoresInstituicoesTable.gestor_id,
         medico: { nome: usuariosTable.nome },
@@ -105,6 +107,47 @@ export class FinanceiroRepository {
     )
   }
 
+  async pagamentosGestor(gestorId: string) {
+    const linhas = await this.consultaGestor(this.db, gestorId)
+      .where(this.visaoGestor())
+      .orderBy(desc(pagamentosTable.pago_at), desc(plantoesTable.data_inicio))
+    return linhas.map(
+      ({
+        gestor_id: _gestor,
+        elegivel: _elegivel,
+        chave: _chave,
+        mime: _mime,
+        ...pagamento
+      }) => pagamento,
+    )
+  }
+
+  async comprovanteGestor(gestorId: string, id: string) {
+    const [pagamento] = await this.consultaGestor(this.db, gestorId).where(
+      and(
+        this.visaoGestor(),
+        eq(pagamentosTable.id, id),
+        eq(pagamentosTable.status, 'PAGO'),
+      ),
+    )
+    return pagamento
+      ? { chave: pagamento.chave, mime: pagamento.mime }
+      : undefined
+  }
+
+  async definirVencimento(
+    tx: FinanceiroExecutor,
+    id: string,
+    vencimento: Date | null,
+  ) {
+    await tx
+      .update(pagamentosTable)
+      .set({ vencimento_em: vencimento })
+      .where(
+        and(eq(pagamentosTable.id, id), eq(pagamentosTable.status, 'PENDENTE')),
+      )
+  }
+
   async pendentes(gestorId: string) {
     const linhas = await this.consultaGestor(this.db, gestorId)
       .where(
@@ -116,7 +159,13 @@ export class FinanceiroRepository {
       )
       .orderBy(desc(plantoesTable.data_fim))
     return linhas.map(
-      ({ gestor_id: _gestor, elegivel: _elegivel, ...pagamento }) => pagamento,
+      ({
+        gestor_id: _gestor,
+        elegivel: _elegivel,
+        chave: _chave,
+        mime: _mime,
+        ...pagamento
+      }) => pagamento,
     )
   }
 

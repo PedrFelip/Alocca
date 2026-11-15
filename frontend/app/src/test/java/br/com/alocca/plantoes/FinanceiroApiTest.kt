@@ -22,12 +22,78 @@ class FinanceiroApiTest {
     }
 
     @Test fun `lista autenticada preserva decimal e dados reais`() {
-        val json = """[{"id":"p1","medico":{"nome":"Ana"},"plantao":{"titulo":"UTI"},"instituicao":{"nome":"Hospital"},"valor":"1234.56"}]"""
+        val json = """[{"id":"p1","medico":{"nome":"Ana"},"status":"PENDENTE","plantao":{"titulo":"UTI","data_fim":"2020-01-01T12:00:00Z"},"instituicao":{"nome":"Hospital"},"valor":"1234.56"}]"""
         servidor(200, body = json.toByteArray()) { api, chamadas ->
             val p = (api.pendentes("token") as Resposta.Ok).dados.single()
             assertEquals(BigDecimal("1234.56"), p.valor)
             assertEquals("Ana", p.medico)
             assertTrue(chamadas.single().first.startsWith("GET /financeiro/pendentes-baixa Bearer token"))
+        }
+    }
+
+    @Test fun `historico preserva status vencimento e data de pagamento`() {
+        val json = """[{"id":"p1","medico":{"nome":"Ana"},"status":"PAGO","vencimento_em":"2026-01-01T12:00:00Z","pago_at":"2026-01-02T12:00:00Z","plantao":{"titulo":"UTI","data_fim":"2020-01-01T12:00:00Z"},"instituicao":{"nome":"Hospital"},"valor":"1234.56"}]"""
+        servidor(200, body = json.toByteArray()) { api, chamadas ->
+            val p = (api.pagamentos("token") as Resposta.Ok).dados.single()
+            assertEquals("PAGO", p.status)
+            assertEquals(Datas.parseIso("2026-01-01T12:00:00Z"), p.vencimento)
+            assertEquals(Datas.parseIso("2026-01-02T12:00:00Z"), p.pagoEm)
+            assertTrue(p.encerrado)
+            assertTrue(chamadas.single().first.startsWith("GET /financeiro/pagamentos Bearer token"))
+        }
+    }
+
+    @Test fun `fim do dia selecionado grava ultimo milissegundo no fuso de apresentacao`() {
+        // 02:59:59.999Z = último milissegundo de 01/12 em America/Sao_Paulo (UTC-3).
+        assertEquals("2026-12-02T02:59:59.999Z", FinanceiroCliente.fimDoDiaSelecionado(2026, 11, 1))
+        // Round-trip de exibição: o instante gravado volta como o mesmo dia escolhido.
+        val gravado = FinanceiroCliente.fimDoDiaSelecionado(2026, 0, 31)
+        assertEquals("31/01/2026", Datas.dataCurta(Datas.parseIso(gravado)!!))
+    }
+
+    @Test fun `vencimento envia put autenticado com data ou null`() {
+        for (data in listOf("2026-12-01T23:59:59Z", null)) {
+            servidor(200, body = """{"message":"Vencimento atualizado."}""".toByteArray()) { api, chamadas ->
+                assertEquals(Resposta.Ok("Vencimento atualizado."), api.definirVencimento("token", "p1", data))
+                assertTrue(chamadas.single().first.startsWith("PUT /financeiro/pagamentos/p1/vencimento Bearer token application/json"))
+                val json = org.json.JSONObject(chamadas.single().second.toString(Charsets.UTF_8))
+                if (data == null) assertTrue(json.isNull("vencimento_em")) else assertEquals(data, json.getString("vencimento_em"))
+            }
+        }
+    }
+
+    @Test fun `historico preserva pendente sem vencimento e plantao futuro`() {
+        val json = """[{"id":"p2","medico":{"nome":"Bia"},"status":"PENDENTE","vencimento_em":null,"pago_at":null,"plantao":{"titulo":"PS","data_fim":"2999-01-01T12:00:00Z"},"instituicao":{"nome":"Hospital"},"valor":"0.10"}]"""
+        servidor(200, body = json.toByteArray()) { api, _ ->
+            val p = (api.pagamentos("token") as Resposta.Ok).dados.single()
+            assertEquals("PENDENTE", p.status)
+            assertNull(p.vencimento)
+            assertNull(p.pagoEm)
+            assertFalse(p.encerrado)
+            assertEquals(BigDecimal("0.10"), p.valor)
+        }
+    }
+
+    @Test fun `historico com JSON invalido e erros HTTP retornam falha`() {
+        servidor(200, body = "{}".toByteArray()) { api, _ -> assertTrue(api.pagamentos("t") is Resposta.Falha) }
+        servidor(200, body = "não é json".toByteArray()) { api, _ -> assertTrue(api.pagamentos("t") is Resposta.Falha) }
+        for (status in listOf(401, 404, 500)) servidor(status, body = """{"message":"Erro"}""".toByteArray()) { api, _ ->
+            val r = api.pagamentos("t") as Resposta.Falha
+            assertEquals(status, r.status)
+            assertEquals(status == 401, r.sessaoExpirada)
+        }
+    }
+
+    @Test fun `vencimento rejeitado retorna falha com status e mensagem do servidor`() {
+        servidor(409, body = """{"message":"Pagamento já baixado"}""".toByteArray()) { api, _ ->
+            val r = api.definirVencimento("t", "p1", "2026-12-01T23:59:59Z") as Resposta.Falha
+            assertEquals(409, r.status)
+            assertEquals("Pagamento já baixado", r.mensagem)
+        }
+        servidor(401, body = """{"message":"Sessão expirada"}""".toByteArray()) { api, _ ->
+            val r = api.definirVencimento("t", "p1", null) as Resposta.Falha
+            assertEquals(401, r.status)
+            assertTrue(r.sessaoExpirada)
         }
     }
 

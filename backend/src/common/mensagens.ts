@@ -20,6 +20,8 @@ export const mensagensOficiais = {
   'MSG-16': 'A data e hora de fim não podem ser anteriores à data e hora de início.',
   'MSG-17': 'Médico alocado com sucesso! Os demais candidatos foram notificados.',
   'MSG-18': 'Comprovante anexado e status financeiro atualizado para "Pago".',
+  'MSG-19': 'Pagamento já baixado.',
+  'MSG-20': 'Vencimento atualizado.',
 } as const
 
 export type CodigoMensagem = keyof typeof mensagensOficiais
