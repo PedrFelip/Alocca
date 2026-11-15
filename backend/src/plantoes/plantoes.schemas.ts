@@ -74,6 +74,7 @@ export const criarPlantaoSchema = z.strictObject({
   data_fim: dataHoraSchema,
   valor: valorSchema,
   quantidade_vagas: z.coerce.number().int().min(1).max(10_000),
+  medicos_convidados: z.array(z.uuid()).max(100).optional(),
 })
 
 export type CriarPlantao = z.infer<typeof criarPlantaoSchema>
@@ -93,7 +94,7 @@ export type ListarPlantoesGerenciados = z.infer<
 
 // PATCH não permite trocar a instituição nem alterar status diretamente.
 export const editarPlantaoSchema = criarPlantaoSchema
-  .omit({ instituicao_id: true })
+  .omit({ instituicao_id: true, medicos_convidados: true })
   .partial()
   .refine((dados) => Object.keys(dados).length > 0, {
     message: 'Informe ao menos um campo para editar',

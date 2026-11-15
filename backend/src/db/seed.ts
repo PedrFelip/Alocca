@@ -8,6 +8,9 @@ import { validateEnv } from '../config/env.ts'
 import {
   alocacoesTable,
   candidaturasTable,
+  desafiosMobileTable,
+  dispositivosConfiaveisTable,
+  enviosPinTable,
   gestoresInstituicoesTable,
   gestoresTable,
   instituicoesTable,
@@ -16,6 +19,8 @@ import {
   pagamentosTable,
   plantoesTable,
   registrosPontoTable,
+  refreshMobileTable,
+  sessoesMobileTable,
   tokensRecuperacaoSenhaTable,
   usuariosTable,
 } from './schemas/index.ts'
@@ -28,21 +33,39 @@ const client = criarClientePostgres(env.DATABASE_URL)
 const db = drizzle({ client })
 const passwords = new PasswordService()
 
-const EMAIL_GESTOR = 'gestor.seed@alocca.local'
-const SENHA_GESTOR = 'senha-segura-123'
+const EMAIL_GESTOR = 'gestor.demo@alocca.local'
+const SENHA_GESTOR = 'SenhaSegura123'
 const CNPJ = '12345678000199'
 
 async function garantirUsuarioGestor(): Promise<string> {
-  const [existente] = await db
+  const usuariosDemo = await db
     .select({ id: usuariosTable.id })
     .from(usuariosTable)
     .where(eq(usuariosTable.email, EMAIL_GESTOR))
     .limit(1)
-  if (existente) return existente.id
+  const [anterior] =
+    usuariosDemo.length === 0
+      ? await db
+          .select({ id: usuariosTable.id })
+          .from(usuariosTable)
+          .where(eq(usuariosTable.email, 'gestor.seed@alocca.local'))
+          .limit(1)
+      : []
+  const existente = usuariosDemo[0] ?? anterior
+  if (existente) {
+    await db
+      .update(usuariosTable)
+      .set({
+        email: EMAIL_GESTOR,
+        senha_hash: await passwords.hash(SENHA_GESTOR),
+      })
+      .where(eq(usuariosTable.id, existente.id))
+    return existente.id
+  }
   const [criado] = await db
     .insert(usuariosTable)
     .values({
-      nome: 'Gestor Seed',
+      nome: 'Gestor Demo',
       email: EMAIL_GESTOR,
       senha_hash: await passwords.hash(SENHA_GESTOR),
       tipo: 'GESTOR',
@@ -338,6 +361,25 @@ async function removerDadosDemo(gestorUsuarioId: string): Promise<void> {
     if (medico)
       await tx.delete(medicosTable).where(eq(medicosTable.id, medico.id))
     if (usuario) {
+      await tx
+        .delete(dispositivosConfiaveisTable)
+        .where(eq(dispositivosConfiaveisTable.usuario_id, usuario.id))
+      const sessoes = tx
+        .select({ id: sessoesMobileTable.id })
+        .from(sessoesMobileTable)
+        .where(eq(sessoesMobileTable.usuario_id, usuario.id))
+      await tx
+        .delete(refreshMobileTable)
+        .where(inArray(refreshMobileTable.sessao_id, sessoes))
+      await tx
+        .delete(sessoesMobileTable)
+        .where(eq(sessoesMobileTable.usuario_id, usuario.id))
+      await tx
+        .delete(desafiosMobileTable)
+        .where(eq(desafiosMobileTable.usuario_id, usuario.id))
+      await tx
+        .delete(enviosPinTable)
+        .where(eq(enviosPinTable.usuario_id, usuario.id))
       await tx
         .delete(tokensRecuperacaoSenhaTable)
         .where(eq(tokensRecuperacaoSenhaTable.usuario_id, usuario.id))

@@ -17,6 +17,7 @@ export const desafiosMobileTable = pgTable(
       .notNull()
       .references(() => usuariosTable.id),
     token_hash: varchar('token_hash', { length: 64 }).notNull().unique(),
+    dispositivo_hash: varchar('dispositivo_hash', { length: 64 }),
     pin_hash: varchar('pin_hash', { length: 64 }),
     pin_enviado: boolean('pin_enviado').notNull().default(false),
     pin_expires_at: timestamp('pin_expires_at'),
@@ -41,6 +42,24 @@ export const enviosPinTable = pgTable(
   (t) => [
     index('envios_pin_usuario_data_idx').on(t.usuario_id, t.created_at),
     index('envios_pin_data_idx').on(t.created_at),
+  ],
+)
+export const dispositivosConfiaveisTable = pgTable(
+  'dispositivos_confiaveis',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    usuario_id: uuid('usuario_id')
+      .notNull()
+      .references(() => usuariosTable.id),
+    token_hash: varchar('token_hash', { length: 64 }).notNull(),
+    versao_sessao: integer('versao_sessao').notNull(),
+    created_at: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    index('dispositivos_confiaveis_usuario_token_idx').on(
+      table.usuario_id,
+      table.token_hash,
+    ),
   ],
 )
 export const sessoesMobileTable = pgTable(

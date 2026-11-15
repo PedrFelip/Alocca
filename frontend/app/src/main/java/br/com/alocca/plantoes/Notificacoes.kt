@@ -23,6 +23,7 @@ internal data class Notificacao(
     val mensagem: String,
     val lidaEm: String?,
     val criadaEm: String,
+    val candidaturaStatus: String? = null,
 )
 
 internal data class PaginaNotificacoes(
@@ -97,6 +98,14 @@ internal class NotificacoesApi(
     fun preferencias(token: String) =
         request("notificacoes/preferencias", "GET", token) { it.getBoolean("email_habilitado") }
 
+    fun aceitarConvite(token: String, plantaoId: String): String =
+        request(
+            "plantoes/${URLEncoder.encode(plantaoId, "UTF-8").replace("+", "%20")}/candidaturas",
+            "POST",
+            token,
+            JSONObject(),
+        ) { it.optString("message").ifBlank { "Candidatura enviada. Aguarde a aprovação do gestor." } }
+
     fun salvar(token: String, valor: Boolean) =
         request(
             "notificacoes/preferencias",
@@ -116,6 +125,7 @@ internal class NotificacoesApi(
             j.getString("mensagem"),
             if (j.isNull("lida_em")) null else j.getString("lida_em"),
             j.getString("created_at"),
+            if (j.isNull("candidatura_status")) null else j.getString("candidatura_status"),
         )
 }
 
@@ -135,6 +145,30 @@ internal fun NotificationsPanel(token: String?, onSessaoExpirada: () -> Unit, on
     var proxima by remember(token) { mutableIntStateOf(1) }
     var lendo by remember(token) { mutableStateOf<String?>(null) }
     var leituraPendente by remember(token) { mutableStateOf<String?>(null) }
+    var aceitando by remember(token) { mutableStateOf<String?>(null) }
+    var aviso by remember(token) { mutableStateOf("") }
+    fun aceitarConvite(item: Notificacao) {
+        if (aceitando != null || token == null) return
+        aceitando = item.id
+        erro = ""
+        aviso = ""
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { api.aceitarConvite(token, item.plantaoId) }
+                itens = itens.map {
+                    if (it.plantaoId == item.plantaoId) it.copy(candidaturaStatus = "PENDENTE") else it
+                }
+                aviso = "Convite aceito. Candidatura enviada; aguarde a aprovação do gestor."
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (e is ApiException && e.status == 401) expirar()
+                else erro = (e as? ApiException)?.userMessage ?: "Não foi possível aceitar o convite."
+            } finally {
+                aceitando = null
+            }
+        }
+    }
     fun marcarLida(id: String) {
         scope.launch {
             lendo = id
@@ -142,7 +176,7 @@ internal fun NotificationsPanel(token: String?, onSessaoExpirada: () -> Unit, on
             erro = ""
             try {
                 val atualizada = withContext(Dispatchers.IO) { api.ler(token!!, id) }
-                itens = itens.map { if (it.id == id) atualizada else it }
+                itens = itens.map { if (it.id == id) atualizada.copy(candidaturaStatus = it.candidaturaStatus) else it }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -199,7 +233,7 @@ internal fun NotificationsPanel(token: String?, onSessaoExpirada: () -> Unit, on
             }
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                 TextButton(
-                    enabled = !carregando && lendo == null,
+                    enabled = !carregando && lendo == null && aceitando == null,
                     onClick = {
                         proxima = 1
                         tentativa++
@@ -223,6 +257,17 @@ internal fun NotificationsPanel(token: String?, onSessaoExpirada: () -> Unit, on
                     ) {
                         Text(item.titulo, style = MaterialTheme.typography.titleSmall)
                         Text(item.mensagem, style = MaterialTheme.typography.bodyMedium)
+                        if (item.tipo == "CONVITE_PLANTAO") {
+                            if (item.candidaturaStatus == null) {
+                                Text("Aceitar envia sua candidatura, sem confirmar a vaga.", style = MaterialTheme.typography.bodySmall)
+                                Button(
+                                    enabled = aceitando == null && !carregando && token != null,
+                                    onClick = { aceitarConvite(item) },
+                                ) { Text(if (aceitando == item.id) "Enviando…" else "Aceitar convite") }
+                            } else {
+                                Text("Candidatura: ${item.candidaturaStatus}", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                         val data =
                             Datas.parseIso(item.criadaEm)?.let { Datas.dataHora(it) }
                                 ?: item.criadaEm
@@ -234,6 +279,7 @@ internal fun NotificationsPanel(token: String?, onSessaoExpirada: () -> Unit, on
                     HorizontalDivider()
                 }
                 if (carregando) CircularProgressIndicator()
+                if (aviso.isNotBlank()) Text(aviso, color = DeepTeal)
                 if (erro.isNotBlank()) {
                     Text(erro, color = MaterialTheme.colorScheme.error)
                     TextButton(

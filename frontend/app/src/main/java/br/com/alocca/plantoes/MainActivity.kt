@@ -333,7 +333,7 @@ private fun AuthApp() {
                             loading = loading,
                             feedback = feedback,
                             feedbackSuccess = feedbackSuccess,
-                            onSubmit = { tipo, email, senha ->
+                            onSubmit = { email, senha ->
                                 if (!loading) {
                                     if (podeTentarRestaurar && !SessionManager.logout(context)) {
                                         feedback = "Não foi possível limpar a sessão anterior. Tente novamente."
@@ -343,12 +343,22 @@ private fun AuthApp() {
                                     loading = true
                                     feedback = ""
                                     Thread {
-                                        val login = AuthApi.iniciarLogin(tipo, email.trim(), senha)
+                                        val login = runCatching { AuthApi.iniciarLogin(email.trim(), senha, TokenStore.deviceToken(context)) }
+                                            .getOrElse { ApiResult(false, null, "Não foi possível acessar a identificação segura do dispositivo.", 0) }
+                                        val requerPin = login.body?.optBoolean("requer_2fa", true) != false
+                                        val user = if (login.successful && !requerPin) PerfilUsuario.fromLoginResponse(login.body) else null
+                                        val saved = if (user != null && login.body != null) runCatching { SessionManager.save(context, login.body); true }.getOrDefault(false) else false
                                         val token = login.body?.optString("challenge_token").orEmpty()
-                                        val sent = if (login.successful) AuthApi.solicitarPin(token) else login
+                                        val sent = if (login.successful && requerPin) AuthApi.solicitarPin(token) else login
                                         Handler(Looper.getMainLooper()).post {
                                             loading = false
-                                            if (login.successful && sent.successful) {
+                                            if (saved) {
+                                                perfil = user
+                                                feedback = ""
+                                            } else if (login.successful && !requerPin) {
+                                                feedback = "Não foi possível salvar a sessão com segurança."
+                                                feedbackSuccess = false
+                                            } else if (login.successful && sent.successful) {
                                                 challenge = token
                                                 challengeDeadline = android.os.SystemClock.elapsedRealtime() + login.body!!.optLong("expires_in") * 1000
                                                 screen = Screen.Pin
@@ -1912,21 +1922,13 @@ private fun LoginForm(
     loading: Boolean,
     feedback: String,
     feedbackSuccess: Boolean,
-    onSubmit: (String, String, String) -> Unit
+    onSubmit: (String, String) -> Unit
 ) {
-    var tipo by remember { mutableStateOf("medico") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf(false) }
     var formError by remember { mutableStateOf("") }
 
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        RadioButton(selected = tipo == "medico", onClick = { tipo = "medico" })
-        Text("Médico", Modifier.clickable { tipo = "medico" })
-        Spacer(Modifier.width(20.dp))
-        RadioButton(selected = tipo == "gestor", onClick = { tipo = "gestor" })
-        Text("Gestor", Modifier.clickable { tipo = "gestor" })
-    }
     AuthField("E-mail", email, { email = it }, "Seu@email.com", Icons.Default.Email, KeyboardType.Email)
     Spacer(Modifier.height(28.dp))
     AuthField(
@@ -1949,7 +1951,7 @@ private fun LoginForm(
             password.length > 128 -> "A senha deve ter no máximo 128 caracteres."
             else -> ""
         }
-        if (formError.isEmpty()) onSubmit(tipo, email, password)
+        if (formError.isEmpty()) onSubmit(email, password)
     }
     Row(
         Modifier.fillMaxWidth().padding(vertical = 10.dp),

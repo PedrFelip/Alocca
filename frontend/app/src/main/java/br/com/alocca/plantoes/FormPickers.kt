@@ -24,6 +24,73 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun SpecialtyPicker(value: String, onValueChange: (String) -> Unit) {
+    val options = listOf(
+        "Anestesiologia",
+        "Cardiologia",
+        "Cirurgia Geral",
+        "Clínica Médica",
+        "Dermatologia",
+        "Ginecologia e Obstetrícia",
+        "Medicina de Emergência",
+        "Medicina de Família e Comunidade",
+        "Medicina Intensiva",
+        "Neonatologia",
+        "Neurologia",
+        "Ortopedia e Traumatologia",
+        "Pediatria",
+        "Psiquiatria",
+        "Radiologia e Diagnóstico por Imagem",
+        "Urologia",
+    )
+    var expanded by remember { mutableStateOf(false) }
+    val suggestions = options.filter { it.contains(value.trim(), ignoreCase = true) }
+    ExposedDropdownMenuBox(
+        expanded = expanded && suggestions.isNotEmpty(),
+        onExpandedChange = { expanded = it },
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {
+                onValueChange(it)
+                expanded = true
+            },
+            label = { Text("Especialidade médica") },
+            placeholder = { Text("Selecione ou digite", fontSize = 15.sp) },
+            supportingText = { Text("Escolha uma sugestão ou informe outra especialidade.") },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(
+                    expanded = expanded && suggestions.isNotEmpty(),
+                    modifier = Modifier.menuAnchor(MenuAnchorType.SecondaryEditable),
+                )
+            },
+            textStyle = CampoPlantaoTexto,
+            shape = CampoPlantaoShape,
+            colors = campoPlantaoColors(),
+            modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryEditable).fillMaxWidth().heightIn(min = 56.dp),
+            singleLine = true,
+        )
+        ExposedDropdownMenu(
+            expanded = expanded && suggestions.isNotEmpty(),
+            onDismissRequest = { expanded = false },
+            shape = CampoPlantaoShape,
+            containerColor = Color.White,
+        ) {
+            suggestions.forEach { specialty ->
+                DropdownMenuItem(
+                    text = { Text(specialty, color = Navy, fontSize = 16.sp) },
+                    onClick = {
+                        onValueChange(specialty)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
 /** Uses local calendar dates throughout, avoiding UTC date shifts. */
 @Composable
 internal fun DateTimePickerField(

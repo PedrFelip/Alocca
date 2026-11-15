@@ -6,9 +6,15 @@ import {
   usuariosTable,
   plantoesTable,
   instituicoesTable,
+  candidaturasTable,
+  medicosTable,
 } from '../db/schemas/index.ts'
 
 const textos: Record<string, [string, string]> = {
+  CONVITE_PLANTAO: [
+    'Convite para plantão',
+    'Você recebeu um convite para se candidatar ao plantão. Aceite o convite para enviar sua candidatura ao gestor.',
+  ],
   ALOCACAO_APROVADA: [
     'Candidatura aprovada',
     'Sua candidatura ao plantão foi aprovada.',
@@ -57,6 +63,14 @@ export class NotificacoesService {
       this.db
         .select({
           notificacao: notificacoesTable,
+          candidatura_status: sql<string | null>`(
+            select ${candidaturasTable.status} from ${candidaturasTable}
+            inner join ${medicosTable} on ${medicosTable.id} = ${candidaturasTable.medico_id}
+            where ${candidaturasTable.plantao_id} = ${notificacoesTable.plantao_id}
+              and ${medicosTable.usuario_id} = ${usuario}
+              and ${candidaturasTable.deleted_at} is null
+            limit 1
+          )`,
           plantao: {
             titulo: plantoesTable.titulo,
             unidade: plantoesTable.local_unidade,
@@ -80,9 +94,10 @@ export class NotificacoesService {
       this.db.select({ total: count() }).from(notificacoesTable).where(filtro),
     ])
     return {
-      dados: dados.map(({ notificacao, plantao }) =>
-        apresentar(notificacao, plantao),
-      ),
+      dados: dados.map(({ notificacao, plantao, candidatura_status }) => ({
+        ...apresentar(notificacao, plantao),
+        candidatura_status,
+      })),
       pagina,
       limite,
       total,

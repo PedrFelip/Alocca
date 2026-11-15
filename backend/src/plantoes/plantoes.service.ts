@@ -37,6 +37,7 @@ import {
   instituicoesTable,
   medicosTable,
   plantoesTable,
+  usuariosTable,
 } from '../db/schemas/index.ts'
 import type {
   CriarPlantao,
@@ -180,38 +181,81 @@ export class PlantoesService {
       throw new BadRequestException(mensagensOficiais['MSG-16'])
     }
 
-    const [criado] = await this.db
-      .insert(plantoesTable)
-      .values({
-        instituicao_id: instituicao.id,
-        gestor_criador_id: usuarioId,
-        // Título é opcional no formulário; o banco exige um valor.
-        titulo: dados.titulo ?? `Plantão de ${dados.especialidade}`,
-        descricao: dados.descricao,
-        local_unidade: dados.local_unidade,
-        especialidade: dados.especialidade,
-        data_inicio: dados.data_inicio,
-        data_fim: dados.data_fim,
-        valor: dados.valor.toFixed(2),
-        quantidade_vagas: dados.quantidade_vagas,
-        // RN26 — Recém-criado nasce 'ABERTO' com todas as vagas disponíveis.
-        vagas_disponiveis: dados.quantidade_vagas,
-        status: 'ABERTO',
-      })
-      .returning({
-        id: plantoesTable.id,
-        instituicao_id: plantoesTable.instituicao_id,
-        titulo: plantoesTable.titulo,
-        descricao: plantoesTable.descricao,
-        local_unidade: plantoesTable.local_unidade,
-        especialidade: plantoesTable.especialidade,
-        data_inicio: plantoesTable.data_inicio,
-        data_fim: plantoesTable.data_fim,
-        valor: plantoesTable.valor,
-        quantidade_vagas: plantoesTable.quantidade_vagas,
-        vagas_disponiveis: plantoesTable.vagas_disponiveis,
-        status: plantoesTable.status,
-      })
+    const criado = await this.db.transaction(async (tx) => {
+      const convidados = [...new Set(dados.medicos_convidados ?? [])]
+      const medicos =
+        convidados.length === 0
+          ? []
+          : await tx
+              .select({ id: medicosTable.id, usuarioId: usuariosTable.id })
+              .from(medicosTable)
+              .innerJoin(
+                usuariosTable,
+                eq(usuariosTable.id, medicosTable.usuario_id),
+              )
+              .where(
+                and(
+                  inArray(medicosTable.id, convidados),
+                  eq(medicosTable.status_validacao, 'APROVADO'),
+                  eq(usuariosTable.status, 'ATIVO'),
+                  eq(usuariosTable.tipo, 'MEDICO'),
+                  isNull(medicosTable.deleted_at),
+                  isNull(usuariosTable.deleted_at),
+                ),
+              )
+      if (medicos.length !== convidados.length) {
+        throw new BadRequestException(
+          'Um dos médicos selecionados não está disponível para convite.',
+        )
+      }
+      if (convidados.length && dados.data_inicio <= new Date()) {
+        throw new BadRequestException(
+          'Convites exigem um plantão com início no futuro.',
+        )
+      }
+      const [plantao] = await tx
+        .insert(plantoesTable)
+        .values({
+          instituicao_id: instituicao.id,
+          gestor_criador_id: usuarioId,
+          // Título é opcional no formulário; o banco exige um valor.
+          titulo: dados.titulo ?? `Plantão de ${dados.especialidade}`,
+          descricao: dados.descricao,
+          local_unidade: dados.local_unidade,
+          especialidade: dados.especialidade,
+          data_inicio: dados.data_inicio,
+          data_fim: dados.data_fim,
+          valor: dados.valor.toFixed(2),
+          quantidade_vagas: dados.quantidade_vagas,
+          // RN26 — Recém-criado nasce 'ABERTO' com todas as vagas disponíveis.
+          vagas_disponiveis: dados.quantidade_vagas,
+          status: 'ABERTO',
+        })
+        .returning({
+          id: plantoesTable.id,
+          instituicao_id: plantoesTable.instituicao_id,
+          titulo: plantoesTable.titulo,
+          descricao: plantoesTable.descricao,
+          local_unidade: plantoesTable.local_unidade,
+          especialidade: plantoesTable.especialidade,
+          data_inicio: plantoesTable.data_inicio,
+          data_fim: plantoesTable.data_fim,
+          valor: plantoesTable.valor,
+          quantidade_vagas: plantoesTable.quantidade_vagas,
+          vagas_disponiveis: plantoesTable.vagas_disponiveis,
+          status: plantoesTable.status,
+        })
+      if (medicos.length)
+        await tx.insert(notificacoesTable).values(
+          medicos.map((medico) => ({
+            usuario_destino_id: medico.usuarioId,
+            plantao_id: plantao.id,
+            tipo: 'CONVITE_PLANTAO',
+            email_elegivel: this.emailElegivel(medico.usuarioId),
+          })),
+        )
+      return plantao
+    })
 
     // Ação crítica: publicação de vaga.
     this.logger.log(
@@ -230,6 +274,30 @@ export class PlantoesService {
   }
 
   /** UC10 — Plantões das instituições administradas pelo gestor logado. */
+  async medicosConvidaveis(usuarioId: string, instituicaoId: string) {
+    await this.acesso.exigirVinculo(usuarioId, instituicaoId)
+    return this.db
+      .select({
+        id: medicosTable.id,
+        nome: usuariosTable.nome,
+        crm: medicosTable.crm,
+        uf_crm: medicosTable.uf_crm,
+        especialidade: medicosTable.especialidade,
+      })
+      .from(medicosTable)
+      .innerJoin(usuariosTable, eq(usuariosTable.id, medicosTable.usuario_id))
+      .where(
+        and(
+          eq(medicosTable.status_validacao, 'APROVADO'),
+          eq(usuariosTable.status, 'ATIVO'),
+          eq(usuariosTable.tipo, 'MEDICO'),
+          isNull(medicosTable.deleted_at),
+          isNull(usuariosTable.deleted_at),
+        ),
+      )
+      .orderBy(asc(usuariosTable.nome), asc(medicosTable.id))
+  }
+
   async listarGerenciados(
     usuarioId: string,
     filtros: ListarPlantoesGerenciados,

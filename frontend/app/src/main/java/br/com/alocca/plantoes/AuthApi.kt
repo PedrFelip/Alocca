@@ -38,10 +38,13 @@ internal object AuthApi {
     }
 
     /** O login mobile entrega somente um desafio; nenhum token de sessão antes do PIN. */
-    fun iniciarLogin(tipo: String, email: String, senha: String): ApiResult {
-        require(tipo == "medico" || tipo == "gestor")
-        return interpretarChallenge(request("auth/login/$tipo", "POST", JSONObject().put("email", email).put("senha", senha)))
+    fun iniciarLogin(email: String, senha: String, dispositivoToken: String): ApiResult {
+        return interpretarLoginMobile(request("auth/login/mobile", "POST", JSONObject().put("email", email).put("senha", senha).put("dispositivo_token", dispositivoToken)))
     }
+
+    internal fun interpretarLoginMobile(result: ApiResult): ApiResult =
+        if (result.body?.optBoolean("requer_2fa", true) == false) interpretarSessao(result)
+        else interpretarChallenge(result)
 
     fun solicitarPin(challenge: String): ApiResult =
         postMensagem("auth/2fa/solicitar-pin", JSONObject().put("challenge_token", challenge))

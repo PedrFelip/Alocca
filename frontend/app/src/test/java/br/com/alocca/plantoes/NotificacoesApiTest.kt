@@ -4,6 +4,37 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NotificacoesApiTest {
+    @Test fun `aceitar convite envia candidatura com token e corpo vazio`() {
+        val api = NotificacoesApi { path, method, body, token ->
+            assertEquals("plantoes/p1/candidaturas", path)
+            assertEquals("POST", method)
+            assertEquals("sessao", token)
+            assertEquals(0, body!!.length())
+            ApiHttp.Resposta(201, """{"message":"Candidatura enviada"}""")
+        }
+        assertEquals("Candidatura enviada", api.aceitarConvite("sessao", "p1"))
+    }
+
+    @Test fun `convite com candidatura existente preserva status ao recarregar`() {
+        val convite = item.replace("AVISO", "CONVITE_PLANTAO").dropLast(1) + ",\"candidatura_status\":\"PENDENTE\"}"
+        val api = NotificacoesApi { _, _, _, _ ->
+            ApiHttp.Resposta(200, """{"dados":[$convite],"pagina":1,"limite":20,"total":1}""")
+        }
+        assertEquals("PENDENTE", api.listar("sessao", 1).dados.single().candidaturaStatus)
+    }
+
+    @Test fun `aceitar convite preserva erros de elegibilidade e sessao`() {
+        for (status in listOf(401, 403, 409)) {
+            val api = NotificacoesApi { _, _, _, _ -> ApiHttp.Resposta(status, """{"message":"Não disponível"}""") }
+            try {
+                api.aceitarConvite("sessao", "p1")
+                fail("Esperava erro")
+            } catch (e: ApiException) {
+                assertEquals(status, e.status)
+                assertEquals("Não disponível", e.userMessage)
+            }
+        }
+    }
     private val item = """{"id":"n1","tipo":"AVISO","plantao_id":"p1","titulo":"Título","mensagem":"Mensagem","lida_em":null,"created_at":"2026-11-14T20:00:00Z"}"""
     @Test fun `lista usa pagina token e interpreta leitura nula`() {
         val api = NotificacoesApi { path, method, body, token ->

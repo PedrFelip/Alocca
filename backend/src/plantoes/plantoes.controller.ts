@@ -67,6 +67,14 @@ export class PlantoesController {
   ) {
     return this.plantoes.listarGerenciados(request.usuarioId, filtros)
   }
+  @Get('medicos-convidaveis')
+  @Permissoes('GESTOR')
+  medicosConvidaveis(
+    @Req() request: AuthenticatedRequest,
+    @Query('instituicao_id', new ParseUUIDPipe()) instituicaoId: string,
+  ) {
+    return this.plantoes.medicosConvidaveis(request.usuarioId, instituicaoId)
+  }
   @Patch(':id')
   @Permissoes('GESTOR')
   editar(
