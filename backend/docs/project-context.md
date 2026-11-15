@@ -410,3 +410,26 @@ Para garantir entrega incremental e testável, o agente deve implementar os mód
 ## Contrato financeiro implementado (#85/#86, decisão de 14/11/2026)
 
 As rotas atuais não usam `/api/v1` e os campos são snake_case, seguindo o contrato existente (D18). Ver `contrato-financeiro.md`. Recebido soma PAGO; a receber soma PENDENTE sem vencimento ou com vencimento >= now(); em atraso soma PENDENTE com vencimento < now(). Não há prazo automático. O fim do plantão define apenas elegibilidade para baixa (RN28). SeaweedFS Filer privado guarda `/comprovantes/<UUID>.<ext>`; `pagamentos.comprovante_chave` e `comprovante_mime` guardam a referência interna. O backend autoriza cada download e serve o arquivo sem URL pública (D11/D14).
+
+## Alinhamento de sessão mobile — D9 (produto, 14/11/2026)
+
+UC02/UC03 passam a exigir PIN por e-mail no login inicial. A biometria de RN09
+protege apenas o desbloqueio local da sessão no Android; o servidor não aceita um
+booleano de sucesso biométrico como autenticação. O PIN mantém RN10 (6 dígitos,
+5 minutos). Challenge opaco aleatório, uso único, expira em 5 minutos; até 5 erros
+invalidam o desafio. Até 3 envios por conta em 15 minutos, além do limite por IP;
+reenvio invalida PIN anterior. SMTP existente entrega PIN; sem SMTP não emitir
+sessão mobile nem simular autenticação.
+
+RNF05: access token de 15 minutos; refresh opaco de 30 dias absolutos por família,
+rotacionado a cada uso. Reutilização de refresh consumido revoga a família inteira.
+Logout revoga somente a sessão atual, incluindo seus access tokens; alteração ou
+recuperação de senha revoga todas as sessões e desafios. Servidor guarda somente
+hash de challenge/PIN/refresh, com transações para consumo e rotação concorrentes.
+Cliente guarda credenciais cifradas com chave Keystore, fora de backup e logs.
+
+Transição D18: novas rotas `/auth/login/medico` e `/auth/login/gestor`, snake_case,
+sem `/api/v1`, são exclusivas do fluxo mobile novo. `/auth/login` legado permanece
+para painel admin; em produção, acesso legado de médico/gestor exige a exceção
+`LOGIN_LEGADO_MOBILE=true`, que será retirada em até 30 dias após a implantação em produção. Contrato detalhado em `proposta-sessao-2fa.md`;
+estado efetivamente implementado e validações em `contrato-auth-app.md`.

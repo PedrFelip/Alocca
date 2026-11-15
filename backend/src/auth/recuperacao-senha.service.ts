@@ -1,14 +1,28 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  HttpException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common'
 import { and, count, eq, gt, isNull, sql } from 'drizzle-orm'
 import { createHash, randomInt } from 'node:crypto'
 import { mensagensOficiais } from '../common/mensagens.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import { tokensRecuperacaoSenhaTable } from '../db/schemas/tokens-recuperacao-senha.ts'
+import {
+  desafiosMobileTable,
+  sessoesMobileTable,
+} from '../db/schemas/sessoes-mobile.ts'
 import { usuariosTable } from '../db/schemas/usuarios.ts'
 import { EmailPayloadService } from '../email/email-payload.service.ts'
 import { emailsPendentesTable } from '../db/schemas/emails-pendentes.ts'
 import { UsuariosService, type Usuario } from '../usuarios/usuarios.service.ts'
-import type { RecuperarSenha, RedefinirSenha } from './auth.schemas.ts'
+import type {
+  AlterarSenha,
+  RecuperarSenha,
+  RedefinirSenha,
+} from './auth.schemas.ts'
 import { PasswordService } from './password.service.ts'
 
 const LIMITE_POR_CONTA = 3 // pedidos a cada 15 min
@@ -107,10 +121,105 @@ export class RecuperacaoSenhaService {
     })
   }
 
+  async alterar(usuarioId: string, versaoSessao: number, data: AlterarSenha) {
+    const resultado = await this.db.transaction(async (tx) => {
+      const [usuario] = await tx
+        .select()
+        .from(usuariosTable)
+        .where(
+          and(
+            eq(usuariosTable.id, usuarioId),
+            eq(usuariosTable.status, 'ATIVO'),
+            isNull(usuariosTable.deleted_at),
+          ),
+        )
+        .for('update')
+      if (!usuario || usuario.versao_sessao !== versaoSessao) return 'invalido'
+      const agora = new Date()
+      const inicio = usuario.inicio_tentativas_alteracao_senha
+      const dentroJanela = inicio && agora.getTime() - inicio.getTime() < 60000
+      const tentativas = dentroJanela ? usuario.tentativas_alteracao_senha : 0
+      if (tentativas >= 5) return 'limite'
+      await tx
+        .update(usuariosTable)
+        .set({
+          tentativas_alteracao_senha: tentativas + 1,
+          inicio_tentativas_alteracao_senha: dentroJanela ? inicio : agora,
+        })
+        .where(eq(usuariosTable.id, usuarioId))
+      if (!(await this.passwords.verify(data.senha_atual, usuario.senha_hash)))
+        return 'senha_incorreta'
+      const senha_hash = await this.passwords.hash(data.nova_senha)
+      await tx
+        .update(usuariosTable)
+        .set({
+          senha_hash,
+          versao_sessao: sql`${usuariosTable.versao_sessao} + 1`,
+          tentativas_alteracao_senha: 0,
+          inicio_tentativas_alteracao_senha: null,
+        })
+        .where(eq(usuariosTable.id, usuarioId))
+      await tx
+        .update(tokensRecuperacaoSenhaTable)
+        .set({ used_at: sql`now()` })
+        .where(
+          and(
+            eq(tokensRecuperacaoSenhaTable.usuario_id, usuarioId),
+            isNull(tokensRecuperacaoSenhaTable.used_at),
+          ),
+        )
+      await tx
+        .update(sessoesMobileTable)
+        .set({ revoked_at: sql`now()` })
+        .where(
+          and(
+            eq(sessoesMobileTable.usuario_id, usuarioId),
+            isNull(sessoesMobileTable.revoked_at),
+          ),
+        )
+      await tx
+        .update(desafiosMobileTable)
+        .set({ used_at: sql`now()`, pin_hash: null })
+        .where(
+          and(
+            eq(desafiosMobileTable.usuario_id, usuarioId),
+            isNull(desafiosMobileTable.used_at),
+          ),
+        )
+      return 'ok'
+    })
+    if (resultado === 'limite')
+      throw new HttpException(
+        'Muitas tentativas. Tente novamente em instantes.',
+        429,
+      )
+    if (resultado === 'senha_incorreta')
+      throw new BadRequestException(mensagensOficiais['MSG-01'])
+    if (resultado !== 'ok')
+      throw new UnauthorizedException(mensagensOficiais['MSG-01'])
+    return { message: mensagensOficiais['MSG-08'] }
+  }
+
   async redefinir(data: RedefinirSenha) {
     const senha_hash = await this.passwords.hash(data.nova_senha)
     const trocou = await this.db.transaction(async (tx) => {
-      // usa e confere num update so, assim nao da pra usar 2 vezes
+      const [referencia] = await tx
+        .select({ usuario_id: tokensRecuperacaoSenhaTable.usuario_id })
+        .from(tokensRecuperacaoSenhaTable)
+        .where(eq(tokensRecuperacaoSenhaTable.token, hashDoToken(data.token)))
+      if (!referencia) return false
+      const [usuario] = await tx
+        .select({ id: usuariosTable.id })
+        .from(usuariosTable)
+        .where(
+          and(
+            eq(usuariosTable.id, referencia.usuario_id),
+            eq(usuariosTable.status, 'ATIVO'),
+            isNull(usuariosTable.deleted_at),
+          ),
+        )
+        .for('update')
+      if (!usuario) return false
       const [token] = await tx
         .update(tokensRecuperacaoSenhaTable)
         .set({ used_at: sql`now()` })
@@ -121,26 +230,49 @@ export class RecuperacaoSenhaService {
             gt(tokensRecuperacaoSenhaTable.expires_at, sql`now()`),
           ),
         )
-        .returning({ usuario_id: tokensRecuperacaoSenhaTable.usuario_id })
+        .returning({ id: tokensRecuperacaoSenhaTable.id })
       if (!token) return false
-      const [usuario] = await tx
+      await tx
         .update(usuariosTable)
-        // tira o bloqueio de login tb
-        .set({ senha_hash, tentativas_falhas: 0, bloqueado_ate: null })
+        .set({
+          senha_hash,
+          tentativas_falhas: 0,
+          bloqueado_ate: null,
+          versao_sessao: sql`${usuariosTable.versao_sessao} + 1`,
+          tentativas_alteracao_senha: 0,
+          inicio_tentativas_alteracao_senha: null,
+        })
+        .where(eq(usuariosTable.id, usuario.id))
+      await tx
+        .update(tokensRecuperacaoSenhaTable)
+        .set({ used_at: sql`now()` })
         .where(
           and(
-            eq(usuariosTable.id, token.usuario_id),
-            eq(usuariosTable.status, 'ATIVO'),
-            isNull(usuariosTable.deleted_at),
+            eq(tokensRecuperacaoSenhaTable.usuario_id, usuario.id),
+            isNull(tokensRecuperacaoSenhaTable.used_at),
           ),
         )
-        .returning({ id: usuariosTable.id })
-      // conta desativada nao troca
-      return Boolean(usuario)
+      await tx
+        .update(sessoesMobileTable)
+        .set({ revoked_at: sql`now()` })
+        .where(
+          and(
+            eq(sessoesMobileTable.usuario_id, usuario.id),
+            isNull(sessoesMobileTable.revoked_at),
+          ),
+        )
+      await tx
+        .update(desafiosMobileTable)
+        .set({ used_at: sql`now()`, pin_hash: null })
+        .where(
+          and(
+            eq(desafiosMobileTable.usuario_id, usuario.id),
+            isNull(desafiosMobileTable.used_at),
+          ),
+        )
+      return true
     })
-    if (!trocou) {
-      throw new BadRequestException(mensagensOficiais['MSG-06'])
-    }
+    if (!trocou) throw new BadRequestException(mensagensOficiais['MSG-06'])
     return { message: mensagensOficiais['MSG-08'] }
   }
 }

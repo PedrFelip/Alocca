@@ -21,8 +21,37 @@ internal object TokenStore {
     private const val TRANSFORMATION = "AES/GCM/NoPadding"
     private const val GCM_TAG_BITS = 128
 
+    internal data class Session(val access: String, val refresh: String, val accessExpiresAt: Long, val refreshExpiresAt: Long)
+
+    @Synchronized
+    fun saveSession(context: Context, session: Session) {
+        require(session.access.isNotBlank() && session.refresh.isNotBlank())
+        saveValue(context, org.json.JSONObject().put("access", session.access).put("refresh", session.refresh).put("access_expires_at", session.accessExpiresAt).put("refresh_expires_at", session.refreshExpiresAt).toString())
+    }
+
+    @Synchronized
+    fun replaceIfMatches(context: Context, expected: Session, replacement: Session): Boolean {
+        if (readSession(context) != expected) return false
+        saveSession(context, replacement)
+        return true
+    }
+
+    @Synchronized
+    fun readSession(context: Context): Session? {
+        val value = readValue(context) ?: return null
+        return runCatching {
+            val json = org.json.JSONObject(value)
+            Session(json.getString("access"), json.getString("refresh"), json.getLong("access_expires_at"), json.getLong("refresh_expires_at"))
+                .also { require(it.access.isNotBlank() && it.refresh.isNotBlank()) }
+        }.getOrNull()
+    }
+
     @Synchronized
     fun save(context: Context, token: String) {
+        saveValue(context, token)
+    }
+
+    private fun saveValue(context: Context, token: String) {
         require(token.isNotBlank()) { "Token must not be blank" }
 
         // Remove tokens written by the previous plaintext implementation. Never read them.
@@ -67,6 +96,11 @@ internal object TokenStore {
     /** Returns null for an absent or undecryptable token and clears corrupt ciphertext. */
     @Synchronized
     fun read(context: Context): String? {
+        val value = readValue(context) ?: return null
+        return if (value.startsWith("{")) runCatching { org.json.JSONObject(value).getString("access") }.getOrNull() else value
+    }
+
+    private fun readValue(context: Context): String? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val ivText = prefs.getString(IV_KEY, null)
         val ciphertextText = prefs.getString(CIPHERTEXT_KEY, null)

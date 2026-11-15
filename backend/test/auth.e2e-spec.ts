@@ -1,3 +1,4 @@
+import { SessaoMobileService } from '../src/auth/sessao-mobile.service.ts'
 import { PGlite } from '@electric-sql/pglite'
 import { Logger, type INestApplication } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
@@ -13,6 +14,7 @@ import { ConfigService } from '@nestjs/config'
 import type { Env } from '../src/config/env.ts'
 import { AdminBootstrapService } from '../src/auth/admin-bootstrap.service.ts'
 import { AuthService } from '../src/auth/auth.service.ts'
+import { EmailService } from '../src/email/email.service.ts'
 import { PasswordService } from '../src/auth/password.service.ts'
 
 const cadastro = {
@@ -31,6 +33,7 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
 
   beforeAll(async () => {
     database = new PGlite()
+    await database.exec("SET TIME ZONE 'UTC'")
     await database.exec(
       await readFile(
         'drizzle/20260917114458_peaceful_frog_thor/migration.sql',
@@ -384,6 +387,224 @@ describe('Autenticação e usuários (PostgreSQL)', () => {
       if (status === 429) break
     }
     expect(status).toBe(429)
+  })
+
+  it('emite sessão após PIN, revoga replay e logout imediatamente', async () => {
+    const senha = 'Senha-Mobile-123'
+    const senhaHash = await app.get(PasswordService).hash(senha)
+    await database.query(
+      "INSERT INTO usuarios (nome, email, senha_hash, tipo) VALUES ('Mobile', 'mobile@example.com', $1, 'MEDICO')",
+      [senhaHash],
+    )
+    const config = app.get(ConfigService)
+    config.set('SMTP_HOST', 'smtp.test')
+    const enviar = vi.spyOn(app.get(EmailService), 'enviar').mockResolvedValue()
+    const loginMobile = async () => {
+      const login = await request(app.getHttpServer())
+        .post('/auth/login/medico')
+        .send({ email: 'mobile@example.com', senha })
+        .expect(200)
+      expect(login.body.access_token).toBeUndefined()
+      await request(app.getHttpServer())
+        .post('/auth/2fa/solicitar-pin')
+        .send({ challenge_token: login.body.challenge_token })
+        .expect(200)
+      const texto = enviar.mock.calls.at(-1)![0].texto
+      const pin = texto.match(/\b\d{6}\b/)![0]
+      return (
+        await request(app.getHttpServer())
+          .post('/auth/2fa/validar-pin')
+          .send({ challenge_token: login.body.challenge_token, pin_code: pin })
+          .expect(200)
+      ).body
+    }
+    const first = await loginMobile()
+    await app.listen(0)
+    const results = await Promise.all([
+      request(app.getHttpServer())
+        .post('/auth/refresh')
+        .send({ refresh_token: first.refresh_token }),
+      request(app.getHttpServer())
+        .post('/auth/refresh')
+        .send({ refresh_token: first.refresh_token }),
+    ])
+    expect(results.map((r) => r.status).sort((a, b) => a - b)).toEqual([
+      200, 401,
+    ])
+    const successor = results.find((r) => r.status === 200)!.body
+    await request(app.getHttpServer())
+      .get('/usuarios/me')
+      .set('Authorization', `Bearer ${successor.access_token}`)
+      .expect(401)
+    const second = await loginMobile()
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .send({ refresh_token: second.refresh_token })
+      .expect(200)
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .send({ refresh_token: second.refresh_token })
+      .expect(200)
+    await request(app.getHttpServer())
+      .get('/usuarios/me')
+      .set('Authorization', `Bearer ${second.access_token}`)
+      .expect(401)
+    enviar.mockRestore()
+    config.set('SMTP_HOST', '')
+  })
+
+  it('limita erros e envios de PIN e rejeita desafio expirado ou SMTP ausente', async () => {
+    const mobile = app.get(SessaoMobileService)
+    const config = app.get(ConfigService)
+    const senha = 'Senha-Limites-123'
+    const senhaHash = await app.get(PasswordService).hash(senha)
+    await database.query(
+      "INSERT INTO usuarios (nome,email,senha_hash,tipo) VALUES ('Limites','limites@example.com',$1,'GESTOR')",
+      [senhaHash],
+    )
+    const data = { email: 'limites@example.com', senha }
+    await expect(mobile.login(data, 'MEDICO')).rejects.toThrow()
+    const { challenge_token: challenge } = await mobile.login(data, 'GESTOR')
+    config.set('SMTP_HOST', '')
+    await expect(mobile.solicitar(challenge)).rejects.toThrow('indisponível')
+    config.set('SMTP_HOST', 'smtp.test')
+    const enviar = vi.spyOn(app.get(EmailService), 'enviar').mockResolvedValue()
+    try {
+      await mobile.solicitar(challenge)
+      const primeiro = enviar.mock.calls.at(-1)![0].texto.match(/\b\d{6}\b/)![0]
+      await mobile.solicitar(challenge)
+      const segundo = enviar.mock.calls.at(-1)![0].texto.match(/\b\d{6}\b/)![0]
+      const errado = segundo === '000000' ? '999999' : '000000'
+      if (primeiro !== segundo)
+        await expect(mobile.validar(challenge, primeiro)).rejects.toThrow()
+      for (let n = 0; n < 5; n++)
+        await expect(mobile.validar(challenge, errado)).rejects.toThrow()
+      await expect(mobile.validar(challenge, segundo)).rejects.toThrow()
+      const novo = await mobile.login(data, 'GESTOR')
+      await mobile.solicitar(novo.challenge_token)
+      await expect(mobile.solicitar(novo.challenge_token)).rejects.toThrow(
+        'Limite',
+      )
+      await database.exec(
+        "UPDATE desafios_mobile SET expires_at = now() - interval '1 minute'",
+      )
+      await expect(
+        mobile.validar(novo.challenge_token, segundo),
+      ).rejects.toThrow()
+    } finally {
+      enviar.mockRestore()
+      config.set('SMTP_HOST', '')
+    }
+  })
+
+  it('envia PIN fora da transação e uma falha não invalida um PIN mais recente', async () => {
+    const senha = 'Senha-Concorrente-123'
+    const hashSenha = await app.get(PasswordService).hash(senha)
+    const [u] = (
+      await database.query<{ id: string }>(
+        "INSERT INTO usuarios (nome,email,senha_hash,tipo) VALUES ('Teste','smtp-concorrente@example.com',$1,'GESTOR') RETURNING id",
+        [hashSenha],
+      )
+    ).rows
+    const mobile = app.get(SessaoMobileService)
+    const config = app.get(ConfigService)
+    config.set('SMTP_HOST', 'smtp.test')
+    const challenge = (
+      await mobile.login(
+        { email: 'smtp-concorrente@example.com', senha },
+        'GESTOR',
+      )
+    ).challenge_token
+    let liberar!: () => void
+    let iniciou!: () => void
+    const inicio = new Promise<void>((resolve) => {
+      iniciou = resolve
+    })
+    const enviar = vi
+      .spyOn(app.get(EmailService), 'enviar')
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            liberar = () => reject(new Error('SMTP'))
+            iniciou()
+          }),
+      )
+      .mockResolvedValue()
+    try {
+      const primeiro = mobile.solicitar(challenge)
+      const falhou = expect(primeiro).rejects.toThrow('indisponível')
+      await inicio
+      const pinPendente = enviar.mock.calls[0][0].texto.match(/\b\d{6}\b/)![0]
+      await expect(mobile.validar(challenge, pinPendente)).rejects.toThrow()
+      await database.query('UPDATE usuarios SET nome=nome WHERE id=$1', [u.id])
+      await mobile.solicitar(challenge)
+      const pin = enviar.mock.calls.at(-1)![0].texto.match(/\b\d{6}\b/)![0]
+      liberar()
+      await falhou
+      config.set('SMTP_HOST', '')
+      await expect(mobile.validar(challenge, pin)).resolves.toHaveProperty(
+        'access_token',
+      )
+    } finally {
+      enviar.mockRestore()
+      config.set('SMTP_HOST', '')
+    }
+  })
+
+  it('remove dados expirados e preserva refresh consumido de sessão ativa para detectar replay', async () => {
+    const [u] = (
+      await database.query<{ id: string }>(
+        "INSERT INTO usuarios (nome,email,senha_hash,tipo) VALUES ('Limpeza','limpeza@example.com','hash','GESTOR') RETURNING id",
+      )
+    ).rows
+    await database.query(
+      "INSERT INTO desafios_mobile (usuario_id,token_hash,expires_at) VALUES ($1,$2,now() - interval '1 day')",
+      [u.id, 'a'.repeat(64)],
+    )
+    await database.query(
+      "INSERT INTO envios_pin (usuario_id,created_at) VALUES ($1,now() - interval '1 day'),($1,now())",
+      [u.id],
+    )
+    const expired = (
+      await database.query<{ id: string }>(
+        "INSERT INTO sessoes_mobile (usuario_id,expires_at) VALUES ($1,now() - interval '1 day') RETURNING id",
+        [u.id],
+      )
+    ).rows[0].id
+    const active = (
+      await database.query<{ id: string }>(
+        "INSERT INTO sessoes_mobile (usuario_id,expires_at) VALUES ($1,now() + interval '1 day') RETURNING id",
+        [u.id],
+      )
+    ).rows[0].id
+    await database.query(
+      'INSERT INTO refresh_mobile (sessao_id,token_hash,used_at) VALUES ($1,$2,now()),($3,$4,now())',
+      [expired, 'b'.repeat(64), active, 'c'.repeat(64)],
+    )
+    await app.get(SessaoMobileService).limpar()
+    expect(
+      (
+        await database.query(
+          'SELECT id FROM desafios_mobile WHERE usuario_id=$1',
+          [u.id],
+        )
+      ).rows,
+    ).toHaveLength(0)
+    expect(
+      (
+        await database.query('SELECT id FROM envios_pin WHERE usuario_id=$1', [
+          u.id,
+        ])
+      ).rows,
+    ).toHaveLength(1)
+    expect(
+      (
+        await database.query(
+          'SELECT sessao_id FROM refresh_mobile WHERE sessao_id IN ($1,$2)',
+          [expired, active],
+        )
+      ).rows,
+    ).toEqual([{ sessao_id: active }])
   })
 
   it('cria admin inicial sem duplicar, redefinir senha ou promover outra conta', async () => {

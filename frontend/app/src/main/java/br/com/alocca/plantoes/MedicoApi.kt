@@ -267,38 +267,18 @@ private object MedicoApiHttp {
     fun get(path: String, token: String): Resposta<Any?> = send("GET", path, token, null)
 
     fun send(method: String, path: String, token: String, corpo: JSONObject?): Resposta<Any?> {
-        var conexao: HttpURLConnection? = null
-        return try {
-            conexao = (URL(BuildConfig.API_BASE_URL + path).openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 10_000
-                readTimeout = 15_000
-                setRequestProperty("Authorization", "Bearer $token")
-                setRequestProperty("Accept", "application/json")
-                if (corpo != null) {
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                }
+        val response = ApiHttp.enviar(path, method, corpo, token)
+        val status = response.status
+        val texto = response.texto
+        if (status == 0) return Resposta.Falha(CONEXAO, 0)
+        val json: Any? = texto.trim().let { t ->
+            when {
+                t.startsWith("[") -> runCatching { JSONArray(t) }.getOrNull()
+                t.startsWith("{") -> runCatching { JSONObject(t) }.getOrNull()
+                else -> null
             }
-            if (corpo != null) {
-                conexao.outputStream.use { it.write(corpo.toString().toByteArray(Charsets.UTF_8)) }
-            }
-            val status = conexao.responseCode
-            val texto = (if (status in 200..299) conexao.inputStream else conexao.errorStream)
-                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            val json: Any? = texto.trim().let { t ->
-                when {
-                    t.startsWith("[") -> runCatching { JSONArray(t) }.getOrNull()
-                    t.startsWith("{") -> runCatching { JSONObject(t) }.getOrNull()
-                    else -> null
-                }
-            }
-            if (status in 200..299) Resposta.Ok(json) else Resposta.Falha(mensagemDeErro(status, json), status)
-        } catch (_: Exception) {
-            Resposta.Falha(CONEXAO, 0)
-        } finally {
-            conexao?.disconnect()
         }
+        return if (status in 200..299) Resposta.Ok(json) else Resposta.Falha(mensagemDeErro(status, json), status)
     }
 
     /** Usa a mensagem do servidor (catálogo MSG-XX) sempre que ela existir. */

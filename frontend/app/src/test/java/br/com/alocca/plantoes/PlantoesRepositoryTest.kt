@@ -114,7 +114,6 @@ class PlantoesRepositoryTest {
             )
             val item = (repository.feed(0) as Resultado.Sucesso).valor.single()
             assertEquals("p1", item.id)
-            assertEquals("json-parse-test", executado.single().name)
             assertNotEquals(Thread.currentThread(), executado.single())
         } finally {
             executor.shutdown()

@@ -37,12 +37,60 @@ internal object AuthApi {
         }
     }
 
+    /** O login mobile entrega somente um desafio; nenhum token de sessão antes do PIN. */
+    fun iniciarLogin(tipo: String, email: String, senha: String): ApiResult {
+        require(tipo == "medico" || tipo == "gestor")
+        return interpretarChallenge(request("auth/login/$tipo", "POST", JSONObject().put("email", email).put("senha", senha)))
+    }
+
+    fun solicitarPin(challenge: String): ApiResult =
+        postMensagem("auth/2fa/solicitar-pin", JSONObject().put("challenge_token", challenge))
+
+    fun validarPin(challenge: String, pin: String): ApiResult = interpretarSessao(
+        request("auth/2fa/validar-pin", "POST", JSONObject().put("challenge_token", challenge).put("pin_code", pin)),
+    )
+
+    fun renovar(refresh: String): ApiResult = interpretarSessao(
+        request("auth/refresh", "POST", JSONObject().put("refresh_token", refresh)),
+    )
+
+    fun revogar(refresh: String): ApiResult =
+        request("auth/logout", "POST", JSONObject().put("refresh_token", refresh))
+
+    internal fun interpretarChallenge(result: ApiResult): ApiResult {
+        if (!result.successful) return result
+        val body = result.body
+        return if (body != null && body.optString("challenge_token").isNotBlank() &&
+            body.optBoolean("requer_2fa", false) && body.optLong("expires_in", 0) > 0 &&
+            !body.has("access_token") && !body.has("refresh_token")) result
+        else ApiResult(false, null, INVALID_RESPONSE, result.status)
+    }
+
+    internal fun interpretarSessao(result: ApiResult): ApiResult {
+        if (!result.successful) return result
+        val body = result.body
+        return if (body.hasValidLoginResponse() && body!!.optString("refresh_token").isNotBlank() &&
+            body.optString("token_type").equals("Bearer", ignoreCase = true) &&
+            body.optLong("expires_in", 0) > 0 && body.optLong("refresh_expires_in", 0) > 0) result
+        else ApiResult(false, null, INVALID_RESPONSE, result.status)
+    }
+
     // recuperacao de senha (UC04): a resposta so traz a mensagem
     fun recuperarSenha(email: String): ApiResult =
         postMensagem("auth/recuperar-senha", JSONObject().put("email", email))
 
     fun redefinirSenha(codigo: String, novaSenha: String): ApiResult =
         postMensagem("auth/redefinir-senha", JSONObject().put("token", codigo).put("nova_senha", novaSenha))
+
+    fun alterarSenha(token: String, senhaAtual: String, novaSenha: String): ApiResult =
+        interpretarAlteracaoSenha(request("auth/alterar-senha", "POST", JSONObject().put("senha_atual", senhaAtual).put("nova_senha", novaSenha), token))
+
+    internal fun interpretarAlteracaoSenha(result: ApiResult): ApiResult = when {
+        result.status == 200 -> result.copy(successful = true, message = "Senha atualizada com sucesso!")
+        result.successful -> ApiResult(false, null, INVALID_RESPONSE, result.status)
+        result.status == 429 -> result.copy(message = result.body?.optString("message")?.takeIf { it.isNotBlank() } ?: MUITOS_PEDIDOS)
+        else -> result
+    }
 
     private fun postMensagem(path: String, payload: JSONObject): ApiResult {
         val result = request(path, "POST", payload = payload)
