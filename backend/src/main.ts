@@ -7,6 +7,7 @@ import type { Env } from './config/env.ts'
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule)
+  app.enableShutdownHooks()
   const config = app.get(ConfigService<Env, true>)
   app.set('trust proxy', config.get('TRUST_PROXY', { infer: true }) || false)
   app.enableCors({

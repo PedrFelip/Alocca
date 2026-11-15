@@ -1,3 +1,4 @@
+import { QueueModule } from './queue/queue.module.ts'
 import { NotificacoesModule } from './notificacoes/notificacoes.module.ts'
 import { Module } from '@nestjs/common'
 import { APP_FILTER, APP_GUARD } from '@nestjs/core'
@@ -29,6 +30,7 @@ import { InstituicoesModule } from './instituicoes/instituicoes.module.ts'
     }),
     DatabaseModule,
     NotificacoesModule,
+    QueueModule,
     AuthModule,
     AgendaModule,
     PresencaModule,

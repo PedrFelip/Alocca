@@ -38,8 +38,130 @@ O app Android nativo não é limitado por CORS; mantenha esta origem restrita ao
 painel web. Em dispositivos físicos, permita a porta da API no firewall da rede
 local e use o endereço IP da máquina que executa o backend.
 
-Na raiz do projeto, inicie o banco local com `docker compose up -d --wait db`.
+Na raiz do projeto, inicie o banco e o Redis local com
+`docker compose up -d --wait db redis`.
 A conexão padrão do `.env.example` corresponde ao serviço do Compose.
+
+O Redis do Compose publica somente em `127.0.0.1:6379`, usa AOF com
+`appendfsync everysec`, volume `redis_data` e limite de memória compartilhado de
+256 MB com `noeviction`. Cache e filas usam bancos lógicos diferentes na mesma
+instância. A persistência serve às filas; os dados de negócio continuam no
+Postgres. Ao atingir o limite, novas escritas podem falhar. O healthcheck `PING`
+verifica disponibilidade, mas não garante espaço para escritas.
+
+### Cache L1/L2 e invalidação
+
+Configure `REDIS_URL=redis://127.0.0.1:6379` (ou `redis://redis:6379` se a API
+também estiver no Compose). A variável vazia desabilita o cache; `rediss://`
+permite TLS. Aplique `bun run migrate` antes de iniciar a versão nova.
+`CACHE_TTL_SECONDS` controla retenção, de 1 a 86400 segundos, padrão 60.
+
+`CacheModule` fornece `CacheService` por injeção NestJS e encerra a conexão nos
+hooks de shutdown. A L1 usa `lru-cache` para gerenciar TTL, descarte por uso
+recente e limites: até 1000 entradas, 64 KiB por entrada e 64 MiB de payload
+serializado no total. Hits não renovam a expiração original. A L2 usa Redis.
+Cada hit da L1 confirma uma geração no Redis, sem transferir novamente o
+payload. Esse custo de rede é intencional para evitar dados antigos entre
+instâncias. Redis indisponível, timeout ou conteúdo inválido levam à leitura no
+banco; a L1 não é usada de forma independente durante uma falha do Redis.
+
+O primeiro consumidor é `GET /instituicoes/vinculadas`. O perfil do gestor e a
+revisão dos vínculos/instituições visíveis são consultados no Postgres a cada
+requisição. A projeção completa é carregada em lote no miss; não há consultas
+por instituição. A migração adiciona uma revisão UUID técnica renovada por
+trigger em qualquer `UPDATE`, inclusive SQL direto e seed. Mudanças de vínculo,
+desativação e exclusão alteram o conjunto que forma a chave. A revisão e os
+dados do loader são lidos no mesmo snapshot SQL; um resultado de revisão
+diferente não é publicado na chave anterior. Rollback também desfaz a revisão.
+Assim, a atualização não depende de um `DEL` no Redis depois do commit. Chaves
+antigas deixam de ser utilizadas e expiram pelo TTL.
+
+As gerações aleatórias do Redis e a publicação condicional atômica impedem um
+loader anterior à invalidação, expiração ou perda dos metadados de repovoar o
+cache. `invalidate(key)` existe para descarte administrativo e informa falhas;
+não o use como única garantia de consistência de uma escrita de negócio.
+Novos consumidores devem usar chaves com revisão da fonte de verdade, incluir
+todo o contexto de isolamento/filtros e fornecer um decoder de validação. O
+contrato de valores cacheados é JSON. Autenticação, transações de alocação,
+financeiro e presença continuam consultando seu estado autoritativo.
+
+O cache reduz a transferência da projeção e sua construção no caminho quente,
+mas mantém uma consulta de revisão no banco e uma validação no Redis. Meça com
+o volume real antes de ampliar o escopo. Ele não elimina as consultas de
+autorização nem torna atômicas leituras concorrentes com novas alterações.
+
+Testes opt-in com Redis real (banco Redis dedicado a testes recomendado):
+
+```sh
+CACHE_TEST_REDIS_URL=redis://127.0.0.1:6379 bun run test -- src/cache/cache.service.spec.ts src/instituicoes/instituicoes.service.spec.ts
+```
+
+### Filas BullMQ
+
+O Compose usa uma instância Redis para cache e BullMQ. Configure
+`REDIS_URL=redis://127.0.0.1:6379/0` para cache e
+`QUEUE_REDIS_URL=redis://127.0.0.1:6379/1` para filas. Dentro de containers,
+use o host `redis` em ambas. Os bancos lógicos separam as chaves, mas compartilham
+memória, persistência e disponibilidade. Para isolar capacidade/falhas em um
+ambiente maior, as duas URLs também aceitam instâncias diferentes.
+
+O Redis usa AOF, volume `redis_data` e política `noeviction`. Não execute
+`FLUSHALL` nem remova o volume para limpar cache; isso apagaria jobs. Qualquer
+limpeza deve ser limitada às chaves de cache no banco 0, sem afetar o banco 1.
+
+O Postgres continua sendo a fonte das entregas pendentes. A transação do fluxo
+de negócio grava sua outbox; um reconciliador publica IDs no BullMQ depois do
+commit. Conteúdo SMTP, endereço do destinatário e códigos de segurança não
+entram nos jobs. O consumidor consulta a outbox, valida elegibilidade e usa
+travas/reservas no banco para evitar processamento concorrente do mesmo item.
+Reentrega de um item já concluído não envia novamente.
+
+A garantia de entrega é pelo menos uma vez: uma queda após a aceitação SMTP
+e antes da confirmação no Postgres pode repetir o e-mail. AOF a cada segundo
+também pode perder escritas recentes em uma queda abrupta; a outbox permite
+republicar trabalho pendente. Não há promessa de envio SMTP exatamente uma vez.
+
+`QUEUE_RECONCILE_MS` configura o intervalo de reconciliação (padrão 5000 ms,
+entre 1000 e 300000); `QUEUE_CONCURRENCY` limita os jobs simultâneos por instância
+(padrão 5, entre 1 e 50). Cada ciclo percorre até 100 IDs de cada outbox com
+cursor, retornando ao início após a última página. IDs determinísticos evitam
+duplicar jobs que ainda estejam esperando ou ativos. Jobs concluídos e falhas
+terminais são removidos; se a entrega continuar pendente, a reconciliação pode
+recriá-los. O banco decide o prazo e o limite de tentativas de entrega.
+`QUEUE_PREFIX` define o namespace BullMQ (padrão `alocca`); use um valor distinto
+por ambiente quando compartilhar o mesmo Redis/DB. O valor aceita letras,
+números, `_` e `-`, com até 100 caracteres.
+
+BullMQ tenta novamente falhas de infraestrutura até três vezes, com backoff
+exponencial a partir de um segundo. Falhas SMTP mantêm o reagendamento durável
+existente: recuperação/segurança espera 30 segundos e só envia enquanto o token
+for válido; notificações respeitam até cinco reservas/tentativas e backoff de
+30 segundos até uma hora. Desativar a preferência de notificações também vale
+para jobs já enfileirados; uma mensagem já em envio pode ser entregue.
+
+Sem `QUEUE_REDIS_URL`, os timers legados continuam funcionando. Com a URL, só
+BullMQ consome automaticamente as entregas: não há envio simultâneo por ambos
+os mecanismos. `NODE_ENV=test` não inicia filas nem timers por padrão; testes
+de integração podem habilitar a fila com `QUEUE_TEST_ENABLED=true`.
+
+O produtor só cria conexão quando há trabalho e limita a espera por Redis.
+O worker reconecta após falhas e o shutdown dá tempo para finalizar os jobs
+ativos, com limite para não ficar preso em uma conexão indisponível. Uma parada
+forçada continua sujeita à reentrega pela outbox e aos limites do SMTP.
+
+Para executar os testes opt-in com BullMQ e Redis real, a partir de `backend`:
+
+```sh
+QUEUE_TEST_REDIS_URL=redis://127.0.0.1:6379/1 bun run test:e2e -- test/queue.e2e-spec.ts
+```
+
+Os testes usam um prefixo exclusivo e PGlite com as migrações reais. O pacote
+`ioredis` é uma dependência explícita, necessária para as conexões do BullMQ.
+
+Em produção, monitore falhas e atrasos dos jobs, tamanho/idade das outboxes,
+memória e erros de AOF. `PING` não detecta falta de memória, falha de disco ou
+atraso na entrega. Com `noeviction`, falta de memória rejeita novas escritas;
+preserve a outbox e corrija a capacidade antes de retomar o fluxo.
 
 Dentro de `backend`:
 

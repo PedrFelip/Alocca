@@ -21,6 +21,43 @@ const envSchema = z
     ADMIN_PASSWORD: z.string().min(8).max(128).optional(),
     SEAWEEDFS_FILER_URL: z.url().default('http://127.0.0.1:8888'),
     DATABASE_URL: z.string().url('DATABASE_URL deve ser uma URL válida'),
+    REDIS_URL: z.preprocess(
+      vazioViraNada,
+      z
+        .url()
+        .refine(
+          (url) => ['redis:', 'rediss:'].includes(new URL(url).protocol),
+          'Use redis:// ou rediss://',
+        )
+        .optional(),
+    ),
+    QUEUE_REDIS_URL: z.preprocess(
+      vazioViraNada,
+      z
+        .url()
+        .refine(
+          (url) => ['redis:', 'rediss:'].includes(new URL(url).protocol),
+          'Use redis:// ou rediss://',
+        )
+        .refine(
+          (url) => /^\/(?:\d+)?$/.test(new URL(url).pathname),
+          'Banco Redis inválido',
+        )
+        .optional(),
+    ),
+    QUEUE_PREFIX: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]{1,100}$/)
+      .default('alocca'),
+    QUEUE_TEST_ENABLED: z.enum(['true', 'false']).default('false'),
+    QUEUE_RECONCILE_MS: z.coerce
+      .number()
+      .int()
+      .min(1000)
+      .max(300000)
+      .default(5000),
+    QUEUE_CONCURRENCY: z.coerce.number().int().min(1).max(50).default(5),
+    CACHE_TTL_SECONDS: z.coerce.number().int().min(1).max(86400).default(60),
     // sem smtp o back sobe, so nao manda e-mail
     EMAIL_OUTBOX_SECRET: z.preprocess(
       vazioViraNada,

@@ -6,7 +6,7 @@ import {
   type OnModuleDestroy,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { eq, lte, sql } from 'drizzle-orm'
+import { and, eq, lte, sql } from 'drizzle-orm'
 import type { Env } from '../config/env.ts'
 import { DRIZZLE_DB, type Database } from '../db/db.provider.ts'
 import {
@@ -32,7 +32,11 @@ export class EmailOutboxService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    if (this.config.get('NODE_ENV', { infer: true }) === 'test') return
+    if (
+      this.config.get('NODE_ENV', { infer: true }) === 'test' ||
+      this.config.get('QUEUE_REDIS_URL', { infer: true })
+    )
+      return
     this.timer = setInterval(() => {
       void this.processar().catch(() =>
         this.logger.error('Falha ao processar fila de e-mail'),
@@ -54,9 +58,20 @@ export class EmailOutboxService implements OnModuleInit, OnModuleDestroy {
     return this.executando
   }
 
-  private async lote() {
+  async processarId(id: string): Promise<void> {
+    if (
+      typeof id !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        id,
+      )
+    )
+      throw new Error('ID inválido')
+    await this.lote(id)
+  }
+
+  private async lote(id?: string) {
     // Uma mensagem por transação limita a duração das travas ao timeout SMTP.
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < (id ? 1 : 10); i++) {
       const encontrou = await this.db.transaction(async (tx) => {
         const [job] = await tx
           .select({
@@ -70,7 +85,12 @@ export class EmailOutboxService implements OnModuleInit, OnModuleDestroy {
             tokensRecuperacaoSenhaTable,
             eq(emailsPendentesTable.token_id, tokensRecuperacaoSenhaTable.id),
           )
-          .where(lte(emailsPendentesTable.disponivel_em, sql`now()`))
+          .where(
+            and(
+              lte(emailsPendentesTable.disponivel_em, sql`now()`),
+              id ? eq(emailsPendentesTable.id, id) : undefined,
+            ),
+          )
           .orderBy(emailsPendentesTable.disponivel_em)
           .for('update', { of: emailsPendentesTable, skipLocked: true })
           .limit(1)

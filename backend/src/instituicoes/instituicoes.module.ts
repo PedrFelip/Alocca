@@ -1,3 +1,5 @@
+import { InstituicoesRepository } from './instituicoes.repository.ts'
+import { CacheModule } from '../cache/cache.module.ts'
 import { Module } from '@nestjs/common'
 import { SecurityModule } from '../auth/security.module.ts'
 import { DatabaseModule } from '../db/db.module.ts'
@@ -6,8 +8,8 @@ import { InstituicoesController } from './instituicoes.controller.ts'
 import { InstituicoesService } from './instituicoes.service.ts'
 
 @Module({
-  imports: [DatabaseModule, SecurityModule, GestoresModule],
+  imports: [DatabaseModule, SecurityModule, GestoresModule, CacheModule],
   controllers: [InstituicoesController],
-  providers: [InstituicoesService],
+  providers: [InstituicoesRepository, InstituicoesService],
 })
 export class InstituicoesModule {}

@@ -15,4 +15,29 @@ A listagem também retorna `ate` (instante ISO UTC). Nas páginas seguintes, env
 
 Execute as migrações. `NOTIFICACOES_EMAIL_HABILITADO=true` habilita envio; configure `SMTP_HOST`, `SMTP_PORT` e `SMTP_FROM`. `SMTP_USER` e `SMTP_PASS` são opcionais para relay sem autenticação e devem ser configurados juntos. Apenas eventos criados enquanto o envio global e a preferência individual estavam habilitados entram na fila; eventos anteriores à migração ficam apenas na caixa de entrada. Desativar a preferência descarta os envios pendentes. Uma mensagem já em envio pode ser entregue após a desativação. `NODE_ENV=test` desativa o timer.
 
-O worker consulta a fila a cada 30 segundos e processa até dez eventos por lote. Uma transação curta reserva cada evento com `FOR UPDATE SKIP LOCKED`; SMTP roda fora dela. A reserva expira em dois minutos, permitindo recuperação após falhas. São permitidas até cinco tentativas, inclusive reservas interrompidas, com atraso exponencial de 30 segundos até uma hora. Ao atingir o limite, o evento permanece na caixa de entrada, mas sai da fila. Uma queda após a aceitação SMTP e antes da confirmação pode duplicar o email; a garantia é pelo menos uma vez. O desligamento aguarda o lote em andamento. Push depende de infraestrutura de provedor ainda não definida.
+Com `QUEUE_REDIS_URL`, BullMQ consome jobs que contêm somente o ID da notificação.
+O reconciliador consulta a outbox a cada `QUEUE_RECONCILE_MS` (padrão cinco
+segundos), publica páginas de até 100 IDs e avança o cursor entre ciclos. O
+Redis do Compose usa AOF, volume persistente e `noeviction`; cache e filas usam
+os bancos lógicos 0 e 1 da mesma instância. A outbox permanece no Postgres e
+permite recriar jobs perdidos. Sem URL, permanece o timer legado de 30 segundos,
+com até dez eventos por lote. Os dois mecanismos não rodam automaticamente ao
+mesmo tempo. Em testes, BullMQ exige também `QUEUE_TEST_ENABLED=true`.
+
+Uma transação curta reserva cada evento com `FOR UPDATE SKIP LOCKED`; SMTP
+roda fora dela. A reserva expira em dois minutos, permitindo recuperação após
+falhas. São permitidas até cinco tentativas, inclusive reservas interrompidas,
+com atraso exponencial de 30 segundos até uma hora. Ao atingir o limite, o
+evento permanece na caixa de entrada, mas sai da fila. O consumidor revalida a
+preferência e o estado do usuário antes do envio, mesmo com job já publicado.
+
+IDs determinísticos evitam duplicar jobs pendentes/ativos. Jobs concluídos ou
+com falha terminal são removidos; o reconciliador republica apenas itens ainda
+pendentes/elegíveis no banco. BullMQ tenta novamente falhas de infraestrutura
+até três vezes, com backoff exponencial a partir de um segundo; o agendamento
+durável das tentativas SMTP continua no Postgres.
+
+Uma queda após a aceitação SMTP e antes da confirmação pode duplicar o email;
+a garantia é pelo menos uma vez. O desligamento aguarda jobs ativos com prazo
+limitado; encerramento forçado pode causar reentrega. Push depende de
+infraestrutura de provedor ainda não definida.
