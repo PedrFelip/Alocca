@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="docs/assets/alocca-icon.png" alt="Ícone do Alocca" width="180" />
+
 # Alocca
 
 ### Plantões conectados. Gestão simplificada.
@@ -39,6 +41,7 @@ O **Alocca** digitaliza a gestão de plantões médicos: da publicação de uma 
 | Painel administrativo | Svelte 5 · TypeScript · Vite · Lucide  | Análise e validação dos cadastros médicos             |
 | API                   | NestJS · TypeScript · Zod · JWT        | Regras de negócio, validação e controle de acesso     |
 | Persistência          | PostgreSQL 17 · Drizzle ORM            | Dados relacionais, consultas e migrações              |
+| Cache e filas         | Redis · lru-cache · BullMQ                         | Cache de instituições e processamento de e-mails e notificações |
 | Arquivos              | SeaweedFS                              | Armazenamento privado de comprovantes                 |
 | Desenvolvimento       | Bun · Docker Compose · Bruno           | Dependências, infraestrutura local e requisições HTTP |
 | Qualidade             | Vitest · PGlite · JUnit · Svelte Check | Testes e verificações dos módulos                     |
@@ -62,7 +65,7 @@ Alocca/
 ├── admin/          # Painel administrativo em Svelte
 ├── backend/        # API NestJS, schemas, migrações e testes
 ├── api/            # Coleção de requisições do Bruno
-├── compose.yaml    # PostgreSQL e SeaweedFS para desenvolvimento
+├── compose.yaml    # PostgreSQL, Redis, SeaweedFS e Mailpit para desenvolvimento
 └── LICENSE         # Licença MIT
 ```
 
@@ -76,7 +79,7 @@ Com **Bun**, **Docker Compose**, **Python 3**, **curl**, **ADB**, **Android SDK 
 ./scripts/dev-android.sh
 ```
 
-O script inicia PostgreSQL e SeaweedFS, instala as dependências do backend, aplica as migrações, expõe a API em `0.0.0.0:3000` e compila, instala e abre o app usando `adb reverse` e `http://127.0.0.1:3000/`. O túnel evita bloqueios de firewall ou isolamento da rede Wi-Fi. Cria `backend/.env` quando necessário e gera um JWT e uma senha administrativa se estiverem vazios ou com a senha de exemplo; consulte a senha em `backend/.env`. O banco e o armazenamento continuam acessíveis apenas pela máquina.
+O script inicia PostgreSQL, SeaweedFS e Mailpit, instala as dependências do backend, aplica as migrações, expõe a API em `0.0.0.0:3000` e compila, instala e abre o app usando `adb reverse` e `http://127.0.0.1:3000/`. O túnel evita bloqueios de firewall ou isolamento da rede Wi-Fi. Cria `backend/.env` quando necessário e gera um JWT e uma senha administrativa se estiverem vazios ou com a senha de exemplo; consulte a senha em `backend/.env`. O banco e o armazenamento continuam acessíveis apenas pela máquina.
 
 Para escolher o IP da interface de rede, o celular ou a porta:
 
@@ -92,6 +95,8 @@ O login solicita um PIN por e-mail. O script inicia o Mailpit e configura a API 
 
 Use `adb devices` para consultar o serial. Também funciona com um celular já conectado por ADB sem fio. Libere a porta TCP escolhida no firewall da rede local. Mantenha o terminal aberto; `Ctrl+C` encerra a API e mantém os containers e dados. O script não inicia o painel administrativo.
 
+Para habilitar também o cache Redis e as filas BullMQ com as URLs do `.env.example`, inicie o Redis antes do script: `docker compose up -d --wait redis`.
+
 ### 1. Prepare o ambiente
 
 Nas notificações do médico, **Aceitar convite** envia a candidatura diretamente, sem precisar buscar o plantão. A vaga ainda depende de aprovação do gestor. Após o envio, a notificação passa a exibir o status da candidatura, inclusive ao reabrir o app; indisponibilidade, conflito de horário ou perfil não aprovado são informados sem confirmar a vaga.
@@ -100,10 +105,10 @@ No formulário **Publicar plantão**, selecione a instituição e toque em **Con
 
 Tenha **Bun**, **Docker com Compose** e, para o aplicativo, **Android Studio, Android SDK 37 e JDK 25**. Execute os comandos abaixo a partir da raiz do repositório, salvo indicação contrária.
 
-Inicie o banco e o armazenamento de arquivos:
+Inicie o banco, o Redis e o armazenamento de arquivos:
 
 ```sh
-docker compose up -d --wait db seaweedfs
+docker compose up -d --wait db redis seaweedfs
 ```
 
 ### 2. Configure a API
@@ -122,7 +127,11 @@ Copie o segredo gerado para `JWT_SECRET` no arquivo `backend/.env`. Confira tamb
 | `DATABASE_URL`                   | `postgresql://postgres:postgres@localhost:5432/alocca` |
 | `SEAWEEDFS_FILER_URL`            | `http://127.0.0.1:8888`                                |
 | `ADMIN_WEB_ORIGIN`               | `http://localhost:5173`                                |
+| `REDIS_URL`                      | `redis://127.0.0.1:6379/0` — cache de instituições |
+| `QUEUE_REDIS_URL`                | `redis://127.0.0.1:6379/1` — filas BullMQ |
 | `ADMIN_EMAIL` e `ADMIN_PASSWORD` | Credenciais do administrador criado na inicialização   |
+
+O backend combina cache em memória (L1) e Redis (L2). As filas BullMQ processam e-mails e notificações com outboxes no PostgreSQL, tentativas automáticas e reconciliação. O Redis local usa AOF e volume persistente, com cache no banco 0 e filas no banco 1. Consulte os detalhes de configuração e entrega no [guia do backend](backend/README.md#configuração).
 
 Use um segredo próprio e substitua as credenciais de exemplo antes de expor a API à rede. O SeaweedFS deve permanecer privado; os downloads são autorizados pela API.
 
