@@ -16,6 +16,8 @@ export const instituicoesTable = pgTable(
   'instituicoes',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    // Revisão técnica mantida por trigger, inclusive em alterações SQL externas.
+    cache_revisao: uuid('cache_revisao').notNull().defaultRandom(),
     usuario_id: uuid('usuario_id')
       .notNull()
       .references(() => usuariosTable.id),

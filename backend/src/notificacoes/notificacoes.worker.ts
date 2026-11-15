@@ -32,6 +32,7 @@ export class NotificacoesWorker implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     if (
       this.config.get('NODE_ENV', { infer: true }) === 'test' ||
+      this.config.get('QUEUE_REDIS_URL', { infer: true }) ||
       this.config.get('NOTIFICACOES_EMAIL_HABILITADO', { infer: true }) !==
         'true'
     )
@@ -54,7 +55,17 @@ export class NotificacoesWorker implements OnModuleInit, OnModuleDestroy {
     })
     return this.executando
   }
-  private async lote() {
+  async processarId(id: string): Promise<void> {
+    if (
+      typeof id !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        id,
+      )
+    )
+      throw new Error('ID inválido')
+    await this.lote(id)
+  }
+  private async lote(targetId?: string) {
     // Uma tentativa interrompida também conta; libera eventos cuja última reserva expirou.
     await this.db
       .update(notificacoesTable)
@@ -70,7 +81,7 @@ export class NotificacoesWorker implements OnModuleInit, OnModuleDestroy {
           ),
         ),
       )
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < (targetId ? 1 : 10); i++) {
       const token = randomUUID()
       const job = await this.db.transaction(async (tx) => {
         const [item] = await tx
@@ -100,6 +111,7 @@ export class NotificacoesWorker implements OnModuleInit, OnModuleDestroy {
           .where(
             and(
               eq(notificacoesTable.status, 'PENDENTE'),
+              targetId ? eq(notificacoesTable.id, targetId) : undefined,
               eq(notificacoesTable.email_elegivel, true),
               lt(notificacoesTable.tentativas, 5),
               lte(notificacoesTable.disponivel_em, sql`now()`),

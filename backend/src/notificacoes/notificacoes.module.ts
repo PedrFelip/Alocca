@@ -9,5 +9,6 @@ import { NotificacoesWorker } from './notificacoes.worker.ts'
   imports: [DatabaseModule, SecurityModule, EmailModule],
   controllers: [NotificacoesController],
   providers: [NotificacoesService, NotificacoesWorker],
+  exports: [NotificacoesWorker],
 })
 export class NotificacoesModule {}
